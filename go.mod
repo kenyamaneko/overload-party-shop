@@ -10,8 +10,8 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.8.0
-	github.com/kenyamaneko/overload-party-common/packages/pubsub-events v0.1.0
 	github.com/kenyamaneko/overload-party-common/packages/game-design-constants v0.1.0
+	github.com/kenyamaneko/overload-party-common/packages/pubsub-events v0.1.0
 	github.com/kenyamaneko/overload-party-shop/packages/api-shop v0.0.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/api v0.267.0
@@ -19,7 +19,6 @@ require (
 
 // api-shop lives inside this repo; publish/tag happens via CI (no manual tag).
 replace github.com/kenyamaneko/overload-party-shop/packages/api-shop => ./packages/api-shop
-
 
 require (
 	cloud.google.com/go/auth v0.18.1 // indirect
