@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"time"
 
-	gpubsub "cloud.google.com/go/pubsub"
+	gpubsub "cloud.google.com/go/pubsub/v2"
 	"github.com/google/uuid"
 
 	pubsubevents "github.com/kenyamaneko/overload-party-common/packages/pubsub-events"
@@ -29,8 +29,8 @@ import (
 // port.FactionEventPublisher と port.PremiumEventPublisher の両方を実装する。
 type Publisher struct {
 	client               *gpubsub.Client
-	factionSelectedTopic *gpubsub.Topic
-	premiumUpdatedTopic  *gpubsub.Topic
+	factionSelectedPub   *gpubsub.Publisher
+	premiumUpdatedPub    *gpubsub.Publisher
 }
 
 // New は指定 project + topic 名に紐づく Publisher を構築する。
@@ -46,33 +46,17 @@ func New(ctx context.Context, projectID, factionSelectedTopic, premiumUpdatedTop
 	if err != nil {
 		return nil, fmt.Errorf("pubsub: new pubsub client: %w", err)
 	}
-	fs := client.Topic(factionSelectedTopic)
-	if ok, err := fs.Exists(ctx); err != nil || !ok {
-		_ = client.Close()
-		if err != nil {
-			return nil, fmt.Errorf("pubsub: check topic %q: %w", factionSelectedTopic, err)
-		}
-		return nil, fmt.Errorf("pubsub: topic %q does not exist", factionSelectedTopic)
-	}
-	pu := client.Topic(premiumUpdatedTopic)
-	if ok, err := pu.Exists(ctx); err != nil || !ok {
-		_ = client.Close()
-		if err != nil {
-			return nil, fmt.Errorf("pubsub: check topic %q: %w", premiumUpdatedTopic, err)
-		}
-		return nil, fmt.Errorf("pubsub: topic %q does not exist", premiumUpdatedTopic)
-	}
 	return &Publisher{
-		client:               client,
-		factionSelectedTopic: fs,
-		premiumUpdatedTopic:  pu,
+		client:             client,
+		factionSelectedPub: client.Publisher(factionSelectedTopic),
+		premiumUpdatedPub:  client.Publisher(premiumUpdatedTopic),
 	}, nil
 }
 
 // Close は in-flight メッセージを flush し Pub/Sub client を閉じる。
 func (p *Publisher) Close() error {
-	p.factionSelectedTopic.Stop()
-	p.premiumUpdatedTopic.Stop()
+	p.factionSelectedPub.Stop()
+	p.premiumUpdatedPub.Stop()
 	return p.client.Close()
 }
 
@@ -94,7 +78,7 @@ func (p *Publisher) PublishFactionSelected(ctx context.Context, playerID, factio
 		Faction:   faction,
 		Source:    pubsubevents.FactionSourceShopPurchase,
 	}
-	return publishJSON(ctx, p.factionSelectedTopic, ev)
+	return publishJSON(ctx, p.factionSelectedPub, ev)
 }
 
 // PublishPremiumUpdated は subscription 状態変更で is_premium / premium_expires_at
@@ -113,17 +97,17 @@ func (p *Publisher) PublishPremiumUpdated(ctx context.Context, playerID string, 
 		PremiumExpiresAt: expiresAt,
 		Source:           pubsubevents.PremiumUpdatedSourceShop,
 	}
-	return publishJSON(ctx, p.premiumUpdatedTopic, ev)
+	return publishJSON(ctx, p.premiumUpdatedPub, ev)
 }
 
-func publishJSON(ctx context.Context, topic *gpubsub.Topic, event any) error {
+func publishJSON(ctx context.Context, pub *gpubsub.Publisher, event any) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("pubsub: marshal %T: %w", event, err)
 	}
-	result := topic.Publish(ctx, &gpubsub.Message{Data: data})
+	result := pub.Publish(ctx, &gpubsub.Message{Data: data})
 	if _, err := result.Get(ctx); err != nil {
-		return fmt.Errorf("pubsub: publish to %s: %w", topic.ID(), err)
+		return fmt.Errorf("pubsub: publish to %s: %w", pub.ID(), err)
 	}
 	return nil
 }

@@ -27,7 +27,7 @@ jobs:
           go-version-file: go.mod
       - name: Configure Go private modules
         run: |
-          git config --global url."https://x-access-token:${{ secrets.COMMON_GO_MODULE_FETCH }}@github.com/kenyamaneko/overload-party-common".insteadOf "https://github.com/kenyamaneko/overload-party-common"
+          git config --global url."https://x-access-token:${{ secrets.COMMON_GO_MODULES_FETCH }}@github.com/kenyamaneko/overload-party-common".insteadOf "https://github.com/kenyamaneko/overload-party-common"
         env:
           GOPRIVATE: github.com/kenyamaneko/*
           GONOSUMDB: github.com/kenyamaneko/*
@@ -47,7 +47,7 @@ jobs:
           go-version-file: go.mod
       - name: Configure Go private modules
         run: |
-          git config --global url."https://x-access-token:${{ secrets.COMMON_GO_MODULE_FETCH }}@github.com/kenyamaneko/overload-party-common".insteadOf "https://github.com/kenyamaneko/overload-party-common"
+          git config --global url."https://x-access-token:${{ secrets.COMMON_GO_MODULES_FETCH }}@github.com/kenyamaneko/overload-party-common".insteadOf "https://github.com/kenyamaneko/overload-party-common"
         env:
           GOPRIVATE: github.com/kenyamaneko/*
           GONOSUMDB: github.com/kenyamaneko/*

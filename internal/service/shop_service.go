@@ -10,7 +10,6 @@ import (
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/constants"
-	"github.com/kenyamaneko/overload-party-shop/internal/model"
 	"github.com/kenyamaneko/overload-party-shop/internal/platform"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
@@ -316,26 +315,6 @@ func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, pu
 	}
 
 	return &info.ExpiresAt, nil
-}
-
-func (s *ShopService) buildFactionCards(ctx context.Context, playerID string, faction string) ([]*model.PlayerCard, error) {
-	all, err := s.cardLister.ListAllCards(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list cards: %w", err)
-	}
-	var cards []*model.PlayerCard
-	for _, card := range all {
-		if card.Faction != faction || !card.IsActive {
-			continue
-		}
-		cards = append(cards, &model.PlayerCard{
-			PlayerID: playerID,
-			CardID:   card.CardID,
-			ArtNo:    0,
-			Count:    3,
-		})
-	}
-	return cards, nil
 }
 
 func (s *ShopService) getVerifier(pf string) platform.ReceiptVerifier {
