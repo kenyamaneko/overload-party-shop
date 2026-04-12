@@ -20,8 +20,6 @@ require (
 // api-shop lives inside this repo; publish/tag happens via CI (no manual tag).
 replace github.com/kenyamaneko/overload-party-shop/packages/api-shop => ./packages/api-shop
 
-// pubsub-events package lives in overload-party-common.
-replace github.com/kenyamaneko/overload-party-common/packages/pubsub-events => ../overload-party-common/packages/pubsub-events
 
 require (
 	cloud.google.com/go/auth v0.18.1 // indirect
