@@ -1,0 +1,90 @@
+name: publish
+
+# Tags and publishes the api-shop Go module on push to main. Manual
+# dispatch supports minor/major bumps; default is patch. NEVER tag
+# manually — this workflow is the single writer of module tags.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/api-shop/**"
+      - "data/models.yaml"
+      - "scripts/generate_types.py"
+      - ".github/workflows/publish.yaml"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump level"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish-api-shop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Vet api-shop
+        run: go vet ./...
+        working-directory: packages/api-shop
+
+      - name: Build api-shop
+        run: go build ./...
+        working-directory: packages/api-shop
+
+      - name: Determine next tag
+        id: tag
+        env:
+          BUMP: ${{ github.event.inputs.bump || 'patch' }}
+        run: |
+          set -euo pipefail
+          prefix="packages/api-shop/v"
+          latest=$(git tag --list "${prefix}*" --sort=-v:refname | head -n1 || true)
+          if [ -z "${latest}" ]; then
+            next="${prefix}0.1.0"
+          else
+            ver="${latest#${prefix}}"
+            IFS='.' read -r major minor patch <<EOF
+          ${ver}
+          EOF
+            case "${BUMP}" in
+              patch) patch=$((patch + 1)) ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              *) echo "unknown bump: ${BUMP}" >&2; exit 1 ;;
+            esac
+            next="${prefix}${major}.${minor}.${patch}"
+          fi
+          echo "tag=${next}" >> "${GITHUB_OUTPUT}"
+
+      - name: Tag and push
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${TAG}"
+          git push origin "${TAG}"
+

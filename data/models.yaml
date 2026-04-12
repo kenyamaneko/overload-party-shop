@@ -1,0 +1,158 @@
+# Shop service model definitions (service-owned SSoT per ADR-014/ADR-015).
+#
+# scripts/generate_types.py reads this file and generates wire types into
+#   packages/api-shop/   (Go module, package apishop)
+
+files:
+  # ─── Card view (narrow projection from card service) ───
+  - name: card_view
+    target: both
+    pkg: apishop
+    types:
+      - name: CardView
+        comment: "CardView is shop's narrow projection of card service CardDefinition response."
+        fields:
+          - {name: CardID, type: string, json: "card_id"}
+          - {name: CardName, type: string, json: "card_name"}
+          - {name: Faction, type: string, json: "faction"}
+          - {name: CardType, type: string, json: "card_type"}
+          - {name: Restriction, type: string, json: "restriction"}
+          - {name: IsActive, type: bool, json: "is_active"}
+
+  # ─── Shop products / purchases / subscriptions / cosmetics ───
+  - name: shop
+    target: both
+    pkg: apishop
+    imports:
+      - encoding/json
+      - time
+    constants:
+      - type: string
+        values:
+          - {name: ProductTypeFactionSet, value: "faction_set"}
+          - {name: ProductTypeCosmetic, value: "cosmetic"}
+          - {name: ProductTypeSubscription, value: "subscription"}
+          - {name: PlatformIOS, value: "ios"}
+          - {name: PlatformAndroid, value: "android"}
+          - {name: ItemTypeStamp, value: "stamp"}
+          - {name: ItemTypePlaymat, value: "playmat"}
+          - {name: ItemTypeSleeve, value: "sleeve"}
+          - {name: ItemTypeIcon, value: "icon"}
+          - {name: SubscriptionStatusActive, value: "active"}
+          - {name: SubscriptionStatusExpired, value: "expired"}
+          - {name: SubscriptionStatusCancelled, value: "cancelled"}
+          - {name: SubscriptionStatusGrace, value: "grace_period"}
+          - {name: SubscriptionStatusRevoked, value: "revoked"}
+    types:
+      - name: Product
+        comment: "Product represents a purchasable item in the shop catalog."
+        fields:
+          - {name: ProductID, type: string, json: "product_id", db: "product_id"}
+          - {name: Name, type: string, json: "name", db: "name"}
+          - {name: Type, type: string, json: "type", db: "type"}
+          - {name: Price, type: int64, json: "price", db: "price"}
+          - {name: Content, type: json.RawMessage, json: "content", db: "content"}
+          - {name: Description, type: "*string", json: "description,omitempty", db: "description"}
+          - {name: ImageURL, type: "*string", json: "image_url,omitempty", db: "image_url"}
+          - {name: IsActive, type: bool, json: "is_active", db: "is_active"}
+
+      - name: FactionSetContent
+        fields:
+          - {name: Faction, type: string, json: "faction"}
+
+      - name: CosmeticContent
+        fields:
+          - {name: ItemType, type: string, json: "item_type"}
+          - {name: ItemNo, type: int64, json: "item_no"}
+
+      - name: OneTimePurchase
+        fields:
+          - {name: PlayerID, type: string, json: "player_id", db: "player_id"}
+          - {name: PurchaseID, type: int64, json: "purchase_id", db: "purchase_id"}
+          - {name: ProductID, type: string, json: "product_id", db: "product_id"}
+          - {name: Platform, type: string, json: "platform", db: "platform"}
+          - {name: PurchaseToken, type: string, json: "purchase_token", db: "purchase_token"}
+          - {name: PurchasedAt, type: time.Time, json: "purchased_at", db: "purchased_at"}
+
+      - name: Subscription
+        fields:
+          - {name: PlayerID, type: string, json: "player_id", db: "player_id"}
+          - {name: SubscriptionID, type: int64, json: "subscription_id", db: "subscription_id"}
+          - {name: ProductID, type: string, json: "product_id", db: "product_id"}
+          - {name: Platform, type: string, json: "platform", db: "platform"}
+          - {name: PurchaseToken, type: string, json: "purchase_token", db: "purchase_token"}
+          - {name: Status, type: string, json: "status", db: "status"}
+          - {name: CurrentPeriodStart, type: time.Time, json: "current_period_start", db: "current_period_start"}
+          - {name: CurrentPeriodEnd, type: time.Time, json: "current_period_end", db: "current_period_end"}
+          - {name: CreatedAt, type: time.Time, json: "created_at", db: "created_at"}
+          - {name: UpdatedAt, type: time.Time, json: "updated_at", db: "updated_at"}
+
+      - name: CosmeticItem
+        fields:
+          - {name: ItemType, type: string, json: "item_type", db: "item_type"}
+          - {name: ItemNo, type: int64, json: "item_no", db: "item_no"}
+          - {name: ItemName, type: string, json: "item_name", db: "item_name"}
+          - {name: Description, type: "*string", json: "description,omitempty", db: "description"}
+          - {name: IsPurchasable, type: bool, json: "is_purchasable", db: "is_purchasable"}
+          - {name: IsActive, type: bool, json: "is_active", db: "is_active"}
+
+      - name: PlayerItem
+        fields:
+          - {name: PlayerID, type: string, json: "player_id", db: "player_id"}
+          - {name: ItemType, type: string, json: "item_type", db: "item_type"}
+          - {name: ItemNo, type: int64, json: "item_no", db: "item_no"}
+          - {name: AcquiredAt, type: time.Time, json: "acquired_at", db: "acquired_at"}
+
+      - name: ProductResponse
+        comment: "ProductResponse is the API response element for the shop catalog endpoint."
+        fields:
+          - {name: ProductID, type: string, json: "product_id"}
+          - {name: Name, type: string, json: "name"}
+          - {name: Type, type: string, json: "type"}
+          - {name: Price, type: int64, json: "price"}
+          - {name: Content, type: json.RawMessage, json: "content"}
+          - {name: Description, type: "*string", json: "description,omitempty"}
+          - {name: ImageURL, type: "*string", json: "image_url,omitempty"}
+          - {name: IsActive, type: bool, json: "is_active"}
+          - {name: IsOwned, type: bool, json: "is_owned"}
+
+      - name: PurchaseRequest
+        comment: "PurchaseRequest is the request body for POST /shop/purchase and /shop/subscribe."
+        fields:
+          - {name: ProductID, type: string, json: "product_id"}
+          - {name: Platform, type: string, json: "platform"}
+          - {name: PurchaseToken, type: string, json: "purchase_token"}
+
+      - name: PurchaseResponse
+        fields:
+          - {name: Message, type: string, json: "message"}
+          - {name: ProductID, type: string, json: "product_id"}
+
+      - name: SubscribeResponse
+        fields:
+          - {name: Message, type: string, json: "message"}
+          - {name: ExpiresAt, type: time.Time, json: "expires_at"}
+
+      - name: SelectFactionRequest
+        fields:
+          - {name: Faction, type: string, json: "faction"}
+
+      - name: RegisterRequest
+        fields:
+          - {name: Username, type: string, json: "username"}
+
+      # ─── Webhook request bodies (external, Apple/Google signed) ───
+      - name: AppleNotificationPayload
+        comment: "AppleNotificationPayload is the top-level body Apple sends to /webhook/apple."
+        fields:
+          - {name: SignedPayload, type: string, json: "signedPayload"}
+
+      - name: GoogleRTDNMessage
+        comment: "GoogleRTDNMessage is the Pub/Sub push wrapper Google sends to /webhook/google."
+        fields:
+          - {name: Message, type: "GoogleRTDNMessageBody", json: "message"}
+
+      - name: GoogleRTDNMessageBody
+        comment: "GoogleRTDNMessageBody is the inner message envelope of GoogleRTDNMessage."
+        fields:
+          - {name: Data, type: string, json: "data"}
