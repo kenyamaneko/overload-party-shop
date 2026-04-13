@@ -71,6 +71,32 @@ Secret Manager を使わず環境変数から直接読み込む。未設定で�
 
 `DATABASE_URL` / `PUBSUB_PROJECT_ID` が未設定なら起動時に即 fail する。`IAP_MODE=production` で `GCP_PROJECT` が未設定、または Secret Manager に到達できない場合も即 fail する。
 
+## ローカル開発
+
+Docker が必要（Docker Desktop / colima など）。
+
+```bash
+make db-up          # postgres:16-alpine を起動（db/schema.sql 自動適用）
+make run            # shop サーバー起動（db-up を依存として自動実行）
+make db-down        # 停止
+make db-reset       # volume も削除して作り直し
+```
+
+ローカル Postgres 接続文字列:
+`postgres://shop:shop@localhost:5432/shop?sslmode=disable`
+
+## テスト
+
+ADR-016 に従い、リポジトリ層・サービス層のテストは **Testcontainers** で `postgres:16-alpine` を起動して実行する（`db/schema.sql` を適用）。
+
+```bash
+make test           # Docker 必須。初回は image pull で数十秒かかる
+```
+
+- パッケージ単位 (`internal/repository/`, `internal/service/`) で 1 コンテナが起動し、テスト間は `TRUNCATE ... RESTART IDENTITY CASCADE` でリセット
+- CI では事前に `docker pull postgres:16-alpine` でキャッシュする
+- ローカル `make db-up` で起動した Postgres とは**分離**される（Testcontainers はランダムポートを割り当てるため）
+
 ## 公開パッケージ
 
 | パッケージ | パス | 用途 |

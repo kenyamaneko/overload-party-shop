@@ -33,7 +33,7 @@ func subscriptionTokenTableForPlatform(platform string) (string, error) {
 	case apishop.PlatformAndroid:
 		return "shop.google_subscription_tokens", nil
 	default:
-		return "", fmt.Errorf("unsupported subscription platform: %q", platform)
+		return "", fmt.Errorf("%w: subscription platform %q", port.ErrUnsupportedPlatform, platform)
 	}
 }
 

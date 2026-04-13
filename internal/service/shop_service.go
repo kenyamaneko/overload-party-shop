@@ -181,7 +181,7 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 
 	result, err := verifier.VerifyPurchase(ctx, purchaseToken)
 	if err != nil {
-		return fmt.Errorf("verify receipt: %w", err)
+		return fmt.Errorf("%w: %w", ErrVerifyReceipt, err)
 	}
 	if !result.IsValid {
 		return ErrReceiptVerificationFailed
@@ -231,7 +231,7 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 			}
 
 		default:
-			return fmt.Errorf("unsupported product type for purchase: %s", product.Type)
+			return fmt.Errorf("%w: %s", ErrUnsupportedProductType, product.Type)
 		}
 		return nil
 	}); err != nil {

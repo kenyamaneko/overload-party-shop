@@ -62,6 +62,10 @@ jobs:
             sleep 1
           done
           echo "Firestore emulator failed to start"; cat /tmp/firestore.log; exit 1
+      # ADR-016: リポジトリ層テストは Testcontainers で postgres:16-alpine を起動する。
+      # 事前 pull で test step の初回コンテナ起動時間を短縮する。
+      - name: Pre-pull postgres image (Testcontainers)
+        run: docker pull postgres:16-alpine
       - name: Configure Go private modules
         run: |
           git config --global url."https://x-access-token:${{ secrets.COMMON_GO_MODULES_FETCH }}@github.com/kenyamaneko/overload-party-common".insteadOf "https://github.com/kenyamaneko/overload-party-common"

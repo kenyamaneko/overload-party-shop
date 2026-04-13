@@ -82,7 +82,7 @@ func purchaseTokenTableForPlatform(platform string) (string, error) {
 	case apishop.PlatformAndroid:
 		return "shop.google_purchase_tokens", nil
 	default:
-		return "", fmt.Errorf("unsupported purchase platform: %q", platform)
+		return "", fmt.Errorf("%w: purchase platform %q", port.ErrUnsupportedPlatform, platform)
 	}
 }
 

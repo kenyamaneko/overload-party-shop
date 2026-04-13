@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
 
 type fakeCardLister struct {
 	cards []*apishop.CardView
@@ -57,17 +55,47 @@ func (f *fakePremiumPublisher) PublishPremiumUpdated(_ context.Context, playerID
 
 type testShopEnv struct {
 	svc              *ShopService
-	shopRepo         *repository.MockShopRepository
-	subRepo          *repository.MockSubscriptionRepository
-	ownedFactionRepo *repository.MockOwnedFactionRepository
+	shopRepo         *repository.PgShopRepository
+	subRepo          *repository.PgSubscriptionRepository
+	ownedFactionRepo *repository.PgOwnedFactionRepository
 	factionPub       *fakeFactionPublisher
 	premiumPub       *fakePremiumPublisher
 }
 
-func newTestShopEnv() *testShopEnv {
-	shopRepo := repository.NewMockShopRepository()
-	subRepo := repository.NewMockSubscriptionRepository()
-	ownedFactionRepo := repository.NewMockOwnedFactionRepository()
+// shopEnvOption は newTestShopEnv に渡す依存差し替えオプション。verifier 等
+// テストごとに変えたい依存はここから注入し、ShopService 生成後の field 上書き
+// は禁止（DI 経由のみで構築する設計を保つため）。
+type shopEnvOption func(*shopEnvDeps)
+
+type shopEnvDeps struct {
+	appleVerifier  platform.ReceiptVerifier
+	googleVerifier platform.ReceiptVerifier
+}
+
+func withAppleVerifier(v platform.ReceiptVerifier) shopEnvOption {
+	return func(d *shopEnvDeps) { d.appleVerifier = v }
+}
+
+func withGoogleVerifier(v platform.ReceiptVerifier) shopEnvOption {
+	return func(d *shopEnvDeps) { d.googleVerifier = v }
+}
+
+func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
+	t.Helper()
+	sharedPg.Truncate(t)
+
+	deps := &shopEnvDeps{
+		appleVerifier:  &platform.MockReceiptVerifier{},
+		googleVerifier: &platform.MockReceiptVerifier{},
+	}
+	for _, opt := range opts {
+		opt(deps)
+	}
+
+	shopRepo := repository.NewPgShopRepository(sharedPg.Pool)
+	subRepo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	ownedFactionRepo := repository.NewPgOwnedFactionRepository(sharedPg.Pool)
+	txRunner := repository.NewTxManager(sharedPg.Pool)
 	factionPub := &fakeFactionPublisher{}
 	premiumPub := &fakePremiumPublisher{}
 
@@ -77,9 +105,7 @@ func newTestShopEnv() *testShopEnv {
 	}
 	cardLister := &fakeCardLister{cards: cards}
 
-	verifier := &platform.MockReceiptVerifier{}
-
-	svc := NewShopService(shopRepo, subRepo, ownedFactionRepo, &repository.MockTxRunner{}, cardLister, verifier, verifier, factionPub, premiumPub)
+	svc := NewShopService(shopRepo, subRepo, ownedFactionRepo, txRunner, cardLister, deps.appleVerifier, deps.googleVerifier, factionPub, premiumPub)
 
 	return &testShopEnv{
 		svc:              svc,
@@ -91,17 +117,25 @@ func newTestShopEnv() *testShopEnv {
 	}
 }
 
+// insertProduct はテスト用に商品を shop.products に直接 INSERT する。
+// PgShopRepository には商品作成 API がないため SQL で書き込む。
+func insertProduct(t *testing.T, p *apishop.Product) {
+	t.Helper()
+	_, err := sharedPg.Pool.Exec(context.Background(),
+		`INSERT INTO shop.products (product_id, name, type, price, content, description, image_url, is_active)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		p.ProductID, p.Name, p.Type, p.Price, p.Content, p.Description, p.ImageURL, p.IsActive)
+	require.NoError(t, err)
+}
 
 func TestPurchase_FactionSet_Success(t *testing.T) {
-	env := newTestShopEnv()
-
-	env.svc.appleVerifier = &platform.MockReceiptVerifier{
+	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
 			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-123", ProductID: "faction_tenki"}, nil
 		},
-	}
+	}))
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
 		Type:      apishop.ProductTypeFactionSet,
@@ -110,31 +144,30 @@ func TestPurchase_FactionSet_Success(t *testing.T) {
 		IsActive:  true,
 	})
 
-	err := env.svc.Purchase(context.Background(), "p1", "faction_tenki", "ios", "receipt-token-1")
+	err := env.svc.Purchase(context.Background(), "11111111-1111-1111-1111-111111111111", "faction_tenki", "ios", "receipt-token-1")
 	require.NoError(t, err)
 
 	t.Run("publishes faction-selected event", func(t *testing.T) {
 		require.Len(t, env.factionPub.calls, 1)
-		assert.Equal(t, "p1", env.factionPub.calls[0].PlayerID)
+		assert.Equal(t, "11111111-1111-1111-1111-111111111111", env.factionPub.calls[0].PlayerID)
 		assert.Equal(t, "Tenki", env.factionPub.calls[0].Faction)
 	})
 
 	t.Run("writes shop-local owned faction", func(t *testing.T) {
-		factions, _ := env.ownedFactionRepo.List(context.Background(), "p1")
+		factions, err := env.ownedFactionRepo.List(context.Background(), "11111111-1111-1111-1111-111111111111")
+		require.NoError(t, err)
 		assert.Contains(t, factions, "Tenki")
 	})
 }
 
 func TestPurchase_Idempotent(t *testing.T) {
-	env := newTestShopEnv()
-
-	env.svc.appleVerifier = &platform.MockReceiptVerifier{
+	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
 			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-123"}, nil
 		},
-	}
+	}))
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
 		Type:      apishop.ProductTypeFactionSet,
@@ -143,27 +176,25 @@ func TestPurchase_Idempotent(t *testing.T) {
 		IsActive:  true,
 	})
 
+	playerID := "22222222-2222-2222-2222-222222222222"
 	ctx := context.Background()
-	_ = env.svc.Purchase(ctx, "p1", "faction_tenki", "ios", "receipt-token-1")
+	require.NoError(t, env.svc.Purchase(ctx, playerID, "faction_tenki", "ios", "receipt-token-1"))
 
 	// 同一トークンでの再購入 — べき等
-	err := env.svc.Purchase(ctx, "p1", "faction_tenki", "ios", "receipt-token-1")
-	require.NoError(t, err)
+	require.NoError(t, env.svc.Purchase(ctx, playerID, "faction_tenki", "ios", "receipt-token-1"))
 
-	// publish は 1 回のみ
+	// publish は 1 回のみ (2 回目は既存 token 検出経路で publish 前に return)
 	assert.Len(t, env.factionPub.calls, 1)
 }
 
 func TestPurchase_ReceiptFailed(t *testing.T) {
-	env := newTestShopEnv()
-
-	env.svc.appleVerifier = &platform.MockReceiptVerifier{
+	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
 			return &platform.VerifyResult{IsValid: false}, nil
 		},
-	}
+	}))
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
 		Type:      apishop.ProductTypeFactionSet,
@@ -172,21 +203,19 @@ func TestPurchase_ReceiptFailed(t *testing.T) {
 		IsActive:  true,
 	})
 
-	err := env.svc.Purchase(context.Background(), "p1", "faction_tenki", "ios", "bad-receipt")
+	err := env.svc.Purchase(context.Background(), "33333333-3333-3333-3333-333333333333", "faction_tenki", "ios", "bad-receipt")
 	assert.ErrorIs(t, err, ErrReceiptVerificationFailed)
 	assert.Len(t, env.factionPub.calls, 0)
 }
 
 func TestPurchase_CosmeticItem(t *testing.T) {
-	env := newTestShopEnv()
-
-	env.svc.googleVerifier = &platform.MockReceiptVerifier{
+	env := newTestShopEnv(t, withGoogleVerifier(&platform.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
 			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-456"}, nil
 		},
-	}
+	}))
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "playmat_01",
 		Name:      "プレイマット: サイバー",
 		Type:      apishop.ProductTypeCosmetic,
@@ -195,22 +224,19 @@ func TestPurchase_CosmeticItem(t *testing.T) {
 		IsActive:  true,
 	})
 
-	err := env.svc.Purchase(context.Background(), "p1", "playmat_01", "android", "cosmetic-receipt")
+	err := env.svc.Purchase(context.Background(), "44444444-4444-4444-4444-444444444444", "playmat_01", "android", "cosmetic-receipt")
 	require.NoError(t, err)
-	// cosmetic では faction publish なし
 	assert.Len(t, env.factionPub.calls, 0)
 }
 
 func TestPurchase_AlreadyOwned_FactionSet(t *testing.T) {
-	env := newTestShopEnv()
-
-	env.svc.appleVerifier = &platform.MockReceiptVerifier{
+	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
 			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-first"}, nil
 		},
-	}
+	}))
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
 		Type:      apishop.ProductTypeFactionSet,
@@ -219,25 +245,23 @@ func TestPurchase_AlreadyOwned_FactionSet(t *testing.T) {
 		IsActive:  true,
 	})
 
-	// 初回購入は成功
-	err := env.svc.Purchase(context.Background(), "p1", "faction_tenki", "ios", "receipt-token-1")
+	playerID := "55555555-5555-5555-5555-555555555555"
+	err := env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", "receipt-token-1")
 	require.NoError(t, err)
 
-	// 別トークンでの再購入は拒否
-	err = env.svc.Purchase(context.Background(), "p1", "faction_tenki", "ios", "receipt-token-2")
+	// 別トークンでの再購入は拒否 (ownedFactions 検出)
+	err = env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", "receipt-token-2")
 	assert.ErrorIs(t, err, ErrAlreadyOwned)
 }
 
 func TestPurchase_AlreadyOwned_Cosmetic(t *testing.T) {
-	env := newTestShopEnv()
-
-	env.svc.googleVerifier = &platform.MockReceiptVerifier{
+	env := newTestShopEnv(t, withGoogleVerifier(&platform.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
 			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-cos"}, nil
 		},
-	}
+	}))
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "playmat_01",
 		Name:      "プレイマット: サイバー",
 		Type:      apishop.ProductTypeCosmetic,
@@ -246,17 +270,18 @@ func TestPurchase_AlreadyOwned_Cosmetic(t *testing.T) {
 		IsActive:  true,
 	})
 
-	err := env.svc.Purchase(context.Background(), "p1", "playmat_01", "android", "cosmetic-receipt-1")
+	playerID := "66666666-6666-6666-6666-666666666666"
+	err := env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt-1")
 	require.NoError(t, err)
 
-	err = env.svc.Purchase(context.Background(), "p1", "playmat_01", "android", "cosmetic-receipt-2")
+	err = env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt-2")
 	assert.ErrorIs(t, err, ErrAlreadyOwned)
 }
 
 func TestPurchase_InactiveProduct(t *testing.T) {
-	env := newTestShopEnv()
+	env := newTestShopEnv(t)
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "old_product",
 		Name:      "旧商品",
 		Type:      apishop.ProductTypeFactionSet,
@@ -265,14 +290,14 @@ func TestPurchase_InactiveProduct(t *testing.T) {
 		IsActive:  false,
 	})
 
-	err := env.svc.Purchase(context.Background(), "p1", "old_product", "ios", "receipt-1")
+	err := env.svc.Purchase(context.Background(), "77777777-7777-7777-7777-777777777777", "old_product", "ios", "receipt-1")
 	assert.ErrorIs(t, err, ErrProductNotActive)
 }
 
 func TestPurchase_UnsupportedPlatform(t *testing.T) {
-	env := newTestShopEnv()
+	env := newTestShopEnv(t)
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "faction_she",
 		Name:      "SHEカードセット",
 		Type:      apishop.ProductTypeFactionSet,
@@ -281,16 +306,13 @@ func TestPurchase_UnsupportedPlatform(t *testing.T) {
 		IsActive:  true,
 	})
 
-	err := env.svc.Purchase(context.Background(), "p1", "faction_she", "windows", "receipt-1")
+	err := env.svc.Purchase(context.Background(), "88888888-8888-8888-8888-888888888888", "faction_she", "windows", "receipt-1")
 	assert.ErrorIs(t, err, ErrUnsupportedPlatform)
 }
 
-
 func TestSubscribe_Success(t *testing.T) {
-	env := newTestShopEnv()
-
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	env.svc.appleVerifier = &platform.MockReceiptVerifier{
+	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
 		VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
 			return &platform.SubscriptionInfo{
 				IsValid:   true,
@@ -298,9 +320,9 @@ func TestSubscribe_Success(t *testing.T) {
 				ExpiresAt: expiresAt,
 			}, nil
 		},
-	}
+	}))
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "premium_monthly",
 		Name:      "プレミアム月額",
 		Type:      apishop.ProductTypeSubscription,
@@ -309,18 +331,20 @@ func TestSubscribe_Success(t *testing.T) {
 		IsActive:  true,
 	})
 
-	result, err := env.svc.Subscribe(context.Background(), "p1", "premium_monthly", "ios", "sub-token-1")
+	playerID := "99999999-9999-9999-9999-999999999999"
+	result, err := env.svc.Subscribe(context.Background(), playerID, "premium_monthly", "ios", "sub-token-1")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
 	t.Run("publishes premium-updated event", func(t *testing.T) {
 		require.Len(t, env.premiumPub.calls, 1)
-		assert.Equal(t, "p1", env.premiumPub.calls[0].PlayerID)
+		assert.Equal(t, playerID, env.premiumPub.calls[0].PlayerID)
 		assert.True(t, env.premiumPub.calls[0].IsPremium)
 	})
 
 	t.Run("creates active subscription record", func(t *testing.T) {
-		sub, _ := env.subRepo.GetLatestSubscription(context.Background(), "p1")
+		sub, err := env.subRepo.GetLatestSubscription(context.Background(), playerID)
+		require.NoError(t, err)
 		require.NotNil(t, sub)
 		assert.Equal(t, apishop.SubscriptionStatusActive, sub.Status)
 	})
@@ -328,24 +352,23 @@ func TestSubscribe_Success(t *testing.T) {
 
 func TestSubscribe_Errors(t *testing.T) {
 	tests := []struct {
-		name      string
-		setup     func(env *testShopEnv)
-		productID string
-		platform  string
-		token     string
-		wantErr   error
+		name          string
+		product       *apishop.Product
+		appleVerifier platform.ReceiptVerifier
+		productID     string
+		platform      string
+		token         string
+		wantErr       error
 	}{
 		{
 			name: "NotSubscriptionProduct",
-			setup: func(env *testShopEnv) {
-				env.shopRepo.AddProduct(&apishop.Product{
-					ProductID: "faction_she",
-					Name:      "SHEカードセット",
-					Type:      apishop.ProductTypeFactionSet,
-					Price:     980,
-					Content:   json.RawMessage(`{"faction":"SHE"}`),
-					IsActive:  true,
-				})
+			product: &apishop.Product{
+				ProductID: "faction_she",
+				Name:      "SHEカードセット",
+				Type:      apishop.ProductTypeFactionSet,
+				Price:     980,
+				Content:   json.RawMessage(`{"faction":"SHE"}`),
+				IsActive:  true,
 			},
 			productID: "faction_she",
 			platform:  "ios",
@@ -354,20 +377,18 @@ func TestSubscribe_Errors(t *testing.T) {
 		},
 		{
 			name: "VerificationFailed",
-			setup: func(env *testShopEnv) {
-				env.svc.appleVerifier = &platform.MockReceiptVerifier{
-					VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
-						return &platform.SubscriptionInfo{IsValid: false}, nil
-					},
-				}
-				env.shopRepo.AddProduct(&apishop.Product{
-					ProductID: "premium_monthly",
-					Name:      "プレミアム月額",
-					Type:      apishop.ProductTypeSubscription,
-					Price:     480,
-					Content:   json.RawMessage(`{}`),
-					IsActive:  true,
-				})
+			appleVerifier: &platform.MockReceiptVerifier{
+				VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
+					return &platform.SubscriptionInfo{IsValid: false}, nil
+				},
+			},
+			product: &apishop.Product{
+				ProductID: "premium_monthly",
+				Name:      "プレミアム月額",
+				Type:      apishop.ProductTypeSubscription,
+				Price:     480,
+				Content:   json.RawMessage(`{}`),
+				IsActive:  true,
 			},
 			productID: "premium_monthly",
 			platform:  "ios",
@@ -376,15 +397,13 @@ func TestSubscribe_Errors(t *testing.T) {
 		},
 		{
 			name: "UnsupportedPlatform",
-			setup: func(env *testShopEnv) {
-				env.shopRepo.AddProduct(&apishop.Product{
-					ProductID: "premium_monthly",
-					Name:      "プレミアム月額",
-					Type:      apishop.ProductTypeSubscription,
-					Price:     480,
-					Content:   json.RawMessage(`{}`),
-					IsActive:  true,
-				})
+			product: &apishop.Product{
+				ProductID: "premium_monthly",
+				Name:      "プレミアム月額",
+				Type:      apishop.ProductTypeSubscription,
+				Price:     480,
+				Content:   json.RawMessage(`{}`),
+				IsActive:  true,
 			},
 			productID: "premium_monthly",
 			platform:  "windows",
@@ -394,20 +413,23 @@ func TestSubscribe_Errors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := newTestShopEnv()
-			tt.setup(env)
+			var opts []shopEnvOption
+			if tt.appleVerifier != nil {
+				opts = append(opts, withAppleVerifier(tt.appleVerifier))
+			}
+			env := newTestShopEnv(t, opts...)
+			insertProduct(t, tt.product)
 
-			_, err := env.svc.Subscribe(context.Background(), "p1", tt.productID, tt.platform, tt.token)
+			_, err := env.svc.Subscribe(context.Background(), "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", tt.productID, tt.platform, tt.token)
 			assert.ErrorIs(t, err, tt.wantErr)
 		})
 	}
 }
 
-
 func TestGetProducts_WithOwnership(t *testing.T) {
-	env := newTestShopEnv()
+	env := newTestShopEnv(t)
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "faction_she",
 		Name:      "SHEカードセット",
 		Type:      apishop.ProductTypeFactionSet,
@@ -415,7 +437,7 @@ func TestGetProducts_WithOwnership(t *testing.T) {
 		Content:   json.RawMessage(`{"faction":"SHE"}`),
 		IsActive:  true,
 	})
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
 		Type:      apishop.ProductTypeFactionSet,
@@ -424,10 +446,11 @@ func TestGetProducts_WithOwnership(t *testing.T) {
 		IsActive:  true,
 	})
 
+	playerID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 	// shop 購入で SHE faction を所有している状態をシミュレート
-	_ = env.ownedFactionRepo.Add(context.Background(), "p1", "SHE")
+	require.NoError(t, env.ownedFactionRepo.Add(context.Background(), playerID, "SHE"))
 
-	products, err := env.svc.GetProducts(context.Background(), "p1")
+	products, err := env.svc.GetProducts(context.Background(), playerID)
 	require.NoError(t, err)
 	require.Len(t, products, 2)
 
@@ -440,9 +463,9 @@ func TestGetProducts_WithOwnership(t *testing.T) {
 }
 
 func TestGetProducts_SubscriptionOwnership(t *testing.T) {
-	env := newTestShopEnv()
+	env := newTestShopEnv(t)
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "premium_monthly",
 		Name:      "プレミアム月額",
 		Type:      apishop.ProductTypeSubscription,
@@ -451,18 +474,19 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 		IsActive:  true,
 	})
 
+	playerID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
 	now := time.Now()
-	_ = env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
-		PlayerID:           "p1",
+	require.NoError(t, env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
+		PlayerID:           playerID,
 		ProductID:          "premium_monthly",
 		Status:             apishop.SubscriptionStatusActive,
 		CurrentPeriodStart: now,
 		CurrentPeriodEnd:   now.Add(30 * 24 * time.Hour),
 		CreatedAt:          now,
 		UpdatedAt:          now,
-	}, apishop.PlatformIOS, "sub-token")
+	}, apishop.PlatformIOS, "sub-token"))
 
-	products, err := env.svc.GetProducts(context.Background(), "p1")
+	products, err := env.svc.GetProducts(context.Background(), playerID)
 	require.NoError(t, err)
 	require.Len(t, products, 1)
 	assert.True(t, products[0].IsOwned)
@@ -489,10 +513,10 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 		{"expired status", apishop.SubscriptionStatusExpired, future, false},
 		{"revoked", apishop.SubscriptionStatusRevoked, future, false},
 	}
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := newTestShopEnv()
-			env.shopRepo.AddProduct(&apishop.Product{
+			env := newTestShopEnv(t)
+			insertProduct(t, &apishop.Product{
 				ProductID: "premium_monthly",
 				Name:      "プレミアム月額",
 				Type:      apishop.ProductTypeSubscription,
@@ -500,16 +524,17 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 				Content:   json.RawMessage(`{}`),
 				IsActive:  true,
 			})
-			_ = env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
-				PlayerID:           "p1",
+			playerID := fmt.Sprintf("dddddddd-%04d-dddd-dddd-dddddddddddd", i)
+			require.NoError(t, env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
+				PlayerID:           playerID,
 				ProductID:          "premium_monthly",
 				Status:             tt.status,
 				CurrentPeriodStart: now.Add(-24 * time.Hour),
 				CurrentPeriodEnd:   tt.periodEnd,
 				CreatedAt:          now,
 				UpdatedAt:          now,
-			}, apishop.PlatformIOS, "sub-token")
-			products, err := env.svc.GetProducts(context.Background(), "p1")
+			}, apishop.PlatformIOS, fmt.Sprintf("sub-token-%d", i)))
+			products, err := env.svc.GetProducts(context.Background(), playerID)
 			require.NoError(t, err)
 			require.Len(t, products, 1)
 			assert.Equal(t, tt.wantIsOwned, products[0].IsOwned)
@@ -518,7 +543,7 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 }
 
 func TestGetVerifier(t *testing.T) {
-	env := newTestShopEnv()
+	env := newTestShopEnv(t)
 
 	tests := []struct {
 		platform string
@@ -540,17 +565,14 @@ func TestGetVerifier(t *testing.T) {
 	}
 }
 
-
 func TestPurchase_VerifierReturnsError(t *testing.T) {
-	env := newTestShopEnv()
-
-	env.svc.appleVerifier = &platform.MockReceiptVerifier{
+	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
 			return nil, fmt.Errorf("network timeout")
 		},
-	}
+	}))
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "faction_she",
 		Name:      "SHEカードセット",
 		Type:      apishop.ProductTypeFactionSet,
@@ -559,21 +581,18 @@ func TestPurchase_VerifierReturnsError(t *testing.T) {
 		IsActive:  true,
 	})
 
-	err := env.svc.Purchase(context.Background(), "p1", "faction_she", "ios", "receipt-err")
-	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "verify receipt:"))
+	err := env.svc.Purchase(context.Background(), "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", "faction_she", "ios", "receipt-err")
+	assert.ErrorIs(t, err, ErrVerifyReceipt)
 }
 
 func TestPurchase_SubscriptionTypeViaPurchase(t *testing.T) {
-	env := newTestShopEnv()
-
-	env.svc.appleVerifier = &platform.MockReceiptVerifier{
+	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
 			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-sub-via-purchase"}, nil
 		},
-	}
+	}))
 
-	env.shopRepo.AddProduct(&apishop.Product{
+	insertProduct(t, &apishop.Product{
 		ProductID: "premium_monthly",
 		Name:      "プレミアム月額",
 		Type:      apishop.ProductTypeSubscription,
@@ -582,7 +601,6 @@ func TestPurchase_SubscriptionTypeViaPurchase(t *testing.T) {
 		IsActive:  true,
 	})
 
-	err := env.svc.Purchase(context.Background(), "p1", "premium_monthly", "ios", "receipt-sub")
-	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "unsupported product type"))
+	err := env.svc.Purchase(context.Background(), "ffffffff-ffff-ffff-ffff-ffffffffffff", "premium_monthly", "ios", "receipt-sub")
+	assert.ErrorIs(t, err, ErrUnsupportedProductType)
 }

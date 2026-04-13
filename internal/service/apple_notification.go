@@ -40,12 +40,12 @@ type appleNotificationTxn struct {
 func (s *SubscriptionService) HandleAppleNotification(ctx context.Context, signedPayload string) error {
 	notif, err := decodeVerifiedJWSPayload[appleNotification](signedPayload)
 	if err != nil {
-		return fmt.Errorf("decode notification: %w", err)
+		return fmt.Errorf("%w: %w", ErrDecodeNotification, err)
 	}
 
 	txnInfo, err := decodeVerifiedJWSPayload[appleNotificationTxn](notif.Data.SignedTransactionInfo)
 	if err != nil {
-		return fmt.Errorf("decode transaction info: %w", err)
+		return fmt.Errorf("%w: %w", ErrDecodeTransactionInfo, err)
 	}
 
 	sub, err := s.subRepo.FindSubscriptionByToken(ctx, apishop.PlatformIOS, txnInfo.OriginalTransactionID)
@@ -53,7 +53,7 @@ func (s *SubscriptionService) HandleAppleNotification(ctx context.Context, signe
 		return fmt.Errorf("find subscription: %w", err)
 	}
 	if sub == nil {
-		return fmt.Errorf("subscription not found for token: %s", txnInfo.OriginalTransactionID)
+		return fmt.Errorf("%w: token=%s", ErrSubscriptionNotFound, txnInfo.OriginalTransactionID)
 	}
 
 	switch notif.NotificationType {

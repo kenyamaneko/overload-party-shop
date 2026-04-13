@@ -10,3 +10,4 @@
 - DB または card サービスに到達できないときフォールバックしない（5xx で fail）
 - `IAP_MODE=local` は webhook ルート自体を登録しない（nil verifier で silent accept しない意図的設計）
 - 型変更時は `data/models.yaml` → `python3 scripts/generate_types.py` を実行する
+- リポジトリ層／サービス層テストは Testcontainers で実 Postgres に対して書く（インメモリモック禁止）

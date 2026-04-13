@@ -41,20 +41,24 @@ func (m *mockGoogleSubVerifier) GetSubscriptionExpiry(_ context.Context, _ strin
 
 type testSubEnv struct {
 	svc            *SubscriptionService
-	subRepo        *repository.MockSubscriptionRepository
+	subRepo        *repository.PgSubscriptionRepository
 	premiumPub     *fakePremiumPublisher
 	googleVerifier *mockGoogleSubVerifier
 }
 
-func newTestSubscriptionService() *testSubEnv {
-	subRepo := repository.NewMockSubscriptionRepository()
+func newTestSubscriptionService(t *testing.T) *testSubEnv {
+	t.Helper()
+	sharedPg.Truncate(t)
+
+	subRepo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
 	premiumPub := &fakePremiumPublisher{}
 	gv := &mockGoogleSubVerifier{expiry: time.Now().Add(30 * 24 * time.Hour)}
 	svc := NewSubscriptionService(subRepo, premiumPub, gv)
 	return &testSubEnv{svc: svc, subRepo: subRepo, premiumPub: premiumPub, googleVerifier: gv}
 }
 
-func createTestSubscription(env *testSubEnv, platform, playerID, purchaseToken string) *apishop.Subscription {
+func createTestSubscription(t *testing.T, env *testSubEnv, platform, playerID, purchaseToken string) *apishop.Subscription {
+	t.Helper()
 	now := time.Now()
 	periodEnd := now.Add(30 * 24 * time.Hour)
 
@@ -67,7 +71,7 @@ func createTestSubscription(env *testSubEnv, platform, playerID, purchaseToken s
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
-	_ = env.subRepo.CreateSubscription(context.Background(), sub, platform, purchaseToken)
+	require.NoError(t, env.subRepo.CreateSubscription(context.Background(), sub, platform, purchaseToken))
 	return sub
 }
 
@@ -100,16 +104,17 @@ func TestHandleAppleNotification(t *testing.T) {
 		{"AlreadyExpired", "EXPIRED", "", true, apishop.SubscriptionStatusExpired, true, false},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			skipJWSVerification(t)
-			env := newTestSubscriptionService()
+			env := newTestSubscriptionService(t)
 			token := "apple-token-" + tt.name
-			sub := createTestSubscription(env, apishop.PlatformIOS, "p1", token)
+			playerID := fmt.Sprintf("aaaaaaaa-%04d-aaaa-aaaa-aaaaaaaaaaaa", i)
+			sub := createTestSubscription(t, env, apishop.PlatformIOS, playerID, token)
 
 			if tt.preExpire {
 				sub.Status = apishop.SubscriptionStatusExpired
-				_ = env.subRepo.UpdateSubscription(context.Background(), sub)
+				require.NoError(t, env.subRepo.UpdateSubscription(context.Background(), sub))
 			}
 
 			txnInfo := buildAppleJWS(map[string]interface{}{
@@ -128,17 +133,17 @@ func TestHandleAppleNotification(t *testing.T) {
 			}
 			notifPayload := buildAppleJWS(notifData)
 
-			err := env.svc.HandleAppleNotification(context.Background(), notifPayload)
-			require.NoError(t, err)
+			require.NoError(t, env.svc.HandleAppleNotification(context.Background(), notifPayload))
 
-			updatedSub, _ := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformIOS, token)
+			updatedSub, ferr := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformIOS, token)
+			require.NoError(t, ferr)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
 
 			if tt.expectPublish {
 				require.NotEmpty(t, env.premiumPub.calls, "expected premium-updated publish")
 				last := env.premiumPub.calls[len(env.premiumPub.calls)-1]
-				assert.Equal(t, "p1", last.PlayerID)
+				assert.Equal(t, playerID, last.PlayerID)
 				assert.Equal(t, tt.expectedPremium, last.IsPremium)
 			}
 		})
@@ -162,15 +167,16 @@ func TestHandleGoogleNotification(t *testing.T) {
 		{"UnhandledType", 99, false, apishop.SubscriptionStatusActive, false, true},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := newTestSubscriptionService()
+			env := newTestSubscriptionService(t)
 			token := "google-token-" + tt.name
-			sub := createTestSubscription(env, apishop.PlatformAndroid, "p1", token)
+			playerID := fmt.Sprintf("bbbbbbbb-%04d-bbbb-bbbb-bbbbbbbbbbbb", i)
+			sub := createTestSubscription(t, env, apishop.PlatformAndroid, playerID, token)
 
 			if tt.preExpire {
 				sub.Status = apishop.SubscriptionStatusExpired
-				_ = env.subRepo.UpdateSubscription(context.Background(), sub)
+				require.NoError(t, env.subRepo.UpdateSubscription(context.Background(), sub))
 			}
 
 			data, _ := json.Marshal(map[string]interface{}{
@@ -184,17 +190,17 @@ func TestHandleGoogleNotification(t *testing.T) {
 			msg := GoogleRTDNMessage{}
 			msg.Message.Data = base64.StdEncoding.EncodeToString(data)
 
-			err := env.svc.HandleGoogleNotification(context.Background(), msg)
-			require.NoError(t, err)
+			require.NoError(t, env.svc.HandleGoogleNotification(context.Background(), msg))
 
-			updatedSub, _ := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformAndroid, token)
+			updatedSub, ferr := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformAndroid, token)
+			require.NoError(t, ferr)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
 
 			if tt.expectPublish {
 				require.NotEmpty(t, env.premiumPub.calls, "expected premium-updated publish")
 				last := env.premiumPub.calls[len(env.premiumPub.calls)-1]
-				assert.Equal(t, "p1", last.PlayerID)
+				assert.Equal(t, playerID, last.PlayerID)
 				assert.Equal(t, tt.expectedPremium, last.IsPremium)
 			}
 		})
@@ -202,7 +208,7 @@ func TestHandleGoogleNotification(t *testing.T) {
 }
 
 func TestHandleGoogleNotification_NonSubscription(t *testing.T) {
-	env := newTestSubscriptionService()
+	env := newTestSubscriptionService(t)
 
 	data, _ := json.Marshal(map[string]interface{}{
 		"voidedPurchaseNotification": map[string]interface{}{
@@ -229,7 +235,7 @@ func TestHandleNotification_SubscriptionNotFound(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			skipJWSVerification(t)
-			env := newTestSubscriptionService()
+			env := newTestSubscriptionService(t)
 
 			var err error
 			if tt.platform == "apple" {
@@ -261,48 +267,47 @@ func TestHandleNotification_SubscriptionNotFound(t *testing.T) {
 				err = env.svc.HandleGoogleNotification(context.Background(), msg)
 			}
 
-			require.Error(t, err)
-			assert.True(t, strings.Contains(err.Error(), "subscription not found"))
+			assert.ErrorIs(t, err, ErrSubscriptionNotFound)
 		})
 	}
 }
 
 func TestHandleNotification_DecodeErrors(t *testing.T) {
 	tests := []struct {
-		name        string
-		platform    string
-		input       string
-		errContains string
+		name     string
+		platform string
+		input    string
+		wantErr  error
 	}{
 		{
-			name:        "Apple/InvalidJWS",
-			platform:    "apple",
-			input:       "not-a-valid-jws",
-			errContains: "decode notification",
+			name:     "Apple/InvalidJWS",
+			platform: "apple",
+			input:    "not-a-valid-jws",
+			wantErr:  ErrDecodeNotification,
 		},
 		{
-			name:        "Apple/InvalidTransactionInfoJWS",
-			platform:    "apple",
-			errContains: "decode transaction info",
+			name:     "Apple/InvalidTransactionInfoJWS",
+			platform: "apple",
+			wantErr:  ErrDecodeTransactionInfo,
 		},
 		{
-			name:        "Google/InvalidBase64",
-			platform:    "google",
-			input:       "!!! not base64 !!!",
-			errContains: "decode RTDN data",
+			name:     "Google/InvalidBase64",
+			platform: "google",
+			input:    "!!! not base64 !!!",
+			wantErr:  ErrDecodeRTDNData,
 		},
 		{
-			name:        "Google/InvalidJSON",
-			platform:    "google",
-			input:       base64.StdEncoding.EncodeToString([]byte("not valid json {{{")),
-			errContains: "unmarshal RTDN data",
+			name:     "Google/InvalidJSON",
+			platform: "google",
+			input:    base64.StdEncoding.EncodeToString([]byte("not valid json {{{")),
+			wantErr:  ErrUnmarshalRTDNData,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			skipJWSVerification(t)
-			env := newTestSubscriptionService()
+			env := newTestSubscriptionService(t)
 
 			var err error
 			if tt.platform == "apple" {
@@ -322,8 +327,7 @@ func TestHandleNotification_DecodeErrors(t *testing.T) {
 				err = env.svc.HandleGoogleNotification(context.Background(), msg)
 			}
 
-			require.Error(t, err)
-			assert.True(t, strings.Contains(err.Error(), tt.errContains))
+			assert.ErrorIs(t, err, tt.wantErr)
 		})
 	}
 }

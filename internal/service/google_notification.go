@@ -38,12 +38,12 @@ const (
 func (s *SubscriptionService) HandleGoogleNotification(ctx context.Context, msg GoogleRTDNMessage) error {
 	data, err := base64.StdEncoding.DecodeString(msg.Message.Data)
 	if err != nil {
-		return fmt.Errorf("decode RTDN data: %w", err)
+		return fmt.Errorf("%w: %w", ErrDecodeRTDNData, err)
 	}
 
 	var rtdn googleRTDNData
 	if err := json.Unmarshal(data, &rtdn); err != nil {
-		return fmt.Errorf("unmarshal RTDN data: %w", err)
+		return fmt.Errorf("%w: %w", ErrUnmarshalRTDNData, err)
 	}
 
 	if rtdn.SubscriptionNotification == nil {
@@ -56,7 +56,7 @@ func (s *SubscriptionService) HandleGoogleNotification(ctx context.Context, msg 
 		return fmt.Errorf("find subscription: %w", err)
 	}
 	if sub == nil {
-		return fmt.Errorf("subscription not found for token: %s", notif.PurchaseToken)
+		return fmt.Errorf("%w: token=%s", ErrSubscriptionNotFound, notif.PurchaseToken)
 	}
 
 	switch notif.NotificationType {

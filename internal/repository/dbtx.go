@@ -1,7 +1,7 @@
 // Package repository は PostgreSQL に対するデータアクセスを実装する。
 //
 // トランザクションポリシー:
-// 全 repository メソッドは context に載せられたトランザクシ��ンがあれば参加する
+// 全 repository メソッドは context に載せられたトランザクションがあれば参加する
 // （TxManager.RunInTx が設定）。単一ステートメントのメソッドは connFrom(ctx, pool)
 // でトランザクションまたはコネクションプールを透過的に使い分ける。
 // アトミック性が必要な複数ステートメントメソッドは既存トランザクションの有無を
@@ -72,10 +72,3 @@ func (m *TxManager) RunInTx(ctx context.Context, fn func(ctx context.Context) er
 	return nil
 }
 
-// MockTxRunner はテスト用の port.TxRunner 実装。実際のトランザクションは開始しない。
-type MockTxRunner struct{}
-
-// RunInTx はテスト用にトランザクションなしで fn を直接実行する。
-func (m *MockTxRunner) RunInTx(ctx context.Context, fn func(ctx context.Context) error) error {
-	return fn(ctx)
-}
