@@ -48,7 +48,6 @@ func verifyAppleJWS(jws string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid JWS format: expected 3 parts, got %d", len(parts))
 	}
 
-	// ヘッダのデコードとパース。
 	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
 		return nil, fmt.Errorf("decode JWS header: %w", err)
@@ -67,7 +66,7 @@ func verifyAppleJWS(jws string) ([]byte, error) {
 		return nil, fmt.Errorf("JWS header missing x5c certificate chain")
 	}
 
-	// x5c から証明書チェーンを構築（leaf が先頭、root が末尾）。
+	// x5c は leaf → intermediates → root の順で並ぶ仕様。
 	certs := make([]*x509.Certificate, len(header.X5C))
 	for i, certB64 := range header.X5C {
 		certDER, err := base64.StdEncoding.DecodeString(certB64)
@@ -81,7 +80,6 @@ func verifyAppleJWS(jws string) ([]byte, error) {
 		certs[i] = cert
 	}
 
-	// Apple root CA に対する証明書チェーン検証。
 	leaf := certs[0]
 	intermediates := x509.NewCertPool()
 	for _, c := range certs[1:] {
@@ -95,13 +93,11 @@ func verifyAppleJWS(jws string) ([]byte, error) {
 		return nil, fmt.Errorf("verify x5c certificate chain: %w", err)
 	}
 
-	// leaf 証明書から ECDSA 公開鍵を抽出。
 	pubKey, ok := leaf.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return nil, fmt.Errorf("leaf certificate public key is not ECDSA")
 	}
 
-	// ES256 署名を検証。
 	signingInput := parts[0] + "." + parts[1]
 	hash := sha256.Sum256([]byte(signingInput))
 
@@ -122,7 +118,6 @@ func verifyAppleJWS(jws string) ([]byte, error) {
 		return nil, fmt.Errorf("JWS signature verification failed")
 	}
 
-	// payload をデコードして返す。
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return nil, fmt.Errorf("decode JWS payload: %w", err)

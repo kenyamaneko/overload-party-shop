@@ -46,25 +46,47 @@ type CosmeticContent struct {
 }
 
 type OneTimePurchase struct {
-	PlayerID      string    `json:"player_id" db:"player_id"`
-	PurchaseID    int64     `json:"purchase_id" db:"purchase_id"`
-	ProductID     string    `json:"product_id" db:"product_id"`
-	Platform      string    `json:"platform" db:"platform"`
-	PurchaseToken string    `json:"purchase_token" db:"purchase_token"`
-	PurchasedAt   time.Time `json:"purchased_at" db:"purchased_at"`
+	PurchaseID  int64     `json:"purchase_id" db:"purchase_id"`
+	PlayerID    string    `json:"player_id" db:"player_id"`
+	ProductID   string    `json:"product_id" db:"product_id"`
+	PurchasedAt time.Time `json:"purchased_at" db:"purchased_at"`
 }
 
 type Subscription struct {
-	PlayerID           string    `json:"player_id" db:"player_id"`
 	SubscriptionID     int64     `json:"subscription_id" db:"subscription_id"`
+	PlayerID           string    `json:"player_id" db:"player_id"`
 	ProductID          string    `json:"product_id" db:"product_id"`
-	Platform           string    `json:"platform" db:"platform"`
-	PurchaseToken      string    `json:"purchase_token" db:"purchase_token"`
 	Status             string    `json:"status" db:"status"`
 	CurrentPeriodStart time.Time `json:"current_period_start" db:"current_period_start"`
 	CurrentPeriodEnd   time.Time `json:"current_period_end" db:"current_period_end"`
 	CreatedAt          time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at" db:"updated_at"`
+}
+
+type AppleSubscriptionToken struct {
+	Token          string    `json:"token" db:"token"`
+	SubscriptionID int64     `json:"subscription_id" db:"subscription_id"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
+}
+
+type GoogleSubscriptionToken struct {
+	Token          string    `json:"token" db:"token"`
+	SubscriptionID int64     `json:"subscription_id" db:"subscription_id"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
+}
+
+type ApplePurchaseToken struct {
+	Token      string    `json:"token" db:"token"`
+	PurchaseID int64     `json:"purchase_id" db:"purchase_id"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+}
+
+type GooglePurchaseToken struct {
+	Token      string    `json:"token" db:"token"`
+	PurchaseID int64     `json:"purchase_id" db:"purchase_id"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
 }
 
 type CosmeticItem struct {

@@ -74,18 +74,36 @@ func (r *PgShopRepository) GetProductByID(ctx context.Context, productID string)
 	return &p, nil
 }
 
-// FindPurchaseByToken はトークンで購入レコードを検索する。
-func (r *PgShopRepository) FindPurchaseByToken(ctx context.Context, playerID, purchaseToken string) (*apishop.OneTimePurchase, error) {
-	row := connFrom(ctx, r.pool).QueryRow(ctx,
-		`SELECT player_id, purchase_id, product_id, platform, purchase_token, purchased_at
-		 FROM shop.one_time_purchases
-		 WHERE player_id = $1 AND purchase_token = $2
-		 LIMIT 1`,
-		playerID, purchaseToken)
+// purchaseTokenTableForPlatform は purchase 用の token テーブル名を返す。
+func purchaseTokenTableForPlatform(platform string) (string, error) {
+	switch platform {
+	case apishop.PlatformIOS:
+		return "shop.apple_purchase_tokens", nil
+	case apishop.PlatformAndroid:
+		return "shop.google_purchase_tokens", nil
+	default:
+		return "", fmt.Errorf("unsupported purchase platform: %q", platform)
+	}
+}
+
+// FindPurchaseByToken は platform 別 token テーブルから purchase を引く。
+// playerID が token テーブル経由で得た purchase の player と一致しない場合は nil を返す。
+func (r *PgShopRepository) FindPurchaseByToken(ctx context.Context, platform, purchaseToken string) (*apishop.OneTimePurchase, error) {
+	table, err := purchaseTokenTableForPlatform(platform)
+	if err != nil {
+		return nil, err
+	}
+	q := fmt.Sprintf(
+		`SELECT p.purchase_id, p.player_id, p.product_id, p.purchased_at
+		   FROM %s t
+		   JOIN shop.one_time_purchases p ON p.purchase_id = t.purchase_id
+		  WHERE t.token = $1`,
+		table,
+	)
+	row := connFrom(ctx, r.pool).QueryRow(ctx, q, purchaseToken)
 
 	var p apishop.OneTimePurchase
-	err := row.Scan(&p.PlayerID, &p.PurchaseID, &p.ProductID, &p.Platform, &p.PurchaseToken, &p.PurchasedAt)
-	if err != nil {
+	if err := row.Scan(&p.PurchaseID, &p.PlayerID, &p.ProductID, &p.PurchasedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
@@ -94,39 +112,12 @@ func (r *PgShopRepository) FindPurchaseByToken(ctx context.Context, playerID, pu
 	return &p, nil
 }
 
-// CreatePurchase は購入レコードを記録する。重複トークンはべき等に no-op する。
-func (r *PgShopRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase) error {
-	db := connFrom(ctx, r.pool)
-	var existingID int64
-	err := db.QueryRow(ctx,
-		`SELECT purchase_id FROM shop.one_time_purchases
-		 WHERE player_id = $1 AND purchase_token = $2 LIMIT 1`,
-		purchase.PlayerID, purchase.PurchaseToken,
-	).Scan(&existingID)
-	if err == nil {
-		purchase.PurchaseID = existingID
-		return nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("check existing purchase: %w", err)
-	}
-
-	err = db.QueryRow(ctx,
-		`INSERT INTO shop.one_time_purchases (player_id, product_id, platform, purchase_token, purchased_at)
-		 VALUES ($1,$2,$3,$4,$5) RETURNING purchase_id`,
-		purchase.PlayerID, purchase.ProductID,
-		purchase.Platform, purchase.PurchaseToken, purchase.PurchasedAt,
-	).Scan(&purchase.PurchaseID)
-	if err != nil {
-		return fmt.Errorf("insert purchase: %w", err)
-	}
-	return nil
-}
-
-// CreatePurchaseWithItem は購入レコードとプレイヤーアイテムをアトミックに記録する。
-func (r *PgShopRepository) CreatePurchaseWithItem(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem) error {
+// CreatePurchase は one_time_purchases + 対応する token 行をアトミックに挿入する。
+// 既に同じ token があれば既存 purchase_id を埋めてべき等に no-op (created は false)。
+func (r *PgShopRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, platform, purchaseToken string) error {
 	if txFromContext(ctx) != nil {
-		return r.createPurchaseWithItemInner(ctx, connFrom(ctx, r.pool), purchase, item)
+		_, err := r.createPurchaseInner(ctx, connFrom(ctx, r.pool), purchase, platform, purchaseToken)
+		return err
 	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -134,42 +125,81 @@ func (r *PgShopRepository) CreatePurchaseWithItem(ctx context.Context, purchase 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := r.createPurchaseWithItemInner(ctx, tx, purchase, item); err != nil {
+	if _, err := r.createPurchaseInner(ctx, tx, purchase, platform, purchaseToken); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func (r *PgShopRepository) createPurchaseWithItemInner(ctx context.Context, db dbtx, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem) error {
-	var existingID int64
-	err := db.QueryRow(ctx,
-		`SELECT purchase_id FROM shop.one_time_purchases
-		 WHERE player_id = $1 AND purchase_token = $2 LIMIT 1`,
-		purchase.PlayerID, purchase.PurchaseToken,
-	).Scan(&existingID)
+// createPurchaseInner は purchase + token を挿入する。created=true なら新規 INSERT、
+// created=false なら既存 token に対するべき等 no-op 経路。
+func (r *PgShopRepository) createPurchaseInner(ctx context.Context, db dbtx, purchase *apishop.OneTimePurchase, platform, purchaseToken string) (created bool, err error) {
+	table, err := purchaseTokenTableForPlatform(platform)
+	if err != nil {
+		return false, err
+	}
+
+	var existingPurchaseID int64
+	err = db.QueryRow(ctx,
+		fmt.Sprintf(`SELECT purchase_id FROM %s WHERE token = $1`, table),
+		purchaseToken,
+	).Scan(&existingPurchaseID)
 	if err == nil {
-		return nil
+		purchase.PurchaseID = existingPurchaseID
+		return false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("check existing purchase: %w", err)
+		return false, fmt.Errorf("check existing purchase token: %w", err)
 	}
 
-	err = db.QueryRow(ctx,
-		`INSERT INTO shop.one_time_purchases (player_id, product_id, platform, purchase_token, purchased_at)
-		 VALUES ($1,$2,$3,$4,$5) RETURNING purchase_id`,
-		purchase.PlayerID, purchase.ProductID,
-		purchase.Platform, purchase.PurchaseToken, purchase.PurchasedAt,
-	).Scan(&purchase.PurchaseID)
+	if err := db.QueryRow(ctx,
+		`INSERT INTO shop.one_time_purchases (player_id, product_id, purchased_at)
+		 VALUES ($1,$2,$3) RETURNING purchase_id`,
+		purchase.PlayerID, purchase.ProductID, purchase.PurchasedAt,
+	).Scan(&purchase.PurchaseID); err != nil {
+		return false, fmt.Errorf("insert purchase: %w", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		fmt.Sprintf(`INSERT INTO %s (token, purchase_id) VALUES ($1, $2)`, table),
+		purchaseToken, purchase.PurchaseID,
+	); err != nil {
+		return false, fmt.Errorf("insert purchase token: %w", err)
+	}
+	return true, nil
+}
+
+// CreatePurchaseWithItem は purchase + token + player_items をアトミックに挿入する。
+// 既存 token (べき等経路) では player_items 挿入もスキップする。
+func (r *PgShopRepository) CreatePurchaseWithItem(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string) error {
+	if txFromContext(ctx) != nil {
+		return r.createPurchaseWithItemInner(ctx, connFrom(ctx, r.pool), purchase, item, platform, purchaseToken)
+	}
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("insert purchase: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
-	_, err = db.Exec(ctx,
+	if err := r.createPurchaseWithItemInner(ctx, tx, purchase, item, platform, purchaseToken); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *PgShopRepository) createPurchaseWithItemInner(ctx context.Context, db dbtx, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string) error {
+	created, err := r.createPurchaseInner(ctx, db, purchase, platform, purchaseToken)
+	if err != nil {
+		return err
+	}
+	if !created {
+		return nil
+	}
+	if _, err := db.Exec(ctx,
 		`INSERT INTO shop.player_items (player_id, item_type, item_no, acquired_at)
 		 VALUES ($1,$2,$3,$4)`,
 		item.PlayerID, item.ItemType, item.ItemNo, item.AcquiredAt,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("insert player item: %w", err)
 	}
 	return nil
@@ -205,6 +235,32 @@ func (r *PgShopRepository) insertPlayerItemsInner(ctx context.Context, db dbtx, 
 		}
 	}
 	return nil
+}
+
+func (r *PgShopRepository) ListPlayerItems(ctx context.Context, playerID string) ([]*apishop.PlayerItem, error) {
+	rows, err := connFrom(ctx, r.pool).Query(ctx,
+		`SELECT player_id, item_type, item_no, acquired_at
+		   FROM shop.player_items
+		  WHERE player_id = $1`,
+		playerID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query player items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*apishop.PlayerItem
+	for rows.Next() {
+		item := &apishop.PlayerItem{}
+		if err := rows.Scan(&item.PlayerID, &item.ItemType, &item.ItemNo, &item.AcquiredAt); err != nil {
+			return nil, fmt.Errorf("scan player item: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate player items: %w", err)
+	}
+	return items, nil
 }
 
 // HasPlayerItem はプレイヤーが指定アイテムを所有しているかを返す。

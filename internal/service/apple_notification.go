@@ -48,7 +48,7 @@ func (s *SubscriptionService) HandleAppleNotification(ctx context.Context, signe
 		return fmt.Errorf("decode transaction info: %w", err)
 	}
 
-	sub, err := s.subRepo.FindSubscriptionByToken(ctx, txnInfo.OriginalTransactionID)
+	sub, err := s.subRepo.FindSubscriptionByToken(ctx, apishop.PlatformIOS, txnInfo.OriginalTransactionID)
 	if err != nil {
 		return fmt.Errorf("find subscription: %w", err)
 	}

@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
+	"slices"
 	"time"
 
+	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
-	"github.com/kenyamaneko/overload-party-shop/internal/constants"
 	"github.com/kenyamaneko/overload-party-shop/internal/platform"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
@@ -18,30 +18,6 @@ import (
 // スライス。商品カタログメタデータ層でのみ使用。カード付与には使用しない。
 type CardLister interface {
 	ListAllCards(ctx context.Context) ([]*apishop.CardView, error)
-}
-
-func isSelectableFaction(faction string) bool {
-	for _, f := range constants.SelectableFactions {
-		if f == faction {
-			return true
-		}
-	}
-	return false
-}
-
-var normalizeFactionMap = map[string]string{
-	"she":     constants.FactionSHE,
-	"tenki":   constants.FactionTenki,
-	"sugar":   constants.FactionSugar,
-	"tuners":  constants.FactionTuners,
-	"neutral": constants.FactionNeutral,
-}
-
-func normalizeFaction(s string) (string, bool) {
-	if v, ok := normalizeFactionMap[strings.ToLower(s)]; ok {
-		return v, true
-	}
-	return s, false
 }
 
 // ShopService は shop ローカルの購入フローを管理する。Pub/Sub fan-out リファクタ以降、
@@ -96,14 +72,24 @@ func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apish
 	if err != nil {
 		return nil, fmt.Errorf("list owned factions: %w", err)
 	}
-	ownedFactionSet := make(map[string]bool, len(ownedFactions))
-	for _, f := range ownedFactions {
-		ownedFactionSet[f] = true
-	}
 
-	activeSub, err := s.subRepo.GetActiveSubscription(ctx, playerID)
+	latestSub, err := s.subRepo.GetLatestSubscription(ctx, playerID)
 	if err != nil {
 		return nil, fmt.Errorf("get subscription: %w", err)
+	}
+	subEntitled := isEntitled(latestSub, time.Now())
+
+	ownedItems, err := s.shopRepo.ListPlayerItems(ctx, playerID)
+	if err != nil {
+		return nil, fmt.Errorf("list owned items: %w", err)
+	}
+	type itemKey struct {
+		Type string
+		No   int64
+	}
+	ownedItemSet := make(map[itemKey]bool, len(ownedItems))
+	for _, it := range ownedItems {
+		ownedItemSet[itemKey{it.ItemType, it.ItemNo}] = true
 	}
 
 	result := make([]apishop.ProductResponse, 0, len(products))
@@ -116,10 +102,16 @@ func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apish
 				log.Printf("failed to parse product content for %s: %v", p.ProductID, err)
 				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
 			}
-			owned = ownedFactionSet[content.Faction]
+			owned = slices.Contains(ownedFactions, content.Faction)
 		case apishop.ProductTypeSubscription:
-			owned = activeSub != nil
-		// cosmetic 等はユニーク所有ではない — 常に購入可能として表示
+			owned = subEntitled
+		case apishop.ProductTypeCosmetic:
+			var content apishop.CosmeticContent
+			if err := json.Unmarshal(p.Content, &content); err != nil {
+				log.Printf("failed to parse product content for %s: %v", p.ProductID, err)
+				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
+			}
+			owned = ownedItemSet[itemKey{content.ItemType, content.ItemNo}]
 		}
 		result = append(result, apishop.ProductResponse{
 			ProductID:   p.ProductID,
@@ -139,7 +131,12 @@ func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apish
 // Purchase は単発購入フローを実行する。レシート検証・べき等チェック・購入記録・
 // faction-selected イベント発行を行う。
 func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error {
-	existing, err := s.shopRepo.FindPurchaseByToken(ctx, playerID, purchaseToken)
+	verifier := s.getVerifier(pf)
+	if verifier == nil {
+		return fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
+	}
+
+	existing, err := s.shopRepo.FindPurchaseByToken(ctx, pf, purchaseToken)
 	if err != nil {
 		return fmt.Errorf("check existing purchase: %w", err)
 	}
@@ -165,10 +162,8 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 		if err != nil {
 			return fmt.Errorf("check owned factions: %w", err)
 		}
-		for _, f := range ownedFactions {
-			if f == content.Faction {
-				return ErrAlreadyOwned
-			}
+		if slices.Contains(ownedFactions, content.Faction) {
+			return ErrAlreadyOwned
 		}
 	case apishop.ProductTypeCosmetic:
 		var content apishop.CosmeticContent
@@ -184,10 +179,6 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 		}
 	}
 
-	verifier := s.getVerifier(pf)
-	if verifier == nil {
-		return fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
-	}
 	result, err := verifier.VerifyPurchase(ctx, purchaseToken)
 	if err != nil {
 		return fmt.Errorf("verify receipt: %w", err)
@@ -197,11 +188,9 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 	}
 
 	purchase := &apishop.OneTimePurchase{
-		PlayerID:      playerID,
-		ProductID:     productID,
-		Platform:      pf,
-		PurchaseToken: purchaseToken,
-		PurchasedAt:   time.Now(),
+		PlayerID:    playerID,
+		ProductID:   productID,
+		PurchasedAt: time.Now(),
 	}
 
 	var (
@@ -215,10 +204,10 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 			if err := json.Unmarshal(product.Content, &content); err != nil {
 				return fmt.Errorf("parse faction set content: %w", err)
 			}
-			if !isSelectableFaction(content.Faction) {
+			if !slices.Contains(gamedesign.SelectableFactions, content.Faction) {
 				return fmt.Errorf("%w: %s", ErrInvalidFaction, content.Faction)
 			}
-			if err := s.shopRepo.CreatePurchase(ctx, purchase); err != nil {
+			if err := s.shopRepo.CreatePurchase(ctx, purchase, pf, purchaseToken); err != nil {
 				return fmt.Errorf("create purchase: %w", err)
 			}
 			if err := s.ownedFactionRepo.Add(ctx, playerID, content.Faction); err != nil {
@@ -237,7 +226,7 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 				ItemNo:     content.ItemNo,
 				AcquiredAt: time.Now(),
 			}
-			if err := s.shopRepo.CreatePurchaseWithItem(ctx, purchase, item); err != nil {
+			if err := s.shopRepo.CreatePurchaseWithItem(ctx, purchase, item, pf, purchaseToken); err != nil {
 				return fmt.Errorf("create purchase with item: %w", err)
 			}
 
@@ -263,7 +252,12 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 // Subscribe はサブスクリプション購入フローを実行する。レシート検証・べき等チェック・
 // サブスクリプション記録・premium-updated イベント発行を行う。
 func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error) {
-	existing, err := s.subRepo.FindSubscriptionByToken(ctx, purchaseToken)
+	verifier := s.getVerifier(pf)
+	if verifier == nil {
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
+	}
+
+	existing, err := s.subRepo.FindSubscriptionByToken(ctx, pf, purchaseToken)
 	if err != nil {
 		return nil, fmt.Errorf("check existing subscription: %w", err)
 	}
@@ -278,11 +272,6 @@ func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, pu
 	if product.Type != apishop.ProductTypeSubscription {
 		return nil, ErrProductNotSubscription
 	}
-
-	verifier := s.getVerifier(pf)
-	if verifier == nil {
-		return nil, fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
-	}
 	info, err := verifier.VerifySubscription(ctx, purchaseToken)
 	if err != nil {
 		return nil, fmt.Errorf("verify subscription: %w", err)
@@ -295,8 +284,6 @@ func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, pu
 	sub := &apishop.Subscription{
 		PlayerID:           playerID,
 		ProductID:          productID,
-		Platform:           pf,
-		PurchaseToken:      purchaseToken,
 		Status:             apishop.SubscriptionStatusActive,
 		CurrentPeriodStart: now,
 		CurrentPeriodEnd:   info.ExpiresAt,
@@ -304,7 +291,7 @@ func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, pu
 		UpdatedAt:          time.Now(),
 	}
 
-	if err := s.subRepo.CreateSubscription(ctx, sub); err != nil {
+	if err := s.subRepo.CreateSubscription(ctx, sub, pf, purchaseToken); err != nil {
 		return nil, fmt.Errorf("create subscription: %w", err)
 	}
 

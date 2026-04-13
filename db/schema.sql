@@ -1,11 +1,15 @@
 -- overload-party-shop - PostgreSQL DDL (service-owned)
 --
 -- Scope (ADR-014):
---   shop.products            - 商品マスター
---   shop.subscriptions       - サブスクリプション契約
---   shop.one_time_purchases  - 単発購入履歴
---   shop.cosmetic_items      - コスメティクスマスター
---   shop.player_items        - プレイヤー所持コスメ
+--   shop.products                       - 商品マスター
+--   shop.subscriptions                  - サブスクリプション契約 (純粋ドメイン)
+--   shop.one_time_purchases             - 単発購入履歴 (純粋ドメイン)
+--   shop.apple_subscription_tokens      - Apple サブスクトークン → subscription マップ
+--   shop.google_subscription_tokens     - Google サブスクトークン → subscription マップ
+--   shop.apple_purchase_tokens          - Apple 単発購入トークン → purchase マップ
+--   shop.google_purchase_tokens         - Google 単発購入トークン → purchase マップ
+--   shop.cosmetic_items                 - コスメティクスマスター
+--   shop.player_items                   - プレイヤー所持コスメ
 --
 -- psqldef 互換。shared.update_updated_at() を先に作成しておくこと。
 -- Cross-schema reference（player_id -> account.players）は FK を張らない。
@@ -31,29 +35,72 @@ CREATE TABLE shop.products (
   FOREIGN KEY (requires_product_id) REFERENCES shop.products(product_id)
 );
 
+-- ドメイン (Subscription / OneTimePurchase) と外部識別 (Apple/Google トークン) を
+-- 分離する。ドメインテーブルは外部仕様に依存せず、トークンテーブルだけが Apple/Google の
+-- 識別子を保持する。Apple/Google のトークン仕様変更（例: 更新ごとに新トークン発行）が
+-- 起きた場合でも対応する token テーブルに行を追加するだけで吸収できる。
+
 CREATE TABLE shop.subscriptions (
-  player_id            UUID NOT NULL, -- 所有プレイヤー (cross-schema reference to account.players; app-level integrity, not enforced by FK)
   subscription_id      BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY, -- 自動採番
-  product_id           VARCHAR(50) NOT NULL,          -- 商品ID
-  platform             VARCHAR(10) NOT NULL,          -- apple / google
-  purchase_token       VARCHAR(256) NOT NULL,         -- 購入トークン（Apple: originalTransactionId / Google: purchaseToken）
-  status               VARCHAR(20) NOT NULL,          -- active / grace_period / expired / refunded
-  current_period_start TIMESTAMPTZ NOT NULL,          -- 課金期間開始日時
-  current_period_end   TIMESTAMPTZ NOT NULL,          -- 課金期間終了日時
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(), -- 初回購入日時
-  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(), -- 更新日時
-  PRIMARY KEY (player_id, subscription_id)
+  player_id            UUID NOT NULL,                                -- 所有プレイヤー (cross-schema reference to account.players; app-level integrity, not enforced by FK)
+  product_id           VARCHAR(50) NOT NULL,                          -- 商品ID
+  status               VARCHAR(20) NOT NULL,                          -- active / cancelled / grace_period / expired / revoked
+  current_period_start TIMESTAMPTZ NOT NULL,                          -- 課金期間開始日時
+  current_period_end   TIMESTAMPTZ NOT NULL,                          -- 課金期間終了日時
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),            -- 初回購入日時
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),            -- 更新日時
+  PRIMARY KEY (subscription_id)
 );
+CREATE INDEX idx_subscriptions_player_id ON shop.subscriptions (player_id);
 CREATE TRIGGER trg_subscriptions_updated_at BEFORE UPDATE ON shop.subscriptions FOR EACH ROW EXECUTE FUNCTION shared.update_updated_at();
 
 CREATE TABLE shop.one_time_purchases (
-  player_id      UUID NOT NULL, -- 所有プレイヤー (cross-schema reference to account.players; app-level integrity, not enforced by FK)
-  purchase_id    BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY, -- 自動採番
-  product_id     VARCHAR(50) NOT NULL,               -- 商品ID
-  platform       VARCHAR(10) NOT NULL,               -- apple / google
-  purchase_token VARCHAR(256) NOT NULL,              -- 購入トークン（Apple: originalTransactionId / Google: purchaseToken）
-  purchased_at   TIMESTAMPTZ NOT NULL DEFAULT now(), -- 購入日時
-  PRIMARY KEY (player_id, purchase_id)
+  purchase_id  BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY, -- 自動採番
+  player_id    UUID NOT NULL,                                -- 所有プレイヤー (cross-schema reference to account.players; app-level integrity, not enforced by FK)
+  product_id   VARCHAR(50) NOT NULL,                          -- 商品ID
+  purchased_at TIMESTAMPTZ NOT NULL DEFAULT now(),            -- 購入日時
+  PRIMARY KEY (purchase_id)
+);
+CREATE INDEX idx_one_time_purchases_player_id ON shop.one_time_purchases (player_id);
+
+-- ─── 外部識別 (Apple / Google) ───
+-- token テーブルは「Apple/Google から得られる識別子」と「ドメイン FK」「監査用タイムスタンプ」だけを持つ。
+-- サブスクトークンは UpdatedAt あり (将来の token 再関連付けに備える)、購入トークンは append-only。
+
+CREATE TABLE shop.apple_subscription_tokens (
+  token            VARCHAR(256) NOT NULL,                          -- Apple originalTransactionId
+  subscription_id  BIGINT NOT NULL,                                 -- shop.subscriptions への FK
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (token),
+  FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
+);
+CREATE TRIGGER trg_apple_subscription_tokens_updated_at BEFORE UPDATE ON shop.apple_subscription_tokens FOR EACH ROW EXECUTE FUNCTION shared.update_updated_at();
+
+CREATE TABLE shop.google_subscription_tokens (
+  token            VARCHAR(256) NOT NULL,                          -- Google purchaseToken
+  subscription_id  BIGINT NOT NULL,                                 -- shop.subscriptions への FK
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (token),
+  FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
+);
+CREATE TRIGGER trg_google_subscription_tokens_updated_at BEFORE UPDATE ON shop.google_subscription_tokens FOR EACH ROW EXECUTE FUNCTION shared.update_updated_at();
+
+CREATE TABLE shop.apple_purchase_tokens (
+  token        VARCHAR(256) NOT NULL,                              -- Apple transactionId
+  purchase_id  BIGINT NOT NULL,                                     -- shop.one_time_purchases への FK
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (token),
+  FOREIGN KEY (purchase_id) REFERENCES shop.one_time_purchases (purchase_id) ON DELETE CASCADE
+);
+
+CREATE TABLE shop.google_purchase_tokens (
+  token        VARCHAR(256) NOT NULL,                              -- Google purchaseToken
+  purchase_id  BIGINT NOT NULL,                                     -- shop.one_time_purchases への FK
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (token),
+  FOREIGN KEY (purchase_id) REFERENCES shop.one_time_purchases (purchase_id) ON DELETE CASCADE
 );
 
 -- =============================================================================

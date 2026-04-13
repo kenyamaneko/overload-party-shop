@@ -51,7 +51,7 @@ func (s *SubscriptionService) HandleGoogleNotification(ctx context.Context, msg 
 	}
 
 	notif := rtdn.SubscriptionNotification
-	sub, err := s.subRepo.FindSubscriptionByToken(ctx, notif.PurchaseToken)
+	sub, err := s.subRepo.FindSubscriptionByToken(ctx, apishop.PlatformAndroid, notif.PurchaseToken)
 	if err != nil {
 		return fmt.Errorf("find subscription: %w", err)
 	}

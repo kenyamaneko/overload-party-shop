@@ -54,22 +54,20 @@ func newTestSubscriptionService() *testSubEnv {
 	return &testSubEnv{svc: svc, subRepo: subRepo, premiumPub: premiumPub, googleVerifier: gv}
 }
 
-func createTestSubscription(env *testSubEnv, playerID, purchaseToken string) *apishop.Subscription {
+func createTestSubscription(env *testSubEnv, platform, playerID, purchaseToken string) *apishop.Subscription {
 	now := time.Now()
 	periodEnd := now.Add(30 * 24 * time.Hour)
 
 	sub := &apishop.Subscription{
 		PlayerID:           playerID,
 		ProductID:          "premium_monthly",
-		Platform:           "ios",
-		PurchaseToken:      purchaseToken,
 		Status:             apishop.SubscriptionStatusActive,
 		CurrentPeriodStart: now,
 		CurrentPeriodEnd:   periodEnd,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
-	_ = env.subRepo.CreateSubscription(context.Background(), sub)
+	_ = env.subRepo.CreateSubscription(context.Background(), sub, platform, purchaseToken)
 	return sub
 }
 
@@ -106,7 +104,8 @@ func TestHandleAppleNotification(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			skipJWSVerification(t)
 			env := newTestSubscriptionService()
-			sub := createTestSubscription(env, "p1", "apple-token-"+tt.name)
+			token := "apple-token-" + tt.name
+			sub := createTestSubscription(env, apishop.PlatformIOS, "p1", token)
 
 			if tt.preExpire {
 				sub.Status = apishop.SubscriptionStatusExpired
@@ -114,7 +113,7 @@ func TestHandleAppleNotification(t *testing.T) {
 			}
 
 			txnInfo := buildAppleJWS(map[string]interface{}{
-				"originalTransactionId": sub.PurchaseToken,
+				"originalTransactionId": token,
 				"expiresDate":           time.Now().UnixMilli(),
 			})
 
@@ -132,7 +131,7 @@ func TestHandleAppleNotification(t *testing.T) {
 			err := env.svc.HandleAppleNotification(context.Background(), notifPayload)
 			require.NoError(t, err)
 
-			updatedSub, _ := env.subRepo.FindSubscriptionByToken(context.Background(), sub.PurchaseToken)
+			updatedSub, _ := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformIOS, token)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
 
@@ -166,7 +165,8 @@ func TestHandleGoogleNotification(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newTestSubscriptionService()
-			sub := createTestSubscription(env, "p1", "google-token-"+tt.name)
+			token := "google-token-" + tt.name
+			sub := createTestSubscription(env, apishop.PlatformAndroid, "p1", token)
 
 			if tt.preExpire {
 				sub.Status = apishop.SubscriptionStatusExpired
@@ -176,7 +176,7 @@ func TestHandleGoogleNotification(t *testing.T) {
 			data, _ := json.Marshal(map[string]interface{}{
 				"subscriptionNotification": map[string]interface{}{
 					"notificationType": tt.notifType,
-					"purchaseToken":    sub.PurchaseToken,
+					"purchaseToken":    token,
 					"subscriptionId":   "premium_monthly",
 				},
 			})
@@ -187,7 +187,7 @@ func TestHandleGoogleNotification(t *testing.T) {
 			err := env.svc.HandleGoogleNotification(context.Background(), msg)
 			require.NoError(t, err)
 
-			updatedSub, _ := env.subRepo.FindSubscriptionByToken(context.Background(), sub.PurchaseToken)
+			updatedSub, _ := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformAndroid, token)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
 

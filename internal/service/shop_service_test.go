@@ -320,7 +320,7 @@ func TestSubscribe_Success(t *testing.T) {
 	})
 
 	t.Run("creates active subscription record", func(t *testing.T) {
-		sub, _ := env.subRepo.GetActiveSubscription(context.Background(), "p1")
+		sub, _ := env.subRepo.GetLatestSubscription(context.Background(), "p1")
 		require.NotNil(t, sub)
 		assert.Equal(t, apishop.SubscriptionStatusActive, sub.Status)
 	})
@@ -455,14 +455,12 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 	_ = env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
 		PlayerID:           "p1",
 		ProductID:          "premium_monthly",
-		Platform:           "ios",
-		PurchaseToken:      "sub-token",
 		Status:             apishop.SubscriptionStatusActive,
 		CurrentPeriodStart: now,
 		CurrentPeriodEnd:   now.Add(30 * 24 * time.Hour),
 		CreatedAt:          now,
 		UpdatedAt:          now,
-	})
+	}, apishop.PlatformIOS, "sub-token")
 
 	products, err := env.svc.GetProducts(context.Background(), "p1")
 	require.NoError(t, err)
@@ -470,32 +468,54 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 	assert.True(t, products[0].IsOwned)
 }
 
+// 解約済み・支払い猶予中・期限切れ・revoke の各状態で IsOwned が
+// 特典有効性に従って判定されることを検証する。
+func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
+	now := time.Now()
+	future := now.Add(30 * 24 * time.Hour)
+	past := now.Add(-24 * time.Hour)
 
-func TestNormalizeFaction(t *testing.T) {
 	tests := []struct {
-		input    string
-		expected string
-		ok       bool
+		name        string
+		status      string
+		periodEnd   time.Time
+		wantIsOwned bool
 	}{
-		{"she", "SHE", true},
-		{"SHE", "SHE", true},
-		{"tenki", "Tenki", true},
-		{"TENKI", "Tenki", true},
-		{"sugar", "Sugar", true},
-		{"tuners", "Tuners", true},
-		{"neutral", "Neutral", true},
-		{"invalid", "invalid", false},
-		{"", "", false},
+		{"active in period", apishop.SubscriptionStatusActive, future, true},
+		{"cancelled in period", apishop.SubscriptionStatusCancelled, future, true},
+		{"grace in period", apishop.SubscriptionStatusGrace, future, true},
+		{"active expired", apishop.SubscriptionStatusActive, past, false},
+		{"cancelled expired", apishop.SubscriptionStatusCancelled, past, false},
+		{"expired status", apishop.SubscriptionStatusExpired, future, false},
+		{"revoked", apishop.SubscriptionStatusRevoked, future, false},
 	}
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got, ok := normalizeFaction(tt.input)
-			assert.Equal(t, tt.expected, got)
-			assert.Equal(t, tt.ok, ok)
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestShopEnv()
+			env.shopRepo.AddProduct(&apishop.Product{
+				ProductID: "premium_monthly",
+				Name:      "プレミアム月額",
+				Type:      apishop.ProductTypeSubscription,
+				Price:     480,
+				Content:   json.RawMessage(`{}`),
+				IsActive:  true,
+			})
+			_ = env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
+				PlayerID:           "p1",
+				ProductID:          "premium_monthly",
+				Status:             tt.status,
+				CurrentPeriodStart: now.Add(-24 * time.Hour),
+				CurrentPeriodEnd:   tt.periodEnd,
+				CreatedAt:          now,
+				UpdatedAt:          now,
+			}, apishop.PlatformIOS, "sub-token")
+			products, err := env.svc.GetProducts(context.Background(), "p1")
+			require.NoError(t, err)
+			require.Len(t, products, 1)
+			assert.Equal(t, tt.wantIsOwned, products[0].IsOwned)
 		})
 	}
 }
-
 
 func TestGetVerifier(t *testing.T) {
 	env := newTestShopEnv()
