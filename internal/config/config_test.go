@@ -17,9 +17,10 @@ func setEnvs(t *testing.T, envs map[string]string) {
 
 func TestFromEnv_LocalMode_Minimal(t *testing.T) {
 	setEnvs(t, map[string]string{
-		"DATABASE_URL":    "postgres://localhost/test",
-		"PUBSUB_PROJECT_ID": "test-project",
-		"IAP_MODE":        "local",
+		"DATABASE_URL":         "postgres://localhost/test",
+		"PUBSUB_PROJECT_ID":    "test-project",
+		"FIRESTORE_PROJECT_ID": "test-project",
+		"IAP_MODE":             "local",
 	})
 
 	cfg, err := FromEnv()
@@ -33,14 +34,15 @@ func TestFromEnv_LocalMode_Minimal(t *testing.T) {
 
 func TestFromEnv_LocalMode_WithAppleEnvVars(t *testing.T) {
 	setEnvs(t, map[string]string{
-		"DATABASE_URL":         "postgres://localhost/test",
-		"PUBSUB_PROJECT_ID":   "test-project",
-		"IAP_MODE":            "local",
-		"APPLE_KEY_ID":        "KEY123",
-		"APPLE_ISSUER_ID":     "ISS456",
-		"APPLE_BUNDLE_ID":     "com.test.app",
+		"DATABASE_URL":           "postgres://localhost/test",
+		"PUBSUB_PROJECT_ID":      "test-project",
+		"FIRESTORE_PROJECT_ID":   "test-project",
+		"IAP_MODE":               "local",
+		"APPLE_KEY_ID":           "KEY123",
+		"APPLE_ISSUER_ID":        "ISS456",
+		"APPLE_BUNDLE_ID":        "com.test.app",
 		"APPLE_PRIVATE_KEY_PATH": "/tmp/test.p8",
-		"GOOGLE_PACKAGE_NAME": "com.test.android",
+		"GOOGLE_PACKAGE_NAME":    "com.test.android",
 	})
 
 	cfg, err := FromEnv()
@@ -54,8 +56,9 @@ func TestFromEnv_LocalMode_WithAppleEnvVars(t *testing.T) {
 
 func TestFromEnv_MissingDatabaseURL(t *testing.T) {
 	setEnvs(t, map[string]string{
-		"PUBSUB_PROJECT_ID": "test-project",
-		"IAP_MODE":          "local",
+		"PUBSUB_PROJECT_ID":    "test-project",
+		"FIRESTORE_PROJECT_ID": "test-project",
+		"IAP_MODE":             "local",
 	})
 	// DATABASE_URL は意図的に未設定。
 	os.Unsetenv("DATABASE_URL")
@@ -67,8 +70,9 @@ func TestFromEnv_MissingDatabaseURL(t *testing.T) {
 
 func TestFromEnv_MissingPubsubProjectID(t *testing.T) {
 	setEnvs(t, map[string]string{
-		"DATABASE_URL": "postgres://localhost/test",
-		"IAP_MODE":     "local",
+		"DATABASE_URL":         "postgres://localhost/test",
+		"FIRESTORE_PROJECT_ID": "test-project",
+		"IAP_MODE":             "local",
 	})
 	os.Unsetenv("PUBSUB_PROJECT_ID")
 
@@ -77,11 +81,25 @@ func TestFromEnv_MissingPubsubProjectID(t *testing.T) {
 	assert.Contains(t, err.Error(), "PUBSUB_PROJECT_ID is required")
 }
 
+func TestFromEnv_MissingFirestoreProjectID(t *testing.T) {
+	setEnvs(t, map[string]string{
+		"DATABASE_URL":      "postgres://localhost/test",
+		"PUBSUB_PROJECT_ID": "test-project",
+		"IAP_MODE":          "local",
+	})
+	os.Unsetenv("FIRESTORE_PROJECT_ID")
+
+	_, err := FromEnv()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FIRESTORE_PROJECT_ID is required")
+}
+
 func TestFromEnv_InvalidIAPMode(t *testing.T) {
 	setEnvs(t, map[string]string{
-		"DATABASE_URL":    "postgres://localhost/test",
-		"PUBSUB_PROJECT_ID": "test-project",
-		"IAP_MODE":        "invalid",
+		"DATABASE_URL":         "postgres://localhost/test",
+		"PUBSUB_PROJECT_ID":    "test-project",
+		"FIRESTORE_PROJECT_ID": "test-project",
+		"IAP_MODE":             "invalid",
 	})
 
 	_, err := FromEnv()
@@ -91,9 +109,10 @@ func TestFromEnv_InvalidIAPMode(t *testing.T) {
 
 func TestFromEnv_ProductionMode_MissingGCPProject(t *testing.T) {
 	setEnvs(t, map[string]string{
-		"DATABASE_URL":    "postgres://localhost/test",
-		"PUBSUB_PROJECT_ID": "test-project",
-		"IAP_MODE":        "production",
+		"DATABASE_URL":         "postgres://localhost/test",
+		"PUBSUB_PROJECT_ID":    "test-project",
+		"FIRESTORE_PROJECT_ID": "test-project",
+		"IAP_MODE":             "production",
 	})
 	os.Unsetenv("GCP_PROJECT")
 
@@ -104,10 +123,11 @@ func TestFromEnv_ProductionMode_MissingGCPProject(t *testing.T) {
 
 func TestFromEnv_CustomPort(t *testing.T) {
 	setEnvs(t, map[string]string{
-		"DATABASE_URL":    "postgres://localhost/test",
-		"PUBSUB_PROJECT_ID": "test-project",
-		"IAP_MODE":        "local",
-		"PORT":            "8080",
+		"DATABASE_URL":         "postgres://localhost/test",
+		"PUBSUB_PROJECT_ID":    "test-project",
+		"FIRESTORE_PROJECT_ID": "test-project",
+		"IAP_MODE":             "local",
+		"PORT":                 "8080",
 	})
 
 	cfg, err := FromEnv()
@@ -117,10 +137,11 @@ func TestFromEnv_CustomPort(t *testing.T) {
 
 func TestFromEnv_InvalidPort(t *testing.T) {
 	setEnvs(t, map[string]string{
-		"DATABASE_URL":    "postgres://localhost/test",
-		"PUBSUB_PROJECT_ID": "test-project",
-		"IAP_MODE":        "local",
-		"PORT":            "not-a-number",
+		"DATABASE_URL":         "postgres://localhost/test",
+		"PUBSUB_PROJECT_ID":    "test-project",
+		"FIRESTORE_PROJECT_ID": "test-project",
+		"IAP_MODE":             "local",
+		"PORT":                 "not-a-number",
 	})
 
 	_, err := FromEnv()
@@ -130,8 +151,9 @@ func TestFromEnv_InvalidPort(t *testing.T) {
 
 func TestFromEnv_DefaultIAPModeIsProduction(t *testing.T) {
 	setEnvs(t, map[string]string{
-		"DATABASE_URL":    "postgres://localhost/test",
-		"PUBSUB_PROJECT_ID": "test-project",
+		"DATABASE_URL":         "postgres://localhost/test",
+		"PUBSUB_PROJECT_ID":    "test-project",
+		"FIRESTORE_PROJECT_ID": "test-project",
 	})
 	// IAP_MODE 未設定 → デフォルトは production → GCP_PROJECT 必須
 	os.Unsetenv("IAP_MODE")

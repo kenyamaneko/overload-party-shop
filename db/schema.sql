@@ -11,10 +11,22 @@
 --   shop.cosmetic_items                 - コスメティクスマスター
 --   shop.player_items                   - プレイヤー所持コスメ
 --
--- psqldef 互換。shared.update_updated_at() を先に作成しておくこと。
+-- psqldef 互換。
 -- Cross-schema reference（player_id -> account.players）は FK を張らない。
 
 CREATE SCHEMA IF NOT EXISTS shop;
+
+-- =============================================================================
+-- Schema-local helpers
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION shop.update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
 -- =============================================================================
 -- Shop (schema: shop)
@@ -52,7 +64,7 @@ CREATE TABLE shop.subscriptions (
   PRIMARY KEY (subscription_id)
 );
 CREATE INDEX idx_subscriptions_player_id ON shop.subscriptions (player_id);
-CREATE TRIGGER trg_subscriptions_updated_at BEFORE UPDATE ON shop.subscriptions FOR EACH ROW EXECUTE FUNCTION shared.update_updated_at();
+CREATE TRIGGER trg_subscriptions_updated_at BEFORE UPDATE ON shop.subscriptions FOR EACH ROW EXECUTE FUNCTION shop.update_updated_at();
 
 CREATE TABLE shop.one_time_purchases (
   purchase_id  BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY, -- 自動採番
@@ -75,7 +87,7 @@ CREATE TABLE shop.apple_subscription_tokens (
   PRIMARY KEY (token),
   FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
 );
-CREATE TRIGGER trg_apple_subscription_tokens_updated_at BEFORE UPDATE ON shop.apple_subscription_tokens FOR EACH ROW EXECUTE FUNCTION shared.update_updated_at();
+CREATE TRIGGER trg_apple_subscription_tokens_updated_at BEFORE UPDATE ON shop.apple_subscription_tokens FOR EACH ROW EXECUTE FUNCTION shop.update_updated_at();
 
 CREATE TABLE shop.google_subscription_tokens (
   token            VARCHAR(256) NOT NULL,                          -- Google purchaseToken
@@ -85,7 +97,7 @@ CREATE TABLE shop.google_subscription_tokens (
   PRIMARY KEY (token),
   FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
 );
-CREATE TRIGGER trg_google_subscription_tokens_updated_at BEFORE UPDATE ON shop.google_subscription_tokens FOR EACH ROW EXECUTE FUNCTION shared.update_updated_at();
+CREATE TRIGGER trg_google_subscription_tokens_updated_at BEFORE UPDATE ON shop.google_subscription_tokens FOR EACH ROW EXECUTE FUNCTION shop.update_updated_at();
 
 CREATE TABLE shop.apple_purchase_tokens (
   token        VARCHAR(256) NOT NULL,                              -- Apple transactionId

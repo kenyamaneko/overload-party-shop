@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/config"
@@ -50,10 +51,19 @@ func run() error {
 	}
 	defer pool.Close()
 
+	fsClient, err := firestore.NewClient(ctx, cfg.FirestoreProjectID)
+	if err != nil {
+		return fmt.Errorf("firestore new client: %w", err)
+	}
+	defer func() { _ = fsClient.Close() }()
+
 	txManager := repository.NewTxManager(pool)
 	shopRepo := repository.NewPgShopRepository(pool)
 	subRepo := repository.NewPgSubscriptionRepository(pool)
 	ownedFactionRepo := repository.NewPgOwnedFactionRepository(pool)
+	// game_config は現在 shop の runtime パスから参照していない。
+	// クライアント到達性は起動時に検証するため、repo を生成だけしておく。
+	_ = repository.NewFirestoreGameConfigRepository(fsClient)
 
 	// Pub/Sub publisher（faction-selected + premium-updated）。
 	pub, err := shoppubsub.New(ctx, cfg.PubsubProjectID, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)

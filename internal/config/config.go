@@ -54,6 +54,10 @@ type Config struct {
 
 	// Google Play
 	GooglePackageName string
+
+	// FirestoreProjectID は game_config の読み取り先プロジェクト ID。
+	// ローカル/CI では FIRESTORE_EMULATOR_HOST を別途設定することでエミュレーターに接続。
+	FirestoreProjectID string
 }
 
 // FromEnv は環境変数から Config を構築する。
@@ -68,6 +72,7 @@ func FromEnv() (*Config, error) {
 		IAPMode:              IAPMode(getEnv("IAP_MODE", string(IAPModeProduction))),
 		GCPProject:           os.Getenv("GCP_PROJECT"),
 		AppleEnvironment:     getEnv("APPLE_ENVIRONMENT", "Sandbox"),
+		FirestoreProjectID:   os.Getenv("FIRESTORE_PROJECT_ID"),
 	}
 
 	if raw := os.Getenv("PORT"); raw != "" {
@@ -83,6 +88,9 @@ func FromEnv() (*Config, error) {
 	}
 	if cfg.PubsubProjectID == "" {
 		return nil, fmt.Errorf("config: PUBSUB_PROJECT_ID is required (shop publishes faction-selected / premium-updated events)")
+	}
+	if cfg.FirestoreProjectID == "" {
+		return nil, fmt.Errorf("config: FIRESTORE_PROJECT_ID is required (game_config)")
 	}
 
 	switch cfg.IAPMode {
