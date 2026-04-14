@@ -24,24 +24,27 @@ type CardLister interface {
 // shop は `shop` スキーマのみを直接変更する。faction + premium 状態更新は Pub/Sub
 // 経由で account / card / gateway subscriber が処理する。IsOwned チェックは
 // shop ローカルの `player_owned_factions` read model で行う。
+//
+// トランザクションは repo 層で完結する (各購入 aggregate が atomic な Create を提供)。
 type ShopService struct {
-	shopRepo         port.ShopRepository
-	subRepo          port.SubscriptionRepo
-	ownedFactionRepo port.OwnedFactionRepo
-	txRunner         port.TxRunner
-	cardLister       CardLister
-	appleVerifier    platform.ReceiptVerifier
-	googleVerifier   platform.ReceiptVerifier
-	factionPublisher port.FactionEventPublisher
-	premiumPublisher port.PremiumEventPublisher
+	productRepo         port.ProductRepo
+	factionPurchaseRepo port.FactionPurchaseRepo
+	itemPurchaseRepo    port.ItemPurchaseRepo
+	purchaseLookup      port.PurchaseLookupRepo
+	subRepo             port.SubscriptionRepo
+	cardLister          CardLister
+	appleVerifier       platform.ReceiptVerifier
+	googleVerifier      platform.ReceiptVerifier
+	factionPublisher    port.FactionEventPublisher
+	premiumPublisher    port.PremiumEventPublisher
 }
 
-// NewShopService は依存を受け取り ShopService を構築する。
 func NewShopService(
-	shopRepo port.ShopRepository,
+	productRepo port.ProductRepo,
+	factionPurchaseRepo port.FactionPurchaseRepo,
+	itemPurchaseRepo port.ItemPurchaseRepo,
+	purchaseLookup port.PurchaseLookupRepo,
 	subRepo port.SubscriptionRepo,
-	ownedFactionRepo port.OwnedFactionRepo,
-	txRunner port.TxRunner,
 	cardLister CardLister,
 	appleVerifier platform.ReceiptVerifier,
 	googleVerifier platform.ReceiptVerifier,
@@ -49,26 +52,27 @@ func NewShopService(
 	premiumPublisher port.PremiumEventPublisher,
 ) *ShopService {
 	return &ShopService{
-		shopRepo:         shopRepo,
-		subRepo:          subRepo,
-		ownedFactionRepo: ownedFactionRepo,
-		txRunner:         txRunner,
-		cardLister:       cardLister,
-		appleVerifier:    appleVerifier,
-		googleVerifier:   googleVerifier,
-		factionPublisher: factionPublisher,
-		premiumPublisher: premiumPublisher,
+		productRepo:         productRepo,
+		factionPurchaseRepo: factionPurchaseRepo,
+		itemPurchaseRepo:    itemPurchaseRepo,
+		purchaseLookup:      purchaseLookup,
+		subRepo:             subRepo,
+		cardLister:          cardLister,
+		appleVerifier:       appleVerifier,
+		googleVerifier:      googleVerifier,
+		factionPublisher:    factionPublisher,
+		premiumPublisher:    premiumPublisher,
 	}
 }
 
 // GetProducts はプレイヤー向けの商品一覧を所有状態付きで返す。
 func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apishop.ProductResponse, error) {
-	products, err := s.shopRepo.GetActiveProducts(ctx)
+	products, err := s.productRepo.GetActiveProducts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get products: %w", err)
 	}
 
-	ownedFactions, err := s.ownedFactionRepo.List(ctx, playerID)
+	ownedFactions, err := s.factionPurchaseRepo.ListOwnedFactions(ctx, playerID)
 	if err != nil {
 		return nil, fmt.Errorf("list owned factions: %w", err)
 	}
@@ -79,17 +83,9 @@ func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apish
 	}
 	subEntitled := isEntitled(latestSub, time.Now())
 
-	ownedItems, err := s.shopRepo.ListPlayerItems(ctx, playerID)
+	ownedItems, err := s.itemPurchaseRepo.ListPlayerItems(ctx, playerID)
 	if err != nil {
 		return nil, fmt.Errorf("list owned items: %w", err)
-	}
-	type itemKey struct {
-		Type string
-		No   int64
-	}
-	ownedItemSet := make(map[itemKey]bool, len(ownedItems))
-	for _, it := range ownedItems {
-		ownedItemSet[itemKey{it.ItemType, it.ItemNo}] = true
 	}
 
 	result := make([]apishop.ProductResponse, 0, len(products))
@@ -111,7 +107,9 @@ func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apish
 				log.Printf("failed to parse product content for %s: %v", p.ProductID, err)
 				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
 			}
-			owned = ownedItemSet[itemKey{content.ItemType, content.ItemNo}]
+			owned = slices.ContainsFunc(ownedItems, func(it *apishop.PlayerItem) bool {
+				return it.ItemType == content.ItemType && it.ItemNo == content.ItemNo
+			})
 		}
 		result = append(result, apishop.ProductResponse{
 			ProductID:   p.ProductID,
@@ -129,14 +127,14 @@ func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apish
 }
 
 // Purchase は単発購入フローを実行する。レシート検証・べき等チェック・購入記録・
-// faction-selected イベント発行を行う。
+// faction-selected イベント発行を行う。トランザクションは repo 層で完結する。
 func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error {
-	verifier := s.getVerifier(pf)
-	if verifier == nil {
-		return fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
+	verifier, err := s.getVerifier(pf)
+	if err != nil {
+		return err
 	}
 
-	existing, err := s.shopRepo.FindPurchaseByToken(ctx, pf, purchaseToken)
+	existing, err := s.purchaseLookup.FindPurchaseByToken(ctx, pf, purchaseToken)
 	if err != nil {
 		return fmt.Errorf("check existing purchase: %w", err)
 	}
@@ -144,7 +142,7 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 		return nil
 	}
 
-	product, err := s.shopRepo.GetProductByID(ctx, productID)
+	product, err := s.productRepo.GetProductByID(ctx, productID)
 	if err != nil {
 		return fmt.Errorf("get product: %w", err)
 	}
@@ -152,31 +150,39 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 		return ErrProductNotActive
 	}
 
+	var (
+		factionContent  apishop.FactionSetContent
+		cosmeticContent apishop.CosmeticContent
+	)
+
 	switch product.Type {
 	case apishop.ProductTypeFactionSet:
-		var content apishop.FactionSetContent
-		if err := json.Unmarshal(product.Content, &content); err != nil {
+		if err := json.Unmarshal(product.Content, &factionContent); err != nil {
 			return fmt.Errorf("parse faction set content: %w", err)
 		}
-		ownedFactions, err := s.ownedFactionRepo.List(ctx, playerID)
+		if !slices.Contains(gamedesign.SelectableFactions, factionContent.Faction) {
+			return fmt.Errorf("%w: %s", ErrInvalidFaction, factionContent.Faction)
+		}
+		ownedFactions, err := s.factionPurchaseRepo.ListOwnedFactions(ctx, playerID)
 		if err != nil {
 			return fmt.Errorf("check owned factions: %w", err)
 		}
-		if slices.Contains(ownedFactions, content.Faction) {
+		if slices.Contains(ownedFactions, factionContent.Faction) {
 			return ErrAlreadyOwned
 		}
 	case apishop.ProductTypeCosmetic:
-		var content apishop.CosmeticContent
-		if err := json.Unmarshal(product.Content, &content); err != nil {
+		if err := json.Unmarshal(product.Content, &cosmeticContent); err != nil {
 			return fmt.Errorf("parse cosmetic content: %w", err)
 		}
-		owned, err := s.shopRepo.HasPlayerItem(ctx, playerID, content.ItemType, content.ItemNo)
+		owned, err := s.itemPurchaseRepo.HasPlayerItem(ctx, playerID, cosmeticContent.ItemType, cosmeticContent.ItemNo)
 		if err != nil {
 			return fmt.Errorf("check owned item: %w", err)
 		}
 		if owned {
 			return ErrAlreadyOwned
 		}
+	default:
+		return fmt.Errorf("%w: %s", ErrUnsupportedProductType, product.Type)
 	}
 
 	result, err := verifier.VerifyPurchase(ctx, purchaseToken)
@@ -193,53 +199,32 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 		PurchasedAt: time.Now(),
 	}
 
-	var (
-		grantedFaction string
-	)
-
-	if err := s.txRunner.RunInTx(ctx, func(ctx context.Context) error {
-		switch product.Type {
-		case apishop.ProductTypeFactionSet:
-			var content apishop.FactionSetContent
-			if err := json.Unmarshal(product.Content, &content); err != nil {
-				return fmt.Errorf("parse faction set content: %w", err)
-			}
-			if !slices.Contains(gamedesign.SelectableFactions, content.Faction) {
-				return fmt.Errorf("%w: %s", ErrInvalidFaction, content.Faction)
-			}
-			if err := s.shopRepo.CreatePurchase(ctx, purchase, pf, purchaseToken); err != nil {
-				return fmt.Errorf("create purchase: %w", err)
-			}
-			if err := s.ownedFactionRepo.Add(ctx, playerID, content.Faction); err != nil {
-				return fmt.Errorf("add shop-local owned faction: %w", err)
-			}
-			grantedFaction = content.Faction
-
-		case apishop.ProductTypeCosmetic:
-			var content apishop.CosmeticContent
-			if err := json.Unmarshal(product.Content, &content); err != nil {
-				return fmt.Errorf("parse cosmetic content: %w", err)
-			}
-			item := &apishop.PlayerItem{
-				PlayerID:   playerID,
-				ItemType:   content.ItemType,
-				ItemNo:     content.ItemNo,
-				AcquiredAt: time.Now(),
-			}
-			if err := s.shopRepo.CreatePurchaseWithItem(ctx, purchase, item, pf, purchaseToken); err != nil {
-				return fmt.Errorf("create purchase with item: %w", err)
-			}
-
-		default:
-			return fmt.Errorf("%w: %s", ErrUnsupportedProductType, product.Type)
+	var grantedFaction string
+	switch product.Type {
+	case apishop.ProductTypeFactionSet:
+		created, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken)
+		if err != nil {
+			return fmt.Errorf("create faction purchase: %w", err)
 		}
-		return nil
-	}); err != nil {
-		return err
+		if created {
+			grantedFaction = factionContent.Faction
+		}
+	case apishop.ProductTypeCosmetic:
+		item := &apishop.PlayerItem{
+			PlayerID:   playerID,
+			ItemType:   cosmeticContent.ItemType,
+			ItemNo:     cosmeticContent.ItemNo,
+			AcquiredAt: time.Now(),
+		}
+		if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, pf, purchaseToken); err != nil {
+			return fmt.Errorf("create item purchase: %w", err)
+		}
 	}
 
 	// commit 後に publish する。shop 行 + ローカル read model が永続記録。
 	// publish 失敗時は webhook リトライがフローを再駆動する。
+	// created=false (webhook race で既存 token ヒット) の場合は初回 publish が
+	// 済んでいる前提で skip する。
 	if grantedFaction != "" && s.factionPublisher != nil {
 		if err := s.factionPublisher.PublishFactionSelected(ctx, playerID, grantedFaction); err != nil {
 			return fmt.Errorf("publish faction-selected: %w", err)
@@ -252,9 +237,9 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 // Subscribe はサブスクリプション購入フローを実行する。レシート検証・べき等チェック・
 // サブスクリプション記録・premium-updated イベント発行を行う。
 func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error) {
-	verifier := s.getVerifier(pf)
-	if verifier == nil {
-		return nil, fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
+	verifier, err := s.getVerifier(pf)
+	if err != nil {
+		return nil, err
 	}
 
 	existing, err := s.subRepo.FindSubscriptionByToken(ctx, pf, purchaseToken)
@@ -265,7 +250,7 @@ func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, pu
 		return &existing.CurrentPeriodEnd, nil
 	}
 
-	product, err := s.shopRepo.GetProductByID(ctx, productID)
+	product, err := s.productRepo.GetProductByID(ctx, productID)
 	if err != nil {
 		return nil, fmt.Errorf("get product: %w", err)
 	}
@@ -304,13 +289,13 @@ func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, pu
 	return &info.ExpiresAt, nil
 }
 
-func (s *ShopService) getVerifier(pf string) platform.ReceiptVerifier {
+func (s *ShopService) getVerifier(pf string) (platform.ReceiptVerifier, error) {
 	switch pf {
 	case apishop.PlatformIOS:
-		return s.appleVerifier
+		return s.appleVerifier, nil
 	case apishop.PlatformAndroid:
-		return s.googleVerifier
+		return s.googleVerifier, nil
 	default:
-		return nil
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
 	}
 }

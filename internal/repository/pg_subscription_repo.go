@@ -16,7 +16,7 @@ var _ port.SubscriptionRepo = (*PgSubscriptionRepository)(nil)
 
 // PgSubscriptionRepository は pgxpool 経由の PostgreSQL で SubscriptionRepo を実装する。
 // shop.subscriptions (純粋ドメイン) と shop.{apple,google}_subscription_tokens
-// (外部識別マッピング) の 2 系統を協調操作する。
+// (外部識別マッピング) の 2 系統を同一 tx で協調操作する。
 type PgSubscriptionRepository struct {
 	pool *pgxpool.Pool
 }
@@ -25,7 +25,6 @@ func NewPgSubscriptionRepository(pool *pgxpool.Pool) *PgSubscriptionRepository {
 	return &PgSubscriptionRepository{pool: pool}
 }
 
-// subscriptionTokenTableForPlatform は subscription 用の token テーブル名を返す。
 func subscriptionTokenTableForPlatform(platform string) (string, error) {
 	switch platform {
 	case apishop.PlatformIOS:
@@ -39,28 +38,18 @@ func subscriptionTokenTableForPlatform(platform string) (string, error) {
 
 // CreateSubscription は subscriptions + 対応 token 行をアトミックに挿入する。
 func (r *PgSubscriptionRepository) CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string) error {
-	table, err := subscriptionTokenTableForPlatform(platform)
+	tokenTable, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
 		return err
 	}
 
-	if txFromContext(ctx) != nil {
-		return r.createSubscriptionInner(ctx, connFrom(ctx, r.pool), sub, table, purchaseToken)
-	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := r.createSubscriptionInner(ctx, tx, sub, table, purchaseToken); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (r *PgSubscriptionRepository) createSubscriptionInner(ctx context.Context, db dbtx, sub *apishop.Subscription, tokenTable, purchaseToken string) error {
-	if err := db.QueryRow(ctx,
+	if err := tx.QueryRow(ctx,
 		`INSERT INTO shop.subscriptions (player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING subscription_id`,
 		sub.PlayerID, sub.ProductID, sub.Status,
@@ -70,11 +59,15 @@ func (r *PgSubscriptionRepository) createSubscriptionInner(ctx context.Context, 
 		return fmt.Errorf("insert subscription: %w", err)
 	}
 
-	if _, err := db.Exec(ctx,
+	if _, err := tx.Exec(ctx,
 		fmt.Sprintf(`INSERT INTO %s (token, subscription_id) VALUES ($1, $2)`, tokenTable),
 		purchaseToken, sub.SubscriptionID,
 	); err != nil {
 		return fmt.Errorf("insert subscription token: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -82,7 +75,7 @@ func (r *PgSubscriptionRepository) createSubscriptionInner(ctx context.Context, 
 // GetLatestSubscription は player の最新サブスクリプション 1 行を返す。
 // 純粋ドメインなので token テーブルは引かない (status / 期間判定のみが必要なため)。
 func (r *PgSubscriptionRepository) GetLatestSubscription(ctx context.Context, playerID string) (*apishop.Subscription, error) {
-	row := connFrom(ctx, r.pool).QueryRow(ctx,
+	row := r.pool.QueryRow(ctx,
 		`SELECT subscription_id, player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at
 		   FROM shop.subscriptions
 		  WHERE player_id = $1
@@ -113,7 +106,7 @@ func (r *PgSubscriptionRepository) FindSubscriptionByToken(ctx context.Context, 
 		  WHERE t.token = $1`,
 		table,
 	)
-	row := connFrom(ctx, r.pool).QueryRow(ctx, q, purchaseToken)
+	row := r.pool.QueryRow(ctx, q, purchaseToken)
 	s, err := scanSubscription(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -139,7 +132,7 @@ func scanSubscription(row pgx.Row) (*apishop.Subscription, error) {
 
 // UpdateSubscription はサブスクリプションの状態・期間を更新する。
 func (r *PgSubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error {
-	if _, err := connFrom(ctx, r.pool).Exec(ctx,
+	if _, err := r.pool.Exec(ctx,
 		`UPDATE shop.subscriptions SET
 			status = $1,
 			current_period_start = $2,

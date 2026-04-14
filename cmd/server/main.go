@@ -57,10 +57,11 @@ func run() error {
 	}
 	defer func() { _ = fsClient.Close() }()
 
-	txManager := repository.NewTxManager(pool)
-	shopRepo := repository.NewPgShopRepository(pool)
+	productRepo := repository.NewPgProductRepository(pool)
+	factionPurchaseRepo := repository.NewPgFactionPurchaseRepository(pool)
+	itemPurchaseRepo := repository.NewPgItemPurchaseRepository(pool)
+	purchaseLookup := repository.NewPgPurchaseLookupRepository(pool)
 	subRepo := repository.NewPgSubscriptionRepository(pool)
-	ownedFactionRepo := repository.NewPgOwnedFactionRepository(pool)
 	// game_config は現在 shop の runtime パスから参照していない。
 	// クライアント到達性は起動時に検証するため、repo を生成だけしておく。
 	_ = repository.NewFirestoreGameConfigRepository(fsClient)
@@ -108,8 +109,8 @@ func run() error {
 	}
 
 	shopSvc := service.NewShopService(
-		shopRepo, subRepo, ownedFactionRepo,
-		txManager, nilCardLister{},
+		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup,
+		subRepo, nilCardLister{},
 		appleVerifier, googleVerifier,
 		pub, pub,
 	)

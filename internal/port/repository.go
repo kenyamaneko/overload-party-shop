@@ -6,26 +6,39 @@ import (
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
-// ShopRepository は shop ローカルの SQL 状態（products, purchases, cosmetic items）を
-// 管理する。全書き込みは `shop` スキーマに閉じ、クロススキーマの状態変更
-// （account.players, card.player_cards, account.player_factions）は Pub/Sub 経由で行う。
-//
-// CreatePurchase / CreatePurchaseWithItem は purchase 行と
-// {apple,google}_purchase_tokens 行を同一トランザクションで挿入する。
-// 既存トークンが見つかった場合はべき等に no-op で抜ける。
-type ShopRepository interface {
+// ProductRepo は shop.products の読み取り専用 repo。
+type ProductRepo interface {
 	GetActiveProducts(ctx context.Context) ([]*apishop.Product, error)
 	GetProductByID(ctx context.Context, productID string) (*apishop.Product, error)
-	// FindPurchaseByToken は platform に応じた token テーブルから purchase を引く。
-	// playerID は付加検証用 (token は token テーブル内で一意なので playerID なしでも一意特定可)。
-	FindPurchaseByToken(ctx context.Context, platform, purchaseToken string) (*apishop.OneTimePurchase, error)
-	// CreatePurchase は one_time_purchases + 対応 token 行を挿入する。faction set 等で使用。
-	CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, platform, purchaseToken string) error
-	// CreatePurchaseWithItem は cosmetic 購入で player_items 行も同 tx で挿入する。
-	CreatePurchaseWithItem(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string) error
-	InsertPlayerItems(ctx context.Context, items []*apishop.PlayerItem) error
+}
+
+// FactionPurchaseRepo は faction_set 購入 aggregate を扱う。
+// shop.one_time_purchases + shop.{apple,google}_purchase_tokens + shop.player_owned_factions
+// を単一トランザクションで操作する。
+type FactionPurchaseRepo interface {
+	// CreatePurchase は purchase + token + owned_faction を単一 tx で挿入する。
+	// 既存 token があれば created=false で既存 purchase_id を purchase.PurchaseID に埋めて
+	// no-op で返し、owned_faction の挿入もスキップする。
+	CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, faction, platform, purchaseToken string) (created bool, err error)
+	ListOwnedFactions(ctx context.Context, playerID string) ([]string, error)
+}
+
+// ItemPurchaseRepo は cosmetic 購入 aggregate を扱う。
+// shop.one_time_purchases + shop.{apple,google}_purchase_tokens + shop.player_items
+// を単一トランザクションで操作する。
+type ItemPurchaseRepo interface {
+	// CreatePurchase は purchase + token + player_item を単一 tx で挿入する。
+	// 既存 token があれば created=false で既存 purchase_id を purchase.PurchaseID に埋めて
+	// no-op で返し、player_item の挿入もスキップする。
+	CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string) (created bool, err error)
 	HasPlayerItem(ctx context.Context, playerID, itemType string, itemNo int64) (bool, error)
 	ListPlayerItems(ctx context.Context, playerID string) ([]*apishop.PlayerItem, error)
+}
+
+// PurchaseLookupRepo は token からの一回きり購入引きを担当する cross-cutting 読み取り repo。
+// faction / item どちらの aggregate にも属さず、webhook 冪等性チェック用の早期 short-circuit に使う。
+type PurchaseLookupRepo interface {
+	FindPurchaseByToken(ctx context.Context, platform, purchaseToken string) (*apishop.OneTimePurchase, error)
 }
 
 // SubscriptionRepo はサブスクリプション + 対応する Apple/Google トークンマッピングの CRUD。
@@ -41,20 +54,6 @@ type SubscriptionRepo interface {
 	GetLatestSubscription(ctx context.Context, playerID string) (*apishop.Subscription, error)
 	FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*apishop.Subscription, error)
 	UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error
-}
-
-// OwnedFactionRepo は shop 購入によるfaction 所有状態のローカル投影。
-// initial_selection の所有は shop では追跡しない。faction-selected イベント発行後に
-// 行を書き込み、GetProducts が IsOwned フラグに使用する write-through read model。
-// テーブルは `shop` スキーマに存在するためクロススキーマ書き込みではない。
-type OwnedFactionRepo interface {
-	Add(ctx context.Context, playerID, faction string) error
-	List(ctx context.Context, playerID string) ([]string, error)
-}
-
-// TxRunner はトランザクション内での関数実行を提供する。
-type TxRunner interface {
-	RunInTx(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
 // GameConfigRepo はゲーム設定値の読み取りを抽象化するインターフェースです。

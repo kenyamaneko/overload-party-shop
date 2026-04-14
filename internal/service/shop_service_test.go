@@ -54,12 +54,14 @@ func (f *fakePremiumPublisher) PublishPremiumUpdated(_ context.Context, playerID
 }
 
 type testShopEnv struct {
-	svc              *ShopService
-	shopRepo         *repository.PgShopRepository
-	subRepo          *repository.PgSubscriptionRepository
-	ownedFactionRepo *repository.PgOwnedFactionRepository
-	factionPub       *fakeFactionPublisher
-	premiumPub       *fakePremiumPublisher
+	svc                 *ShopService
+	productRepo         *repository.PgProductRepository
+	factionPurchaseRepo *repository.PgFactionPurchaseRepository
+	itemPurchaseRepo    *repository.PgItemPurchaseRepository
+	purchaseLookup      *repository.PgPurchaseLookupRepository
+	subRepo             *repository.PgSubscriptionRepository
+	factionPub          *fakeFactionPublisher
+	premiumPub          *fakePremiumPublisher
 }
 
 // shopEnvOption は newTestShopEnv に渡す依存差し替えオプション。verifier 等
@@ -92,10 +94,11 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 		opt(deps)
 	}
 
-	shopRepo := repository.NewPgShopRepository(sharedPg.Pool)
+	productRepo := repository.NewPgProductRepository(sharedPg.Pool)
+	factionPurchaseRepo := repository.NewPgFactionPurchaseRepository(sharedPg.Pool)
+	itemPurchaseRepo := repository.NewPgItemPurchaseRepository(sharedPg.Pool)
+	purchaseLookup := repository.NewPgPurchaseLookupRepository(sharedPg.Pool)
 	subRepo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
-	ownedFactionRepo := repository.NewPgOwnedFactionRepository(sharedPg.Pool)
-	txRunner := repository.NewTxManager(sharedPg.Pool)
 	factionPub := &fakeFactionPublisher{}
 	premiumPub := &fakePremiumPublisher{}
 
@@ -105,15 +108,17 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	}
 	cardLister := &fakeCardLister{cards: cards}
 
-	svc := NewShopService(shopRepo, subRepo, ownedFactionRepo, txRunner, cardLister, deps.appleVerifier, deps.googleVerifier, factionPub, premiumPub)
+	svc := NewShopService(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, cardLister, deps.appleVerifier, deps.googleVerifier, factionPub, premiumPub)
 
 	return &testShopEnv{
-		svc:              svc,
-		shopRepo:         shopRepo,
-		subRepo:          subRepo,
-		ownedFactionRepo: ownedFactionRepo,
-		factionPub:       factionPub,
-		premiumPub:       premiumPub,
+		svc:                 svc,
+		productRepo:         productRepo,
+		factionPurchaseRepo: factionPurchaseRepo,
+		itemPurchaseRepo:    itemPurchaseRepo,
+		purchaseLookup:      purchaseLookup,
+		subRepo:             subRepo,
+		factionPub:          factionPub,
+		premiumPub:          premiumPub,
 	}
 }
 
@@ -154,7 +159,7 @@ func TestPurchase_FactionSet_Success(t *testing.T) {
 	})
 
 	t.Run("writes shop-local owned faction", func(t *testing.T) {
-		factions, err := env.ownedFactionRepo.List(context.Background(), "11111111-1111-1111-1111-111111111111")
+		factions, err := env.factionPurchaseRepo.ListOwnedFactions(context.Background(), "11111111-1111-1111-1111-111111111111")
 		require.NoError(t, err)
 		assert.Contains(t, factions, "Tenki")
 	})
@@ -448,7 +453,10 @@ func TestGetProducts_WithOwnership(t *testing.T) {
 
 	playerID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 	// shop 購入で SHE faction を所有している状態をシミュレート
-	require.NoError(t, env.ownedFactionRepo.Add(context.Background(), playerID, "SHE"))
+	_, err := sharedPg.Pool.Exec(context.Background(),
+		`INSERT INTO shop.player_owned_factions (player_id, faction) VALUES ($1, $2)`,
+		playerID, "SHE")
+	require.NoError(t, err)
 
 	products, err := env.svc.GetProducts(context.Background(), playerID)
 	require.NoError(t, err)
@@ -555,11 +563,13 @@ func TestGetVerifier(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.platform, func(t *testing.T) {
-			v := env.svc.getVerifier(tt.platform)
+			v, err := env.svc.getVerifier(tt.platform)
 			if tt.wantNil {
 				assert.Nil(t, v)
+				assert.Error(t, err)
 			} else {
 				assert.NotNil(t, v)
+				assert.NoError(t, err)
 			}
 		})
 	}
