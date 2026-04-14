@@ -10,72 +10,134 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/repository"
 )
 
-func TestPgOwnedFactionRepository_AddAndList(t *testing.T) {
-	sharedPg.Truncate(t)
+func TestPgOwnedFactionRepository_Add(t *testing.T) {
 	repo := repository.NewPgOwnedFactionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	playerID := "11111111-aaaa-aaaa-aaaa-111111111111"
+	const (
+		user1 = "11111111-1111-1111-1111-111111111111"
+		user2 = "22222222-2222-2222-2222-222222222222"
+	)
 
-	require.NoError(t, repo.Add(ctx, playerID, "SHE"))
-	require.NoError(t, repo.Add(ctx, playerID, "Tenki"))
+	type seed struct{ playerID, faction string }
 
-	got, err := repo.List(ctx, playerID)
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"SHE", "Tenki"}, got)
+	tests := []struct {
+		name    string
+		seeds   []seed
+		player  string
+		faction string
+		wantErr bool
+	}{
+		{
+			name:    "同じユーザーに重複するfactionはPK違反でエラー",
+			seeds:   []seed{{user1, "SHE"}},
+			player:  user1,
+			faction: "SHE",
+			wantErr: true,
+		},
+		{
+			name:    "同じユーザーに重複しないfactionは追加成功",
+			seeds:   []seed{{user1, "SHE"}},
+			player:  user1,
+			faction: "Tenki",
+			wantErr: false,
+		},
+		{
+			name:    "異なるユーザーに同じfactionは追加成功",
+			seeds:   []seed{{user1, "SHE"}},
+			player:  user2,
+			faction: "SHE",
+			wantErr: false,
+		},
+		{
+			name:    "不正なfactionはCHECK制約でエラー",
+			player:  user1,
+			faction: "InvalidFaction",
+			wantErr: true,
+		},
+		{
+			name:    "player_IDが空文字(UUID不正)はエラー",
+			player:  "",
+			faction: "SHE",
+			wantErr: true,
+		},
+		{
+			name:    "factionが空文字はCHECK制約でエラー",
+			player:  user1,
+			faction: "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sharedPg.Truncate(t)
+			for _, s := range tt.seeds {
+				require.NoError(t, repo.Add(ctx, s.playerID, s.faction))
+			}
+
+			err := repo.Add(ctx, tt.player, tt.faction)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
-func TestPgOwnedFactionRepository_Add_Idempotent(t *testing.T) {
+func TestPgOwnedFactionRepository_List(t *testing.T) {
 	sharedPg.Truncate(t)
 	repo := repository.NewPgOwnedFactionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	playerID := "22222222-bbbb-bbbb-bbbb-222222222222"
+	const (
+		userA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+		userB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+		userC = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+	)
 
-	require.NoError(t, repo.Add(ctx, playerID, "Sugar"))
-	require.NoError(t, repo.Add(ctx, playerID, "Sugar"), "ON CONFLICT DO NOTHING で重複は無視される")
+	require.NoError(t, repo.Add(ctx, userA, "SHE"))
+	require.NoError(t, repo.Add(ctx, userB, "SHE"))
+	require.NoError(t, repo.Add(ctx, userB, "Tenki"))
 
-	got, err := repo.List(ctx, playerID)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"Sugar"}, got)
-}
+	tests := []struct {
+		name    string
+		player  string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:   "userAはSHEのみ取得",
+			player: userA,
+			want:   []string{"SHE"},
+		},
+		{
+			name:   "userBはSHEとTenkiを取得",
+			player: userB,
+			want:   []string{"SHE", "Tenki"},
+		},
+		{
+			name:   "所有行のないuserCは空",
+			player: userC,
+			want:   nil,
+		},
+		{
+			name:    "player_IDが空文字(UUID不正)はエラー",
+			player:  "",
+			wantErr: true,
+		},
+	}
 
-func TestPgOwnedFactionRepository_List_ScopesByPlayer(t *testing.T) {
-	sharedPg.Truncate(t)
-	repo := repository.NewPgOwnedFactionRepository(sharedPg.Pool)
-	ctx := context.Background()
-
-	p1 := "33333333-cccc-cccc-cccc-333333333333"
-	p2 := "44444444-dddd-dddd-dddd-444444444444"
-
-	require.NoError(t, repo.Add(ctx, p1, "SHE"))
-	require.NoError(t, repo.Add(ctx, p1, "Tuners"))
-	require.NoError(t, repo.Add(ctx, p2, "Tenki"))
-
-	got1, err := repo.List(ctx, p1)
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"SHE", "Tuners"}, got1)
-
-	got2, err := repo.List(ctx, p2)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"Tenki"}, got2)
-}
-
-func TestPgOwnedFactionRepository_List_Empty(t *testing.T) {
-	sharedPg.Truncate(t)
-	repo := repository.NewPgOwnedFactionRepository(sharedPg.Pool)
-	ctx := context.Background()
-
-	got, err := repo.List(ctx, "55555555-eeee-eeee-eeee-555555555555")
-	require.NoError(t, err)
-	assert.Empty(t, got)
-}
-
-func TestPgOwnedFactionRepository_Add_RejectsInvalidFaction(t *testing.T) {
-	sharedPg.Truncate(t)
-	repo := repository.NewPgOwnedFactionRepository(sharedPg.Pool)
-	ctx := context.Background()
-
-	err := repo.Add(ctx, "66666666-ffff-ffff-ffff-666666666666", "InvalidFaction")
-	require.Error(t, err, "CHECK 制約により拒否されること")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := repo.List(ctx, tt.player)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.want, got)
+		})
+	}
 }

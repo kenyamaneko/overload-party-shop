@@ -28,8 +28,7 @@ func NewPgOwnedFactionRepository(pool *pgxpool.Pool) *PgOwnedFactionRepository {
 func (r *PgOwnedFactionRepository) Add(ctx context.Context, playerID, faction string) error {
 	_, err := connFrom(ctx, r.pool).Exec(ctx,
 		`INSERT INTO shop.player_owned_factions (player_id, faction)
-		 VALUES ($1, $2)
-		 ON CONFLICT (player_id, faction) DO NOTHING`,
+		 VALUES ($1, $2)`,
 		playerID, faction,
 	)
 	if err != nil {
