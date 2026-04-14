@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -14,17 +13,7 @@ import (
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository/testutil"
 )
-
-var sharedPg *testutil.Postgres
-
-func TestMain(m *testing.M) {
-	os.Exit(testutil.RunMain(m, &sharedPg,
-		testutil.WithSchemaFile("db/schema.sql"),
-		testutil.WithSchema("shop"),
-	))
-}
 
 func seedProduct(t *testing.T, productID, name, productType string, price int64, isActive bool) {
 	t.Helper()
