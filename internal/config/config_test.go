@@ -107,18 +107,18 @@ func TestFromEnv_InvalidIAPMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "IAP_MODE must be")
 }
 
-func TestFromEnv_ProductionMode_MissingGCPProject(t *testing.T) {
+func TestFromEnv_ProductionMode_MissingGoogleCloudProject(t *testing.T) {
 	setEnvs(t, map[string]string{
 		"DATABASE_URL":         "postgres://localhost/test",
 		"PUBSUB_PROJECT_ID":    "test-project",
 		"FIRESTORE_PROJECT_ID": "test-project",
 		"IAP_MODE":             "production",
 	})
-	os.Unsetenv("GCP_PROJECT")
+	os.Unsetenv("GOOGLE_CLOUD_PROJECT")
 
 	_, err := FromEnv()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "GCP_PROJECT is required when IAP_MODE=production")
+	assert.Contains(t, err.Error(), "GOOGLE_CLOUD_PROJECT is required when IAP_MODE=production")
 }
 
 func TestFromEnv_CustomPort(t *testing.T) {
@@ -155,11 +155,11 @@ func TestFromEnv_DefaultIAPModeIsProduction(t *testing.T) {
 		"PUBSUB_PROJECT_ID":    "test-project",
 		"FIRESTORE_PROJECT_ID": "test-project",
 	})
-	// IAP_MODE 未設定 → デフォルトは production → GCP_PROJECT 必須
+	// IAP_MODE 未設定 → デフォルトは production → GOOGLE_CLOUD_PROJECT 必須
 	os.Unsetenv("IAP_MODE")
-	os.Unsetenv("GCP_PROJECT")
+	os.Unsetenv("GOOGLE_CLOUD_PROJECT")
 
 	_, err := FromEnv()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "GCP_PROJECT is required when IAP_MODE=production")
+	assert.Contains(t, err.Error(), "GOOGLE_CLOUD_PROJECT is required when IAP_MODE=production")
 }

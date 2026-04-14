@@ -28,7 +28,7 @@ type Config struct {
 	Env         string
 	DatabaseURL string
 
-	// faction-selected + premium-updated topic をホストする GCP project。
+	// faction-selected + premium-updated topic をホストする Google Cloud project。
 	// 必須 — 設定がない場合イベントが静かに失われるため fail-fast する。
 	PubsubProjectID string
 	// topic 名はクロスプロジェクトテスト用に変更可能。本番はデフォルト値を使用。
@@ -39,8 +39,8 @@ type Config struct {
 	// IAP_MODE=local にすると IAP 設定なしで起動でき、webhook ルートは登録されない。
 	IAPMode IAPMode
 
-	// Secret Manager 参照用 GCP project ID。IAPMode == production のとき必須。
-	GCPProject string
+	// Secret Manager 参照用 Google Cloud project ID。IAPMode == production のとき必須。
+	GoogleCloudProject string
 
 	// Apple IAP
 	AppleKeyID         string
@@ -70,7 +70,7 @@ func FromEnv() (*Config, error) {
 		FactionSelectedTopic: getEnv("FACTION_SELECTED_TOPIC", "faction-selected"),
 		PremiumUpdatedTopic:  getEnv("PREMIUM_UPDATED_TOPIC", "premium-updated"),
 		IAPMode:              IAPMode(getEnv("IAP_MODE", string(IAPModeProduction))),
-		GCPProject:           os.Getenv("GCP_PROJECT"),
+		GoogleCloudProject:   os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		AppleEnvironment:     getEnv("APPLE_ENVIRONMENT", "Sandbox"),
 		FirestoreProjectID:   os.Getenv("FIRESTORE_PROJECT_ID"),
 	}
@@ -107,10 +107,10 @@ func FromEnv() (*Config, error) {
 }
 
 // loadProductionIAP は Secret Manager から IAP 認証情報を取得する。
-// GCP_PROJECT 未設定やシークレット到達不可の場合は fail-fast する。
+// GOOGLE_CLOUD_PROJECT 未設定やシークレット到達不可の場合は fail-fast する。
 func loadProductionIAP(cfg *Config) error {
-	if cfg.GCPProject == "" {
-		return fmt.Errorf("config: GCP_PROJECT is required when IAP_MODE=production")
+	if cfg.GoogleCloudProject == "" {
+		return fmt.Errorf("config: GOOGLE_CLOUD_PROJECT is required when IAP_MODE=production")
 	}
 
 	ctx := context.Background()
@@ -120,24 +120,24 @@ func loadProductionIAP(cfg *Config) error {
 	}
 	defer client.Close()
 
-	cfg.AppleKeyID, err = accessSecret(ctx, client, cfg.GCPProject, "shop-apple-key-id")
+	cfg.AppleKeyID, err = accessSecret(ctx, client, cfg.GoogleCloudProject, "shop-apple-key-id")
 	if err != nil {
 		return err
 	}
-	cfg.AppleIssuerID, err = accessSecret(ctx, client, cfg.GCPProject, "shop-apple-issuer-id")
+	cfg.AppleIssuerID, err = accessSecret(ctx, client, cfg.GoogleCloudProject, "shop-apple-issuer-id")
 	if err != nil {
 		return err
 	}
-	cfg.AppleBundleID, err = accessSecret(ctx, client, cfg.GCPProject, "shop-apple-bundle-id")
+	cfg.AppleBundleID, err = accessSecret(ctx, client, cfg.GoogleCloudProject, "shop-apple-bundle-id")
 	if err != nil {
 		return err
 	}
-	cfg.GooglePackageName, err = accessSecret(ctx, client, cfg.GCPProject, "shop-google-package-name")
+	cfg.GooglePackageName, err = accessSecret(ctx, client, cfg.GoogleCloudProject, "shop-google-package-name")
 	if err != nil {
 		return err
 	}
 
-	pemStr, err := accessSecret(ctx, client, cfg.GCPProject, "shop-apple-private-key")
+	pemStr, err := accessSecret(ctx, client, cfg.GoogleCloudProject, "shop-apple-private-key")
 	if err != nil {
 		return err
 	}

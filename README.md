@@ -31,13 +31,13 @@ Apple App Store / Google Play (外部)
 
 ### Production (`IAP_MODE=production`, デフォルト)
 
-Apple/Google IAP 資格情報は **GCP Secret Manager** から起動時に取得する。k8s マニフェストにシークレットは載せない。
+Apple/Google IAP 資格情報は **Google Cloud Secret Manager** から起動時に取得する。k8s マニフェストにシークレットは載せない。
 
 | 変数名 | デフォルト | 説明 |
 |---|---|---|
 | `DATABASE_URL` | (必須) | PostgreSQL 接続文字列 |
-| `PUBSUB_PROJECT_ID` | (必須) | Pub/Sub GCP プロジェクト |
-| `GCP_PROJECT` | (production 時必須) | Secret Manager が存在する GCP プロジェクト ID |
+| `PUBSUB_PROJECT_ID` | (必須) | Pub/Sub Google Cloud プロジェクト |
+| `GOOGLE_CLOUD_PROJECT` | (production 時必須) | Secret Manager が存在する Google Cloud プロジェクト ID |
 | `PORT` | `9006` | リッスンポート |
 | `ENV` | `dev` | `dev` / `stg` / `prod` |
 | `FACTION_SELECTED_TOPIC` | `faction-selected` | faction-selected Pub/Sub トピック名 |
@@ -69,7 +69,7 @@ Secret Manager を使わず環境変数から直接読み込む。未設定で�
 | `APPLE_PRIVATE_KEY_PATH` | `.p8` 秘密鍵ファイルパス |
 | `GOOGLE_PACKAGE_NAME` | Android パッケージ名 |
 
-`DATABASE_URL` / `PUBSUB_PROJECT_ID` が未設定なら起動時に即 fail する。`IAP_MODE=production` で `GCP_PROJECT` が未設定、または Secret Manager に到達できない場合も即 fail する。
+`DATABASE_URL` / `PUBSUB_PROJECT_ID` が未設定なら起動時に即 fail する。`IAP_MODE=production` で `GOOGLE_CLOUD_PROJECT` が未設定、または Secret Manager に到達できない場合も即 fail する。
 
 ## ローカル開発
 
