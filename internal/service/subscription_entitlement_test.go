@@ -18,15 +18,51 @@ func TestIsEntitled(t *testing.T) {
 		sub  *apishop.Subscription
 		want bool
 	}{
-		{"nil", nil, false},
-		{"active in period", &apishop.Subscription{Status: apishop.SubscriptionStatusActive, CurrentPeriodEnd: future}, true},
-		{"active expired", &apishop.Subscription{Status: apishop.SubscriptionStatusActive, CurrentPeriodEnd: past}, false},
-		{"cancelled in period", &apishop.Subscription{Status: apishop.SubscriptionStatusCancelled, CurrentPeriodEnd: future}, true},
-		{"cancelled expired", &apishop.Subscription{Status: apishop.SubscriptionStatusCancelled, CurrentPeriodEnd: past}, false},
-		{"grace in period", &apishop.Subscription{Status: apishop.SubscriptionStatusGrace, CurrentPeriodEnd: future}, true},
-		{"grace expired", &apishop.Subscription{Status: apishop.SubscriptionStatusGrace, CurrentPeriodEnd: past}, false},
-		{"expired", &apishop.Subscription{Status: apishop.SubscriptionStatusExpired, CurrentPeriodEnd: future}, false},
-		{"revoked", &apishop.Subscription{Status: apishop.SubscriptionStatusRevoked, CurrentPeriodEnd: future}, false},
+		{
+			name: "サブスク行なし",
+			sub:  nil,
+			want: false,
+		},
+		{
+			name: "active かつ期間内",
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusActive, CurrentPeriodEnd: future},
+			want: true,
+		},
+		{
+			name: "active だが期限切れ",
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusActive, CurrentPeriodEnd: past},
+			want: false,
+		},
+		{
+			name: "cancelled だが期間内（自動更新オフ後の残存期間）",
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusCancelled, CurrentPeriodEnd: future},
+			want: true,
+		},
+		{
+			name: "cancelled で期限切れ",
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusCancelled, CurrentPeriodEnd: past},
+			want: false,
+		},
+		{
+			name: "grace_period かつ期間内（支払い失敗中の猶予）",
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusGrace, CurrentPeriodEnd: future},
+			want: true,
+		},
+		{
+			name: "grace_period で期限切れ",
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusGrace, CurrentPeriodEnd: past},
+			want: false,
+		},
+		{
+			name: "expired は期間内でも無効",
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusExpired, CurrentPeriodEnd: future},
+			want: false,
+		},
+		{
+			name: "revoked は期間内でも無効",
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusRevoked, CurrentPeriodEnd: future},
+			want: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

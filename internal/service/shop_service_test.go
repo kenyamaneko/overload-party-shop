@@ -9,6 +9,7 @@ import (
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/platform"
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,6 +73,10 @@ type shopEnvOption func(*shopEnvDeps)
 type shopEnvDeps struct {
 	appleVerifier  platform.ReceiptVerifier
 	googleVerifier platform.ReceiptVerifier
+	factionPubErr  error
+	premiumPubErr  error
+	nilFactionPub  bool
+	nilPremiumPub  bool
 }
 
 func withAppleVerifier(v platform.ReceiptVerifier) shopEnvOption {
@@ -80,6 +85,22 @@ func withAppleVerifier(v platform.ReceiptVerifier) shopEnvOption {
 
 func withGoogleVerifier(v platform.ReceiptVerifier) shopEnvOption {
 	return func(d *shopEnvDeps) { d.googleVerifier = v }
+}
+
+func withFactionPubErr(err error) shopEnvOption {
+	return func(d *shopEnvDeps) { d.factionPubErr = err }
+}
+
+func withPremiumPubErr(err error) shopEnvOption {
+	return func(d *shopEnvDeps) { d.premiumPubErr = err }
+}
+
+func withNilFactionPub() shopEnvOption {
+	return func(d *shopEnvDeps) { d.nilFactionPub = true }
+}
+
+func withNilPremiumPub() shopEnvOption {
+	return func(d *shopEnvDeps) { d.nilPremiumPub = true }
 }
 
 func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
@@ -99,8 +120,17 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	itemPurchaseRepo := repository.NewPgItemPurchaseRepository(sharedPg.Pool)
 	purchaseLookup := repository.NewPgPurchaseLookupRepository(sharedPg.Pool)
 	subRepo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
-	factionPub := &fakeFactionPublisher{}
-	premiumPub := &fakePremiumPublisher{}
+	factionPub := &fakeFactionPublisher{err: deps.factionPubErr}
+	premiumPub := &fakePremiumPublisher{err: deps.premiumPubErr}
+
+	var factionPubArg port.FactionEventPublisher = factionPub
+	if deps.nilFactionPub {
+		factionPubArg = nil
+	}
+	var premiumPubArg port.PremiumEventPublisher = premiumPub
+	if deps.nilPremiumPub {
+		premiumPubArg = nil
+	}
 
 	cards := []*apishop.CardView{
 		{CardID: "SH-0001", CardName: "SHE Compute", Faction: "SHE", CardType: "Compute", Restriction: "unlimited", IsActive: true},
@@ -108,7 +138,7 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	}
 	cardLister := &fakeCardLister{cards: cards}
 
-	svc := NewShopService(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, cardLister, deps.appleVerifier, deps.googleVerifier, factionPub, premiumPub)
+	svc := NewShopService(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, cardLister, deps.appleVerifier, deps.googleVerifier, factionPubArg, premiumPubArg)
 
 	return &testShopEnv{
 		svc:                 svc,
@@ -356,6 +386,14 @@ func TestSubscribe_Success(t *testing.T) {
 }
 
 func TestSubscribe_Errors(t *testing.T) {
+	// verifier を呼ばない経路のケースでも DI の形を揃えるため default を明示する。
+	defaultVerifier := &platform.MockReceiptVerifier{}
+	invalidSubVerifier := &platform.MockReceiptVerifier{
+		VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
+			return &platform.SubscriptionInfo{IsValid: false}, nil
+		},
+	}
+
 	tests := []struct {
 		name          string
 		product       *apishop.Product
@@ -366,7 +404,7 @@ func TestSubscribe_Errors(t *testing.T) {
 		wantErr       error
 	}{
 		{
-			name: "NotSubscriptionProduct",
+			name: "サブスク以外の商品を Subscribe",
 			product: &apishop.Product{
 				ProductID: "faction_she",
 				Name:      "SHEカードセット",
@@ -375,18 +413,14 @@ func TestSubscribe_Errors(t *testing.T) {
 				Content:   json.RawMessage(`{"faction":"SHE"}`),
 				IsActive:  true,
 			},
-			productID: "faction_she",
-			platform:  "ios",
-			token:     "sub-token-1",
-			wantErr:   ErrProductNotSubscription,
+			appleVerifier: defaultVerifier,
+			productID:     "faction_she",
+			platform:      "ios",
+			token:         "sub-token-1",
+			wantErr:       ErrProductNotSubscription,
 		},
 		{
-			name: "VerificationFailed",
-			appleVerifier: &platform.MockReceiptVerifier{
-				VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
-					return &platform.SubscriptionInfo{IsValid: false}, nil
-				},
-			},
+			name: "レシート検証失敗（IsValid=false）",
 			product: &apishop.Product{
 				ProductID: "premium_monthly",
 				Name:      "プレミアム月額",
@@ -395,13 +429,14 @@ func TestSubscribe_Errors(t *testing.T) {
 				Content:   json.RawMessage(`{}`),
 				IsActive:  true,
 			},
-			productID: "premium_monthly",
-			platform:  "ios",
-			token:     "bad-sub-token",
-			wantErr:   ErrSubVerificationFailed,
+			appleVerifier: invalidSubVerifier,
+			productID:     "premium_monthly",
+			platform:      "ios",
+			token:         "bad-sub-token",
+			wantErr:       ErrSubVerificationFailed,
 		},
 		{
-			name: "UnsupportedPlatform",
+			name: "未対応 platform",
 			product: &apishop.Product{
 				ProductID: "premium_monthly",
 				Name:      "プレミアム月額",
@@ -410,19 +445,16 @@ func TestSubscribe_Errors(t *testing.T) {
 				Content:   json.RawMessage(`{}`),
 				IsActive:  true,
 			},
-			productID: "premium_monthly",
-			platform:  "windows",
-			token:     "sub-token-1",
-			wantErr:   ErrUnsupportedPlatform,
+			appleVerifier: defaultVerifier,
+			productID:     "premium_monthly",
+			platform:      "windows",
+			token:         "sub-token-1",
+			wantErr:       ErrUnsupportedPlatform,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var opts []shopEnvOption
-			if tt.appleVerifier != nil {
-				opts = append(opts, withAppleVerifier(tt.appleVerifier))
-			}
-			env := newTestShopEnv(t, opts...)
+			env := newTestShopEnv(t, withAppleVerifier(tt.appleVerifier))
 			insertProduct(t, tt.product)
 
 			_, err := env.svc.Subscribe(context.Background(), "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", tt.productID, tt.platform, tt.token)
@@ -513,13 +545,44 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 		periodEnd   time.Time
 		wantIsOwned bool
 	}{
-		{"active in period", apishop.SubscriptionStatusActive, future, true},
-		{"cancelled in period", apishop.SubscriptionStatusCancelled, future, true},
-		{"grace in period", apishop.SubscriptionStatusGrace, future, true},
-		{"active expired", apishop.SubscriptionStatusActive, past, false},
-		{"cancelled expired", apishop.SubscriptionStatusCancelled, past, false},
-		{"expired status", apishop.SubscriptionStatusExpired, future, false},
-		{"revoked", apishop.SubscriptionStatusRevoked, future, false},
+		{
+			name:        "active かつ期間内",
+			status:      apishop.SubscriptionStatusActive,
+			periodEnd:   future,
+			wantIsOwned: true,
+		},
+		{
+			name:        "cancelled だが期間内",
+			status:      apishop.SubscriptionStatusCancelled,
+			periodEnd:   future,
+			wantIsOwned: true,
+		},
+		{
+			name:        "grace_period かつ期間内",
+			status:      apishop.SubscriptionStatusGrace,
+			periodEnd:   future,
+			wantIsOwned: true,
+		},
+		{
+			name:      "active で期限切れ",
+			status:    apishop.SubscriptionStatusActive,
+			periodEnd: past,
+		},
+		{
+			name:      "cancelled で期限切れ",
+			status:    apishop.SubscriptionStatusCancelled,
+			periodEnd: past,
+		},
+		{
+			name:      "expired は期間内でも無効",
+			status:    apishop.SubscriptionStatusExpired,
+			periodEnd: future,
+		},
+		{
+			name:      "revoked は期間内でも無効",
+			status:    apishop.SubscriptionStatusRevoked,
+			periodEnd: future,
+		},
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -554,23 +617,34 @@ func TestGetVerifier(t *testing.T) {
 	env := newTestShopEnv(t)
 
 	tests := []struct {
+		name     string
 		platform string
-		wantNil  bool
+		wantErr  error
 	}{
-		{"ios", false},
-		{"android", false},
-		{"windows", true},
+		{
+			name:     "iOS",
+			platform: "ios",
+		},
+		{
+			name:     "Android",
+			platform: "android",
+		},
+		{
+			name:     "未対応 platform",
+			platform: "windows",
+			wantErr:  ErrUnsupportedPlatform,
+		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.platform, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			v, err := env.svc.getVerifier(tt.platform)
-			if tt.wantNil {
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, v)
-				assert.Error(t, err)
-			} else {
-				assert.NotNil(t, v)
-				assert.NoError(t, err)
+				return
 			}
+			require.NoError(t, err)
+			assert.NotNil(t, v)
 		})
 	}
 }
@@ -613,4 +687,343 @@ func TestPurchase_SubscriptionTypeViaPurchase(t *testing.T) {
 
 	err := env.svc.Purchase(context.Background(), "ffffffff-ffff-ffff-ffff-ffffffffffff", "premium_monthly", "ios", "receipt-sub")
 	assert.ErrorIs(t, err, ErrUnsupportedProductType)
+}
+
+// Purchase の defensive 分岐 — verifier 到達前に弾かれる入力検証エラー。
+// 型 / 内容バリデーションが repo 層を呼ぶ前に return することを確認する。
+func TestPurchase_DefensivePaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		product  *apishop.Product
+		wantErr  error
+		wantSubs string
+	}{
+		{
+			name: "選択不可 faction が content に入っている",
+			product: &apishop.Product{
+				ProductID: "faction_unknown",
+				Name:      "未知 faction",
+				Type:      apishop.ProductTypeFactionSet,
+				Price:     980,
+				Content:   json.RawMessage(`{"faction":"NotARealFaction"}`),
+				IsActive:  true,
+			},
+			wantErr: ErrInvalidFaction,
+		},
+		{
+			name: "faction content の JSON 型不一致",
+			product: &apishop.Product{
+				ProductID: "faction_broken",
+				Name:      "壊れた faction",
+				Type:      apishop.ProductTypeFactionSet,
+				Price:     980,
+				Content:   json.RawMessage(`{"faction":123}`),
+				IsActive:  true,
+			},
+			wantSubs: "parse faction set content",
+		},
+		{
+			name: "cosmetic content の JSON 型不一致",
+			product: &apishop.Product{
+				ProductID: "cosmetic_broken",
+				Name:      "壊れた cosmetic",
+				Type:      apishop.ProductTypeCosmetic,
+				Price:     320,
+				Content:   json.RawMessage(`{"item_type":123,"item_no":1}`),
+				IsActive:  true,
+			},
+			wantSubs: "parse cosmetic content",
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestShopEnv(t)
+			insertProduct(t, tt.product)
+
+			playerID := fmt.Sprintf("eeeeeeee-%04d-eeee-eeee-eeeeeeeeeeee", i)
+			err := env.svc.Purchase(context.Background(), playerID, tt.product.ProductID, "ios", fmt.Sprintf("token-%d", i))
+			require.Error(t, err)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			}
+			if tt.wantSubs != "" {
+				assert.Contains(t, err.Error(), tt.wantSubs)
+			}
+			assert.Empty(t, env.factionPub.calls, "no publish on defensive failure")
+		})
+	}
+}
+
+// Purchase 後の publisher 経路 — error 伝播と nil publisher の skip を検証する。
+func TestPurchase_FactionPublisherPaths(t *testing.T) {
+	tests := []struct {
+		name        string
+		opts        []shopEnvOption
+		wantErr     bool
+		wantErrSubs string
+		wantCalls   int
+	}{
+		{
+			// publish 失敗時は webhook リトライで再駆動するため Purchase は 5xx 相当で失敗させる
+			name:        "publisher がエラーを返す（フロー失敗）",
+			opts:        []shopEnvOption{withFactionPubErr(fmt.Errorf("pubsub down"))},
+			wantErr:     true,
+			wantErrSubs: "publish faction-selected",
+			wantCalls:   1,
+		},
+		{
+			name:      "publisher が nil（publish skip・Purchase は成功）",
+			opts:      []shopEnvOption{withNilFactionPub()},
+			wantCalls: 0,
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := append([]shopEnvOption{
+				withAppleVerifier(&platform.MockReceiptVerifier{
+					VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
+						return &platform.VerifyResult{IsValid: true, TransactionID: "txn-pub"}, nil
+					},
+				}),
+			}, tt.opts...)
+			env := newTestShopEnv(t, opts...)
+			insertProduct(t, &apishop.Product{
+				ProductID: "faction_tenki",
+				Name:      "Tenki",
+				Type:      apishop.ProductTypeFactionSet,
+				Price:     980,
+				Content:   json.RawMessage(`{"faction":"Tenki"}`),
+				IsActive:  true,
+			})
+
+			playerID := fmt.Sprintf("11111111-%04d-2222-3333-444444444444", i)
+			err := env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", fmt.Sprintf("pub-token-%d", i))
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSubs)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Len(t, env.factionPub.calls, tt.wantCalls)
+
+			// 購入 row は publish 結果に関わらず必ず永続化される（publish はコミット後に実行）
+			factions, ferr := env.factionPurchaseRepo.ListOwnedFactions(context.Background(), playerID)
+			require.NoError(t, ferr)
+			assert.Contains(t, factions, "Tenki")
+		})
+	}
+}
+
+// 同一トークンでの再 Subscribe は既存 CurrentPeriodEnd を返し publish しない。
+func TestSubscribe_Idempotent(t *testing.T) {
+	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
+		VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
+			return &platform.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
+		},
+	}))
+	insertProduct(t, &apishop.Product{
+		ProductID: "premium_monthly",
+		Name:      "プレミアム月額",
+		Type:      apishop.ProductTypeSubscription,
+		Price:     480,
+		Content:   json.RawMessage(`{}`),
+		IsActive:  true,
+	})
+
+	playerID := "22222222-aaaa-bbbb-cccc-dddddddddddd"
+	ctx := context.Background()
+	first, err := env.svc.Subscribe(ctx, playerID, "premium_monthly", "ios", "sub-token-idem")
+	require.NoError(t, err)
+	require.NotNil(t, first)
+
+	second, err := env.svc.Subscribe(ctx, playerID, "premium_monthly", "ios", "sub-token-idem")
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	assert.WithinDuration(t, *first, *second, time.Second)
+	assert.Len(t, env.premiumPub.calls, 1, "publish only on first subscribe")
+}
+
+// VerifySubscription が infra error (ネットワーク等) を返した場合のラップ。
+func TestSubscribe_VerifierReturnsError(t *testing.T) {
+	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
+		VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
+			return nil, fmt.Errorf("network timeout")
+		},
+	}))
+	insertProduct(t, &apishop.Product{
+		ProductID: "premium_monthly",
+		Name:      "プレミアム月額",
+		Type:      apishop.ProductTypeSubscription,
+		Price:     480,
+		Content:   json.RawMessage(`{}`),
+		IsActive:  true,
+	})
+
+	_, err := env.svc.Subscribe(context.Background(), "33333333-aaaa-bbbb-cccc-dddddddddddd", "premium_monthly", "ios", "sub-token-err")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "verify subscription")
+	assert.Contains(t, err.Error(), "network timeout")
+	assert.Empty(t, env.premiumPub.calls)
+}
+
+// Subscribe 後の premium publisher 経路 — error 伝播と nil publisher の skip を検証する。
+func TestSubscribe_PremiumPublisherPaths(t *testing.T) {
+	tests := []struct {
+		name        string
+		opts        []shopEnvOption
+		wantErr     bool
+		wantErrSubs string
+		wantCalls   int
+	}{
+		{
+			name:        "publisher がエラーを返す（フロー失敗）",
+			opts:        []shopEnvOption{withPremiumPubErr(fmt.Errorf("pubsub down"))},
+			wantErr:     true,
+			wantErrSubs: "publish premium-updated",
+			wantCalls:   1,
+		},
+		{
+			name:      "publisher が nil（publish skip・Subscribe は成功）",
+			opts:      []shopEnvOption{withNilPremiumPub()},
+			wantCalls: 0,
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expiresAt := time.Now().Add(30 * 24 * time.Hour)
+			opts := append([]shopEnvOption{
+				withAppleVerifier(&platform.MockReceiptVerifier{
+					VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
+						return &platform.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
+					},
+				}),
+			}, tt.opts...)
+			env := newTestShopEnv(t, opts...)
+			insertProduct(t, &apishop.Product{
+				ProductID: "premium_monthly",
+				Name:      "プレミアム月額",
+				Type:      apishop.ProductTypeSubscription,
+				Price:     480,
+				Content:   json.RawMessage(`{}`),
+				IsActive:  true,
+			})
+
+			playerID := fmt.Sprintf("44444444-%04d-bbbb-cccc-dddddddddddd", i)
+			_, err := env.svc.Subscribe(context.Background(), playerID, "premium_monthly", "ios", fmt.Sprintf("sub-pub-%d", i))
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSubs)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Len(t, env.premiumPub.calls, tt.wantCalls)
+
+			// publish 結果に関わらず subscription 行は永続化される
+			sub, ferr := env.subRepo.GetLatestSubscription(context.Background(), playerID)
+			require.NoError(t, ferr)
+			require.NotNil(t, sub)
+			assert.Equal(t, apishop.SubscriptionStatusActive, sub.Status)
+		})
+	}
+}
+
+// GetProducts の cosmetic 所有判定 — item_type/item_no が一致するときのみ IsOwned。
+func TestGetProducts_CosmeticOwnership(t *testing.T) {
+	tests := []struct {
+		name        string
+		insertItem  bool
+		itemType    string
+		itemNo      int
+		wantIsOwned bool
+	}{
+		{
+			name:        "item_type と item_no が完全一致で所有",
+			insertItem:  true,
+			itemType:    "playmat",
+			itemNo:      1,
+			wantIsOwned: true,
+		},
+		{
+			name: "未所有",
+		},
+		{
+			name:       "item_type 一致・item_no 不一致は未所有扱い",
+			insertItem: true,
+			itemType:   "playmat",
+			itemNo:     99,
+		},
+		{
+			name:       "item_no 一致・item_type 不一致は未所有扱い",
+			insertItem: true,
+			itemType:   "sleeve",
+			itemNo:     1,
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestShopEnv(t)
+			insertProduct(t, &apishop.Product{
+				ProductID: "playmat_01",
+				Name:      "プレイマット",
+				Type:      apishop.ProductTypeCosmetic,
+				Price:     320,
+				Content:   json.RawMessage(`{"item_type":"playmat","item_no":1}`),
+				IsActive:  true,
+			})
+
+			playerID := fmt.Sprintf("55555555-%04d-bbbb-cccc-dddddddddddd", i)
+			if tt.insertItem {
+				_, err := sharedPg.Pool.Exec(context.Background(),
+					`INSERT INTO shop.player_items (player_id, item_type, item_no, acquired_at) VALUES ($1,$2,$3,now())`,
+					playerID, tt.itemType, tt.itemNo)
+				require.NoError(t, err)
+			}
+
+			products, err := env.svc.GetProducts(context.Background(), playerID)
+			require.NoError(t, err)
+			require.Len(t, products, 1)
+			assert.Equal(t, tt.wantIsOwned, products[0].IsOwned)
+		})
+	}
+}
+
+// GetProducts は壊れた content JSON を error として伝播する（log だけで握りつぶさない）。
+// DB 列が json 型のため構文エラーは insert 時点で弾かれる。ここでは「JSON としては
+// valid だが struct フィールド型と不一致」のケースを検証する。
+func TestGetProducts_MalformedContent(t *testing.T) {
+	tests := []struct {
+		name        string
+		productType string
+		content     json.RawMessage
+	}{
+		{
+			name:        "faction_set で faction の JSON 型不一致",
+			productType: apishop.ProductTypeFactionSet,
+			content:     json.RawMessage(`{"faction":123}`),
+		},
+		{
+			name:        "cosmetic で item_type の JSON 型不一致",
+			productType: apishop.ProductTypeCosmetic,
+			content:     json.RawMessage(`{"item_type":123,"item_no":1}`),
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestShopEnv(t)
+			insertProduct(t, &apishop.Product{
+				ProductID: fmt.Sprintf("broken_%d", i),
+				Name:      "broken",
+				Type:      tt.productType,
+				Price:     100,
+				Content:   tt.content,
+				IsActive:  true,
+			})
+
+			playerID := fmt.Sprintf("66666666-%04d-bbbb-cccc-dddddddddddd", i)
+			_, err := env.svc.GetProducts(context.Background(), playerID)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "parse product content for")
+		})
+	}
 }
