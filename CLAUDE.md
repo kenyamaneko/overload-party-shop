@@ -1,13 +1,21 @@
-# CLAUDE.md - overload-party-shop
+# Overload Party - Development Principles
 
-## 行動制約
+## 設計思想
+- エラーは握りつぶさず根本解決する。ログだけして握りつぶすのは禁止
+- デフォルト値へのフォールバックを行わない。意図しない値になるならエラーにする
+- 一つの関数に複数の責務を負わせない
 
-- エラーは握りつぶさない（verifier エラー含む）
-- git tag を手動で打たない（CI が自動作成する）
-- TODO スタブを追加しない
-- 内部 REST (`/internal/v1/*`) にクライアント認証を行わない（gateway が唯一の呼び出し元）
-- Webhook (`/webhook/*`) の JWS / 署名検証を削除しない
-- DB または card サービスに到達できないときフォールバックしない（5xx で fail）
-- `IAP_MODE=local` は webhook ルート自体を登録しない（nil verifier で silent accept しない意図的設計）
-- 型変更時は `data/models.yaml` → `python3 scripts/generate_types.py` を実行する
-- リポジトリ層／サービス層テストは Testcontainers で実 Postgres に対して書く（インメモリモック禁止）
+## テスト方針
+- 実装をなぞるテストではなく、仕様に従っていることを確認するテストを書く
+- 「この関数がこう動く」ではなく「この仕様をこう満たす」という観点で書く
+
+## API契約
+- エンドポイント・イベント名・ヘッダ名・トピック名はリテラルで書かず
+  共通パッケージの定数を使う
+
+## 禁止事項
+- git tagの手動打ちは禁止（CIが自動生成）
+- 生成済み型コードを手で書き換えない。型は `data/models.yaml` を
+  SSoT とし、変更後は `python3 scripts/generate_types.py` で再生成する
+- このファイル（CLAUDE.md）をClaudeが書き換えない。
+  ルールの追加・修正は人間が明示的に指示した場合のみ行う
