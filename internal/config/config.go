@@ -35,7 +35,7 @@ type Config struct {
 	FactionSelectedTopic string
 	PremiumUpdatedTopic  string
 
-	// strict / permissive verifier 要件を切り替える。デフォルトは production。
+	// strict / permissive verifier 要件を切り替える。必須設定 — 未指定で fail する。
 	// IAP_MODE=local にすると IAP 設定なしで起動でき、webhook ルートは登録されない。
 	IAPMode IAPMode
 
@@ -69,7 +69,7 @@ func FromEnv() (*Config, error) {
 		PubsubProjectID:      os.Getenv("PUBSUB_PROJECT_ID"),
 		FactionSelectedTopic: getEnv("FACTION_SELECTED_TOPIC", "faction-selected"),
 		PremiumUpdatedTopic:  getEnv("PREMIUM_UPDATED_TOPIC", "premium-updated"),
-		IAPMode:              IAPMode(getEnv("IAP_MODE", string(IAPModeProduction))),
+		IAPMode:              IAPMode(os.Getenv("IAP_MODE")),
 		GoogleCloudProject:   os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		AppleEnvironment:     getEnv("APPLE_ENVIRONMENT", "Sandbox"),
 		FirestoreProjectID:   os.Getenv("FIRESTORE_PROJECT_ID"),
