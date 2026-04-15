@@ -7,3 +7,4 @@ vendor/
 .DS_Store
 go.work
 go.work.sum
+.claude/
