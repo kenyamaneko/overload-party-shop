@@ -1,30 +1,25 @@
 package rest
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/service"
 )
 
-// errorStatus はサービスエラーを HTTP ステータスコードに変換する。
+// errorStatus はドメインエラー分類を HTTP ステータスコードに変換する。
+// エラーが「何であるか」の判定は service 側の分類 API に委譲し、handler は
+// その分類と HTTP のマッピングだけを担う。
 func errorStatus(err error) int {
 	switch {
-	case errors.Is(err, port.ErrNotFound):
+	case service.IsNotFound(err):
 		return http.StatusNotFound
-	case errors.Is(err, service.ErrFactionAlreadySelected),
-		errors.Is(err, service.ErrAlreadyOwned):
+	case service.IsConflict(err):
 		return http.StatusConflict
-	case errors.Is(err, service.ErrInvalidFaction),
-		errors.Is(err, service.ErrProductNotSubscription),
-		errors.Is(err, service.ErrProductNotActive),
-		errors.Is(err, service.ErrUnsupportedPlatform):
+	case service.IsValidation(err):
 		return http.StatusBadRequest
-	case errors.Is(err, service.ErrReceiptVerificationFailed),
-		errors.Is(err, service.ErrSubVerificationFailed):
+	case service.IsPaymentFailed(err):
 		return http.StatusPaymentRequired
 	default:
 		return http.StatusInternalServerError

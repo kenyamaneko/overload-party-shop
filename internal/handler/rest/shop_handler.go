@@ -1,21 +1,30 @@
 package rest
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
-	"github.com/kenyamaneko/overload-party-shop/internal/service"
 )
+
+// shopServicer は shop handler が依存するサービス層の狭い contract。
+// カタログ・購入・サブスクリプションのドメインロジックを handler から隠蔽する。
+type shopServicer interface {
+	GetProducts(ctx context.Context, playerID string) ([]apishop.ProductResponse, error)
+	Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error
+	Subscribe(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error)
+}
 
 // ShopHandler は商品カタログ・購入・サブスクリプションの REST ハンドラを提供する。
 type ShopHandler struct {
-	shopService *service.ShopService
+	shopService shopServicer
 }
 
 // NewShopHandler は ShopService を受け取り ShopHandler を構築する。
-func NewShopHandler(shopService *service.ShopService) *ShopHandler {
+func NewShopHandler(shopService shopServicer) *ShopHandler {
 	return &ShopHandler{shopService: shopService}
 }
 

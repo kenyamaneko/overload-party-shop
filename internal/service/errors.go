@@ -43,3 +43,46 @@ var (
 	// 指定された場合（subscription は Subscribe を使う）。
 	ErrUnsupportedProductType = errors.New("unsupported product type for purchase")
 )
+
+// エラー分類 — ドメインで「何が起きたか」を表現する contract。
+// transport 層 (handler) はこれを経由してステータスコードやリトライ挙動を決める。
+// service に新しい sentinel を追加したら、該当する分類関数も更新すること。
+
+// IsNotFound は対象リソースが見つからない類のエラーか判定する。
+func IsNotFound(err error) bool {
+	return errors.Is(err, ErrNotFound)
+}
+
+// IsConflict は既存リソースとの衝突 (重複登録等) によるエラーか判定する。
+func IsConflict(err error) bool {
+	return errors.Is(err, ErrAlreadyOwned) ||
+		errors.Is(err, ErrFactionAlreadySelected)
+}
+
+// IsValidation はクライアント入力 / 商品状態の妥当性違反によるエラーか判定する。
+func IsValidation(err error) bool {
+	return errors.Is(err, ErrInvalidFaction) ||
+		errors.Is(err, ErrProductNotActive) ||
+		errors.Is(err, ErrProductNotSubscription) ||
+		errors.Is(err, ErrUnsupportedProductType) ||
+		errors.Is(err, ErrUnsupportedPlatform)
+}
+
+// IsPaymentFailed はレシート/サブスクリプション検証がストア側で無効判定された
+// エラーか判定する。verifier 自体の infra 障害 (ErrVerifyReceipt) は含まない。
+func IsPaymentFailed(err error) bool {
+	return errors.Is(err, ErrReceiptVerificationFailed) ||
+		errors.Is(err, ErrSubVerificationFailed)
+}
+
+// IsDeterministic は webhook 通知処理において「再送しても結果が変わらない」
+// 確定的エラーか判定する。webhook handler はこれに該当するエラーを ack (2xx) し、
+// ストア側の無駄なリトライを防ぐ。該当しないエラー (DB 障害・pub/sub 失敗等) は
+// 一時的な問題として 5xx で返しリトライを促す。
+func IsDeterministic(err error) bool {
+	return errors.Is(err, ErrDecodeNotification) ||
+		errors.Is(err, ErrDecodeTransactionInfo) ||
+		errors.Is(err, ErrDecodeRTDNData) ||
+		errors.Is(err, ErrUnmarshalRTDNData) ||
+		errors.Is(err, ErrSubscriptionNotFound)
+}
