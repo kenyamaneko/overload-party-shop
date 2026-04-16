@@ -55,13 +55,7 @@ jobs:
       - name: Install Firestore emulator component
         run: gcloud components install cloud-firestore-emulator beta --quiet
       - name: Start Firestore emulator
-        run: |
-          gcloud emulators firestore start --host-port=localhost:9041 >/tmp/firestore.log 2>&1 &
-          for i in {1..30}; do
-            if curl -sf http://localhost:9041 >/dev/null; then exit 0; fi
-            sleep 1
-          done
-          echo "Firestore emulator failed to start"; cat /tmp/firestore.log; exit 1
+        run: .github/scripts/start-firestore-emulator.sh
       # ADR-016: リポジトリ層テストは Testcontainers で postgres:16-alpine を起動する。
       # 事前 pull で test step の初回コンテナ起動時間を短縮する。
       - name: Pre-pull postgres image (Testcontainers)
@@ -100,10 +94,6 @@ jobs:
         env:
           DOCKER_BUILDKIT: "1"
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
-        run: |
-          IMAGE=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}
-          docker build \
-            --secret id=COMMON_GO_MODULES_FETCH,env=COMMON_GO_MODULES_FETCH \
-            -t ${IMAGE}:${{ github.sha }} -t ${IMAGE}:latest .
-          docker push ${IMAGE}:${{ github.sha }}
-          docker push ${IMAGE}:latest
+          IMAGE: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: .github/scripts/build-and-push.sh

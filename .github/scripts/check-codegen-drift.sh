@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# check-codegen-drift.sh — codegen 後に差分や未追跡ファイルがないか検証する。
+set -euo pipefail
+
+if ! git diff --exit-code; then
+  echo "::error::Generated files are out of sync. Run 'python3 scripts/generate_types.py', 'python3 scripts/generate_schema_doc.py', and 'python3 scripts/generate_api_docs.py' and commit."
+  exit 1
+fi
+if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+  echo "::error::Codegen produced untracked files:"
+  git ls-files --others --exclude-standard
+  exit 1
+fi
