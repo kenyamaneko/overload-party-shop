@@ -44,65 +44,72 @@ func newShopTestServer(svc shopServicer) *gin.Engine {
 	return r
 }
 
-// GetProducts は service.GetProducts の戻り値を {"products":[...]} にラップして返す。
-// サービスのエラーは errorStatus マッピング経由で HTTP status に変換される。
-func TestGetProducts(t *testing.T) {
-	tests := []struct {
-		name       string
-		svc        *fakeShopServicer
-		wantStatus int
-		assertBody func(t *testing.T, body []byte)
-	}{
-		{
-			name: "成功時は products 配列を返す",
-			svc: &fakeShopServicer{
-				getProductsFn: func(_ context.Context, _ string) ([]apishop.ProductResponse, error) {
-					return []apishop.ProductResponse{
-						{ProductID: "p1", Name: "商品1", IsOwned: true},
-					}, nil
-				},
-			},
-			wantStatus: http.StatusOK,
-			assertBody: func(t *testing.T, body []byte) {
-				var resp struct {
-					Products []apishop.ProductResponse `json:"products"`
-				}
-				require.NoError(t, json.Unmarshal(body, &resp))
-				require.Len(t, resp.Products, 1)
-				assert.Equal(t, "p1", resp.Products[0].ProductID)
-				assert.True(t, resp.Products[0].IsOwned)
-			},
-		},
-		{
-			name: "service の分類外エラーは 500",
-			svc: &fakeShopServicer{
-				getProductsFn: func(_ context.Context, _ string) ([]apishop.ProductResponse, error) {
-					return nil, service.ErrVerifyReceipt
-				},
-			},
-			wantStatus: http.StatusInternalServerError,
+// GetProducts の成功パスは service の戻り値を {"products":[...]} で wrap する。
+// body shape 検証が本テストの主目的。
+func TestGetProducts_Success(t *testing.T) {
+	svc := &fakeShopServicer{
+		getProductsFn: func(_ context.Context, _ string) ([]apishop.ProductResponse, error) {
+			return []apishop.ProductResponse{
+				{ProductID: "p1", Name: "商品1", IsOwned: true},
+			}, nil
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := newShopTestServer(tt.svc)
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/players/player-1/products", nil)
-			r.ServeHTTP(w, req)
+	r := newShopTestServer(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/players/player-1/products", nil))
 
-			assert.Equal(t, tt.wantStatus, w.Code)
-			if tt.assertBody != nil {
-				tt.assertBody(t, w.Body.Bytes())
-			}
-		})
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Products []apishop.ProductResponse `json:"products"`
 	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Products, 1)
+	assert.Equal(t, "p1", resp.Products[0].ProductID)
+	assert.True(t, resp.Products[0].IsOwned)
 }
 
-// Purchase のサービスエラーは分類経由で適切な HTTP status に変換される。
-// エラー分類 → HTTP status のマッピング網羅は rest/errors_test.go でテスト済み。
-// ここは「handler が service のエラーを respondError 経由で伝搬する」ことを
-// 代表ケースで固定する。
-func TestPurchase(t *testing.T) {
+// GetProducts の service エラーは errorStatus マッピング経由で HTTP ステータスに
+// 変換される (分類 → ステータスの網羅は rest/errors_test.go 側)。ここは
+// 「handler が service のエラーを respondError 経由で流すこと」を代表ケースで固定する。
+func TestGetProducts_PropagatesServiceError(t *testing.T) {
+	svc := &fakeShopServicer{
+		getProductsFn: func(_ context.Context, _ string) ([]apishop.ProductResponse, error) {
+			return nil, service.ErrVerifyReceipt
+		},
+	}
+	r := newShopTestServer(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/players/player-1/products", nil))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// Purchase の成功パスは 202 Accepted と product_id を返す。
+func TestPurchase_Success(t *testing.T) {
+	svc := &fakeShopServicer{
+		purchaseFn: func(_ context.Context, _, _, _, _ string) error { return nil },
+	}
+	body, _ := json.Marshal(apishop.PurchaseRequest{
+		ProductID:     "faction_tenki",
+		Platform:      "ios",
+		PurchaseToken: "receipt-1",
+	})
+	r := newShopTestServer(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/players/player-1/purchase", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusAccepted, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "purchase accepted", resp["message"])
+	assert.Equal(t, "faction_tenki", resp["product_id"])
+}
+
+// Purchase は service のエラー分類と body bind 失敗をそれぞれの HTTP ステータスに
+// 変換する。body shape は検証対象外 (status 変換の契約を固定する)。
+func TestPurchase_ErrorResponses(t *testing.T) {
 	validBody, _ := json.Marshal(apishop.PurchaseRequest{
 		ProductID:     "faction_tenki",
 		Platform:      "ios",
@@ -114,22 +121,7 @@ func TestPurchase(t *testing.T) {
 		body       []byte
 		svc        *fakeShopServicer
 		wantStatus int
-		assertBody func(t *testing.T, body []byte)
 	}{
-		{
-			name: "成功時は 202 Accepted と product_id を返す",
-			body: validBody,
-			svc: &fakeShopServicer{
-				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return nil },
-			},
-			wantStatus: http.StatusAccepted,
-			assertBody: func(t *testing.T, body []byte) {
-				var resp map[string]interface{}
-				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Equal(t, "purchase accepted", resp["message"])
-				assert.Equal(t, "faction_tenki", resp["product_id"])
-			},
-		},
 		{
 			name: "Conflict 分類エラー (既に所有) は 409",
 			body: validBody,
@@ -162,46 +154,50 @@ func TestPurchase(t *testing.T) {
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
-			if tt.assertBody != nil {
-				tt.assertBody(t, w.Body.Bytes())
-			}
 		})
 	}
 }
 
-// Subscribe は expires_at を含む body を返し、サービスエラーは Purchase と
-// 同じく分類経由で HTTP status に変換される。
-func TestSubscribe(t *testing.T) {
+// Subscribe の成功パスは 202 Accepted と expires_at を返す。
+func TestSubscribe_Success(t *testing.T) {
+	expiresAt := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+	svc := &fakeShopServicer{
+		subscribeFn: func(_ context.Context, _, _, _, _ string) (*time.Time, error) {
+			return &expiresAt, nil
+		},
+	}
+	body, _ := json.Marshal(apishop.PurchaseRequest{
+		ProductID:     "premium_monthly",
+		Platform:      "ios",
+		PurchaseToken: "sub-1",
+	})
+	r := newShopTestServer(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/players/player-1/subscribe", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusAccepted, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "subscription accepted", resp["message"])
+	assert.Equal(t, expiresAt.Format(time.RFC3339Nano), resp["expires_at"])
+}
+
+// Subscribe のエラーレスポンス: service エラー分類 + body bind 失敗 の HTTP status 変換。
+func TestSubscribe_ErrorResponses(t *testing.T) {
 	validBody, _ := json.Marshal(apishop.PurchaseRequest{
 		ProductID:     "premium_monthly",
 		Platform:      "ios",
 		PurchaseToken: "sub-1",
 	})
-	expiresAt := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
 
 	tests := []struct {
 		name       string
 		body       []byte
 		svc        *fakeShopServicer
 		wantStatus int
-		assertBody func(t *testing.T, body []byte)
 	}{
-		{
-			name: "成功時は 202 Accepted と expires_at を返す",
-			body: validBody,
-			svc: &fakeShopServicer{
-				subscribeFn: func(_ context.Context, _, _, _, _ string) (*time.Time, error) {
-					return &expiresAt, nil
-				},
-			},
-			wantStatus: http.StatusAccepted,
-			assertBody: func(t *testing.T, body []byte) {
-				var resp map[string]interface{}
-				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Equal(t, "subscription accepted", resp["message"])
-				assert.Equal(t, expiresAt.Format(time.RFC3339Nano), resp["expires_at"])
-			},
-		},
 		{
 			name: "Validation 分類エラー (non-subscription 商品) は 400",
 			body: validBody,
@@ -228,9 +224,6 @@ func TestSubscribe(t *testing.T) {
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
-			if tt.assertBody != nil {
-				tt.assertBody(t, w.Body.Bytes())
-			}
 		})
 	}
 }
