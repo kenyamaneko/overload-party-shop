@@ -9,25 +9,20 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-// GoogleSubVerifier は Google Play Developer API からサブスクリプション有効期限を取得する。
-type GoogleSubVerifier interface {
-	GetSubscriptionExpiry(ctx context.Context, purchaseToken string) (time.Time, error)
-}
-
 // SubscriptionService は webhook 駆動のサブスクリプションライフサイクルイベントを処理する。
 // Pub/Sub fan-out リファクタ以降 account.players には触れず、shop.subscriptions を
 // ローカル更新し `premium-updated` イベントを発行する。
 type SubscriptionService struct {
 	subRepo          port.SubscriptionRepo
 	premiumPublisher port.PremiumEventPublisher
-	googleVerifier   GoogleSubVerifier
+	googleVerifier   port.GoogleSubVerifier
 }
 
 // NewSubscriptionService は依存を受け取り SubscriptionService を構築する。
 func NewSubscriptionService(
 	subRepo port.SubscriptionRepo,
 	premiumPublisher port.PremiumEventPublisher,
-	googleVerifier GoogleSubVerifier,
+	googleVerifier port.GoogleSubVerifier,
 ) *SubscriptionService {
 	return &SubscriptionService{
 		subRepo:          subRepo,

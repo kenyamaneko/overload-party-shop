@@ -1,4 +1,4 @@
-package platform
+package apple
 
 import (
 	"context"
@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
+
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 const (
@@ -23,8 +25,8 @@ const (
 	appleAPITimeout    = 10 * time.Second
 )
 
-// AppleReceiptVerifier は App Store Server API v2 を使用して ReceiptVerifier を実装する。
-type AppleReceiptVerifier struct {
+// Verifier は App Store Server API v2 を使用して port.ReceiptVerifier を実装する。
+type Verifier struct {
 	keyID      string
 	issuerID   string
 	bundleID   string
@@ -33,21 +35,21 @@ type AppleReceiptVerifier struct {
 	httpClient *http.Client
 }
 
-// NewAppleReceiptVerifier はファイルシステムから PEM 鍵を読み込んで Apple レシート
+// NewVerifier はファイルシステムから PEM 鍵を読み込んで Apple レシート
 // verifier を構築する。PEM データがメモリ上にある場合（Secret Manager 経由等）は
-// NewAppleReceiptVerifierFromPEM を使用する。
-func NewAppleReceiptVerifier(keyID, issuerID, bundleID, privateKeyPath, environment string) (*AppleReceiptVerifier, error) {
+// NewVerifierFromPEM を使用する。
+func NewVerifier(keyID, issuerID, bundleID, privateKeyPath, environment string) (*Verifier, error) {
 	keyData, err := os.ReadFile(privateKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read apple private key: %w", err)
 	}
-	return NewAppleReceiptVerifierFromPEM(keyID, issuerID, bundleID, keyData, environment)
+	return NewVerifierFromPEM(keyID, issuerID, bundleID, keyData, environment)
 }
 
-// NewAppleReceiptVerifierFromPEM はメモリ上の PEM エンコード P-256 秘密鍵バイト列
+// NewVerifierFromPEM はメモリ上の PEM エンコード P-256 秘密鍵バイト列
 // から Apple レシート verifier を構築する。
 // environment は "Production" または "Sandbox"。
-func NewAppleReceiptVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, environment string) (*AppleReceiptVerifier, error) {
+func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, environment string) (*Verifier, error) {
 	block, _ := pem.Decode(pemData)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
@@ -68,7 +70,7 @@ func NewAppleReceiptVerifierFromPEM(keyID, issuerID, bundleID string, pemData []
 		baseURL = appleSandboxURL
 	}
 
-	return &AppleReceiptVerifier{
+	return &Verifier{
 		keyID:      keyID,
 		issuerID:   issuerID,
 		bundleID:   bundleID,
@@ -78,10 +80,10 @@ func NewAppleReceiptVerifierFromPEM(keyID, issuerID, bundleID string, pemData []
 	}, nil
 }
 
-var _ ReceiptVerifier = (*AppleReceiptVerifier)(nil)
+var _ port.ReceiptVerifier = (*Verifier)(nil)
 
 // VerifyPurchase は Apple App Store Server API v2 で単発購入トランザクションを検証する。
-func (v *AppleReceiptVerifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*VerifyResult, error) {
+func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*port.VerifyResult, error) {
 	token, err := v.generateJWT()
 	if err != nil {
 		return nil, fmt.Errorf("generate JWT: %w", err)
@@ -103,9 +105,9 @@ func (v *AppleReceiptVerifier) VerifyPurchase(ctx context.Context, purchaseToken
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return &VerifyResult{IsValid: false}, fmt.Errorf("Apple API returned %d (body read failed: %v)", resp.StatusCode, err)
+			return &port.VerifyResult{IsValid: false}, fmt.Errorf("Apple API returned %d (body read failed: %v)", resp.StatusCode, err)
 		}
-		return &VerifyResult{IsValid: false}, fmt.Errorf("Apple API returned %d: %s", resp.StatusCode, string(body))
+		return &port.VerifyResult{IsValid: false}, fmt.Errorf("Apple API returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	var apiResp struct {
@@ -120,7 +122,7 @@ func (v *AppleReceiptVerifier) VerifyPurchase(ctx context.Context, purchaseToken
 		return nil, fmt.Errorf("decode transaction info: %w", err)
 	}
 
-	return &VerifyResult{
+	return &port.VerifyResult{
 		IsValid:       true,
 		TransactionID: txnInfo.TransactionID,
 		ProductID:     txnInfo.ProductID,
@@ -129,7 +131,7 @@ func (v *AppleReceiptVerifier) VerifyPurchase(ctx context.Context, purchaseToken
 }
 
 // VerifySubscription は Apple App Store Server API v2 でサブスクリプションを検証する。
-func (v *AppleReceiptVerifier) VerifySubscription(ctx context.Context, purchaseToken string) (*SubscriptionInfo, error) {
+func (v *Verifier) VerifySubscription(ctx context.Context, purchaseToken string) (*port.SubscriptionInfo, error) {
 	token, err := v.generateJWT()
 	if err != nil {
 		return nil, fmt.Errorf("generate JWT: %w", err)
@@ -151,9 +153,9 @@ func (v *AppleReceiptVerifier) VerifySubscription(ctx context.Context, purchaseT
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return &SubscriptionInfo{IsValid: false}, fmt.Errorf("Apple API returned %d (body read failed: %v)", resp.StatusCode, err)
+			return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("Apple API returned %d (body read failed: %v)", resp.StatusCode, err)
 		}
-		return &SubscriptionInfo{IsValid: false}, fmt.Errorf("Apple API returned %d: %s", resp.StatusCode, string(body))
+		return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("Apple API returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	var apiResp struct {
@@ -169,7 +171,7 @@ func (v *AppleReceiptVerifier) VerifySubscription(ctx context.Context, purchaseT
 	}
 
 	if len(apiResp.Data) == 0 || len(apiResp.Data[0].LastTransactions) == 0 {
-		return &SubscriptionInfo{IsValid: false}, nil
+		return &port.SubscriptionInfo{IsValid: false}, nil
 	}
 
 	lastTxn := apiResp.Data[0].LastTransactions[0]
@@ -184,7 +186,7 @@ func (v *AppleReceiptVerifier) VerifySubscription(ctx context.Context, purchaseT
 		return nil, fmt.Errorf("decode renewal info: %w", err)
 	}
 
-	return &SubscriptionInfo{
+	return &port.SubscriptionInfo{
 		IsValid:        true,
 		ProductID:      txnInfo.ProductID,
 		TransactionID:  txnInfo.TransactionID,
@@ -193,7 +195,7 @@ func (v *AppleReceiptVerifier) VerifySubscription(ctx context.Context, purchaseT
 	}, nil
 }
 
-func (v *AppleReceiptVerifier) generateJWT() (string, error) {
+func (v *Verifier) generateJWT() (string, error) {
 	now := time.Now()
 	claims := jwt.RegisteredClaims{
 		Issuer:    v.issuerID,

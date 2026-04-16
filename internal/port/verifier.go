@@ -1,9 +1,4 @@
-// Package platform は外部プラットフォームアダプタ（Apple App Store Server API、
-// Google Play Developer API）と、それらが満たす ReceiptVerifier contract を提供する。
-// Apple/Google クライアントは JWT 署名・JWS デコード等の固有プロトコルロジックを
-// 持つため repository には置かず、interface と実装を同一パッケージに配置して
-// service との循環参照を回避している。
-package platform
+package port
 
 import (
 	"context"
@@ -34,4 +29,10 @@ type ReceiptVerifier interface {
 
 	// VerifySubscription はサブスクリプションレシートを検証する。
 	VerifySubscription(ctx context.Context, purchaseToken string) (*SubscriptionInfo, error)
+}
+
+// GoogleSubVerifier は Google Play Developer API からサブスクリプション有効期限を取得する。
+// webhook (RTDN) 駆動の Renewed / Recovered 処理で使用する。
+type GoogleSubVerifier interface {
+	GetSubscriptionExpiry(ctx context.Context, purchaseToken string) (time.Time, error)
 }

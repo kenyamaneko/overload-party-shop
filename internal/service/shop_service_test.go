@@ -8,7 +8,6 @@ import (
 	"time"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
-	"github.com/kenyamaneko/overload-party-shop/internal/platform"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/stretchr/testify/assert"
@@ -71,19 +70,19 @@ type testShopEnv struct {
 type shopEnvOption func(*shopEnvDeps)
 
 type shopEnvDeps struct {
-	appleVerifier  platform.ReceiptVerifier
-	googleVerifier platform.ReceiptVerifier
+	appleVerifier  port.ReceiptVerifier
+	googleVerifier port.ReceiptVerifier
 	factionPubErr  error
 	premiumPubErr  error
 	nilFactionPub  bool
 	nilPremiumPub  bool
 }
 
-func withAppleVerifier(v platform.ReceiptVerifier) shopEnvOption {
+func withAppleVerifier(v port.ReceiptVerifier) shopEnvOption {
 	return func(d *shopEnvDeps) { d.appleVerifier = v }
 }
 
-func withGoogleVerifier(v platform.ReceiptVerifier) shopEnvOption {
+func withGoogleVerifier(v port.ReceiptVerifier) shopEnvOption {
 	return func(d *shopEnvDeps) { d.googleVerifier = v }
 }
 
@@ -108,8 +107,8 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	sharedPg.Truncate(t)
 
 	deps := &shopEnvDeps{
-		appleVerifier:  &platform.MockReceiptVerifier{},
-		googleVerifier: &platform.MockReceiptVerifier{},
+		appleVerifier:  &port.MockReceiptVerifier{},
+		googleVerifier: &port.MockReceiptVerifier{},
 	}
 	for _, opt := range opts {
 		opt(deps)
@@ -164,9 +163,9 @@ func insertProduct(t *testing.T, p *apishop.Product) {
 }
 
 func TestPurchase_FactionSet_Success(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
-			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-123", ProductID: "faction_tenki"}, nil
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+			return &port.VerifyResult{IsValid: true, TransactionID: "txn-123", ProductID: "faction_tenki"}, nil
 		},
 	}))
 
@@ -196,9 +195,9 @@ func TestPurchase_FactionSet_Success(t *testing.T) {
 }
 
 func TestPurchase_Idempotent(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
-			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-123"}, nil
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+			return &port.VerifyResult{IsValid: true, TransactionID: "txn-123"}, nil
 		},
 	}))
 
@@ -223,9 +222,9 @@ func TestPurchase_Idempotent(t *testing.T) {
 }
 
 func TestPurchase_ReceiptFailed(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
-			return &platform.VerifyResult{IsValid: false}, nil
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+			return &port.VerifyResult{IsValid: false}, nil
 		},
 	}))
 
@@ -244,9 +243,9 @@ func TestPurchase_ReceiptFailed(t *testing.T) {
 }
 
 func TestPurchase_CosmeticItem(t *testing.T) {
-	env := newTestShopEnv(t, withGoogleVerifier(&platform.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
-			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-456"}, nil
+	env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
+		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+			return &port.VerifyResult{IsValid: true, TransactionID: "txn-456"}, nil
 		},
 	}))
 
@@ -265,9 +264,9 @@ func TestPurchase_CosmeticItem(t *testing.T) {
 }
 
 func TestPurchase_AlreadyOwned_FactionSet(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
-			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-first"}, nil
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+			return &port.VerifyResult{IsValid: true, TransactionID: "txn-first"}, nil
 		},
 	}))
 
@@ -290,9 +289,9 @@ func TestPurchase_AlreadyOwned_FactionSet(t *testing.T) {
 }
 
 func TestPurchase_AlreadyOwned_Cosmetic(t *testing.T) {
-	env := newTestShopEnv(t, withGoogleVerifier(&platform.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
-			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-cos"}, nil
+	env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
+		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+			return &port.VerifyResult{IsValid: true, TransactionID: "txn-cos"}, nil
 		},
 	}))
 
@@ -347,9 +346,9 @@ func TestPurchase_UnsupportedPlatform(t *testing.T) {
 
 func TestSubscribe_Success(t *testing.T) {
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
-		VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
-			return &platform.SubscriptionInfo{
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
+			return &port.SubscriptionInfo{
 				IsValid:   true,
 				ProductID: "premium_monthly",
 				ExpiresAt: expiresAt,
@@ -387,17 +386,17 @@ func TestSubscribe_Success(t *testing.T) {
 
 func TestSubscribe_Errors(t *testing.T) {
 	// verifier を呼ばない経路のケースでも DI の形を揃えるため default を明示する。
-	defaultVerifier := &platform.MockReceiptVerifier{}
-	invalidSubVerifier := &platform.MockReceiptVerifier{
-		VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
-			return &platform.SubscriptionInfo{IsValid: false}, nil
+	defaultVerifier := &port.MockReceiptVerifier{}
+	invalidSubVerifier := &port.MockReceiptVerifier{
+		VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
+			return &port.SubscriptionInfo{IsValid: false}, nil
 		},
 	}
 
 	tests := []struct {
 		name          string
 		product       *apishop.Product
-		appleVerifier platform.ReceiptVerifier
+		appleVerifier port.ReceiptVerifier
 		productID     string
 		platform      string
 		token         string
@@ -650,8 +649,8 @@ func TestGetVerifier(t *testing.T) {
 }
 
 func TestPurchase_VerifierReturnsError(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
 			return nil, fmt.Errorf("network timeout")
 		},
 	}))
@@ -670,9 +669,9 @@ func TestPurchase_VerifierReturnsError(t *testing.T) {
 }
 
 func TestPurchase_SubscriptionTypeViaPurchase(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
-			return &platform.VerifyResult{IsValid: true, TransactionID: "txn-sub-via-purchase"}, nil
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+			return &port.VerifyResult{IsValid: true, TransactionID: "txn-sub-via-purchase"}, nil
 		},
 	}))
 
@@ -780,9 +779,9 @@ func TestPurchase_FactionPublisherPaths(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := append([]shopEnvOption{
-				withAppleVerifier(&platform.MockReceiptVerifier{
-					VerifyPurchaseFn: func(ctx context.Context, token string) (*platform.VerifyResult, error) {
-						return &platform.VerifyResult{IsValid: true, TransactionID: "txn-pub"}, nil
+				withAppleVerifier(&port.MockReceiptVerifier{
+					VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+						return &port.VerifyResult{IsValid: true, TransactionID: "txn-pub"}, nil
 					},
 				}),
 			}, tt.opts...)
@@ -817,9 +816,9 @@ func TestPurchase_FactionPublisherPaths(t *testing.T) {
 // 同一トークンでの再 Subscribe は既存 CurrentPeriodEnd を返し publish しない。
 func TestSubscribe_Idempotent(t *testing.T) {
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
-		VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
-			return &platform.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
+			return &port.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
 		},
 	}))
 	insertProduct(t, &apishop.Product{
@@ -846,8 +845,8 @@ func TestSubscribe_Idempotent(t *testing.T) {
 
 // VerifySubscription が infra error (ネットワーク等) を返した場合のラップ。
 func TestSubscribe_VerifierReturnsError(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&platform.MockReceiptVerifier{
-		VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
 			return nil, fmt.Errorf("network timeout")
 		},
 	}))
@@ -893,9 +892,9 @@ func TestSubscribe_PremiumPublisherPaths(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			expiresAt := time.Now().Add(30 * 24 * time.Hour)
 			opts := append([]shopEnvOption{
-				withAppleVerifier(&platform.MockReceiptVerifier{
-					VerifySubscriptionFn: func(ctx context.Context, token string) (*platform.SubscriptionInfo, error) {
-						return &platform.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
+				withAppleVerifier(&port.MockReceiptVerifier{
+					VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
+						return &port.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
 					},
 				}),
 			}, tt.opts...)

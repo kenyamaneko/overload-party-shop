@@ -14,9 +14,11 @@ import (
 
 	"github.com/kenyamaneko/overload-party-shop/internal/config"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
-	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
-	"github.com/kenyamaneko/overload-party-shop/internal/platform"
+	shopadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
+	googleadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/google"
 	shoppubsub "github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
+	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	shopfirestore "github.com/kenyamaneko/overload-party-shop/internal/repository/firestore"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/router"
@@ -79,13 +81,13 @@ func run() error {
 	}()
 
 	var (
-		appleVerifier     platform.ReceiptVerifier
-		googleVerifier    platform.ReceiptVerifier
-		googleSubVerifier service.GoogleSubVerifier
+		appleVerifier     port.ReceiptVerifier
+		googleVerifier    port.ReceiptVerifier
+		googleSubVerifier port.GoogleSubVerifier
 	)
 
 	if cfg.IAPMode == config.IAPModeProduction {
-		av, err := platform.NewAppleReceiptVerifierFromPEM(
+		av, err := shopadapter.NewVerifierFromPEM(
 			cfg.AppleKeyID, cfg.AppleIssuerID, cfg.AppleBundleID,
 			cfg.ApplePrivateKeyPEM, cfg.AppleEnvironment,
 		)
@@ -94,13 +96,13 @@ func run() error {
 		}
 		appleVerifier = av
 
-		gv, err := platform.NewGoogleReceiptVerifier(ctx, cfg.GooglePackageName)
+		gv, err := googleadapter.NewVerifier(ctx, cfg.GooglePackageName)
 		if err != nil {
 			return fmt.Errorf("google verifier: %w", err)
 		}
 		googleVerifier = gv
 
-		gsv, err := platform.NewGooglePlaySubVerifier(ctx, cfg.GooglePackageName)
+		gsv, err := googleadapter.NewSubVerifier(ctx, cfg.GooglePackageName)
 		if err != nil {
 			return fmt.Errorf("google sub verifier: %w", err)
 		}

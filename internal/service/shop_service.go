@@ -10,7 +10,6 @@ import (
 
 	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
-	"github.com/kenyamaneko/overload-party-shop/internal/platform"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
@@ -33,8 +32,8 @@ type ShopService struct {
 	purchaseLookup      port.PurchaseLookupRepo
 	subRepo             port.SubscriptionRepo
 	cardLister          CardLister
-	appleVerifier       platform.ReceiptVerifier
-	googleVerifier      platform.ReceiptVerifier
+	appleVerifier       port.ReceiptVerifier
+	googleVerifier      port.ReceiptVerifier
 	factionPublisher    port.FactionEventPublisher
 	premiumPublisher    port.PremiumEventPublisher
 }
@@ -46,8 +45,8 @@ func NewShopService(
 	purchaseLookup port.PurchaseLookupRepo,
 	subRepo port.SubscriptionRepo,
 	cardLister CardLister,
-	appleVerifier platform.ReceiptVerifier,
-	googleVerifier platform.ReceiptVerifier,
+	appleVerifier port.ReceiptVerifier,
+	googleVerifier port.ReceiptVerifier,
 	factionPublisher port.FactionEventPublisher,
 	premiumPublisher port.PremiumEventPublisher,
 ) *ShopService {
@@ -289,7 +288,7 @@ func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, pu
 	return &info.ExpiresAt, nil
 }
 
-func (s *ShopService) getVerifier(pf string) (platform.ReceiptVerifier, error) {
+func (s *ShopService) getVerifier(pf string) (port.ReceiptVerifier, error) {
 	switch pf {
 	case apishop.PlatformIOS:
 		return s.appleVerifier, nil
