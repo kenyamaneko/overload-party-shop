@@ -50,41 +50,13 @@ func TestNew_Validation(t *testing.T) {
 	}
 }
 
-// Publish* の入力検証は SDK 到達前に return するので、zero value の Publisher
-// に対して呼び出しても検証経路だけは実行可能。
-func TestPublishFactionSelected_Validation(t *testing.T) {
-	tests := []struct {
-		name     string
-		playerID string
-		faction  string
-		wantSubs string
-	}{
-		{
-			name:     "playerID が空",
-			playerID: "",
-			faction:  "Tenki",
-			wantSubs: "playerID is empty",
-		},
-		{
-			name:     "faction が空",
-			playerID: "player-1",
-			faction:  "",
-			wantSubs: "faction is empty",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := &Publisher{}
-			err := p.PublishFactionSelected(context.Background(), tt.playerID, tt.faction)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantSubs)
-		})
-	}
-}
-
-func TestPublishPremiumUpdated_Validation(t *testing.T) {
+// Publish は未登録 topic を先に弾く。outbox 行の topic 設定ミスを Pub/Sub SDK に
+// 届く前に検出し、worker 側で failure_count を積ませるのが狙い。
+// ゼロ値 Publisher (byTopic が nil の map) に対して呼び出しても、未登録 topic 判定は
+// 通常の map ルックアップで ok=false を返すだけで到達可能。
+func TestPublish_UnknownTopic(t *testing.T) {
 	p := &Publisher{}
-	err := p.PublishPremiumUpdated(context.Background(), "", true, nil)
+	err := p.Publish(context.Background(), "unknown-topic", []byte(`{}`))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "playerID is empty")
+	assert.Contains(t, err.Error(), "unknown topic")
 }

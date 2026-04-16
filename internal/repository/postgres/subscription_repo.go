@@ -36,8 +36,9 @@ func subscriptionTokenTableForPlatform(platform string) (string, error) {
 	}
 }
 
-// CreateSubscription は subscriptions + 対応 token 行をアトミックに挿入する。
-func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string) error {
+// CreateSubscription は subscriptions + 対応 token 行 + outbox event をアトミックに挿入する。
+// event.Topic が空のときは outbox 書き込みをスキップする。
+func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
 	tokenTable, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
 		return err
@@ -64,6 +65,12 @@ func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *ap
 		purchaseToken, sub.SubscriptionID,
 	); err != nil {
 		return fmt.Errorf("insert subscription token: %w", err)
+	}
+
+	if event.Topic != "" {
+		if err := writeOutboxEvent(ctx, tx, event); err != nil {
+			return err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -130,9 +137,19 @@ func scanSubscription(row pgx.Row) (*apishop.Subscription, error) {
 	return &s, nil
 }
 
-// UpdateSubscription はサブスクリプションの状態・期間を更新する。
-func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error {
-	if _, err := r.pool.Exec(ctx,
+// UpdateSubscription はサブスクリプションの状態・期間を更新しつつ、
+// event.Topic が空でなければ同一 tx で outbox に書き込む。
+// webhook 駆動の状態遷移 (renew/expire/revoke) で DB 更新と publish を atomic に
+// 揃えるためのもの。解約 (cancelled) 等の「イベントを出さない遷移」では
+// event.Topic を空にして呼ぶ。
+func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription, event port.OutboxEvent) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
 		`UPDATE shop.subscriptions SET
 			status = $1,
 			current_period_start = $2,
@@ -145,6 +162,16 @@ func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *ap
 		sub.SubscriptionID,
 	); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
+	}
+
+	if event.Topic != "" {
+		if err := writeOutboxEvent(ctx, tx, event); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }

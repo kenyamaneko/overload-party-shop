@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,7 +42,8 @@ func (m *mockGoogleSubVerifier) GetSubscriptionExpiry(_ context.Context, _ strin
 type testSubEnv struct {
 	svc            *SubscriptionService
 	subRepo        *postgres.SubscriptionRepository
-	premiumPub     *fakePremiumPublisher
+	premiumPub     *fakePremiumBuilder
+	builder        *fakeEventBuilder
 	googleVerifier *mockGoogleSubVerifier
 }
 
@@ -50,10 +52,16 @@ func newTestSubscriptionService(t *testing.T) *testSubEnv {
 	sharedPg.Truncate(t)
 
 	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
-	premiumPub := &fakePremiumPublisher{}
+	builder := newFakeEventBuilder(nil, nil)
 	gv := &mockGoogleSubVerifier{expiry: time.Now().Add(30 * 24 * time.Hour)}
-	svc := NewSubscriptionService(subRepo, premiumPub, gv)
-	return &testSubEnv{svc: svc, subRepo: subRepo, premiumPub: premiumPub, googleVerifier: gv}
+	svc := NewSubscriptionService(subRepo, builder, gv)
+	return &testSubEnv{
+		svc:            svc,
+		subRepo:        subRepo,
+		premiumPub:     builder.premiumPub,
+		builder:        builder,
+		googleVerifier: gv,
+	}
 }
 
 // createTestSubscription はテスト用に指定の初期状態でサブスク行を作成する。
@@ -73,7 +81,7 @@ func createTestSubscription(t *testing.T, env *testSubEnv, platform, playerID, p
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
-	require.NoError(t, env.subRepo.CreateSubscription(context.Background(), sub, platform, purchaseToken))
+	require.NoError(t, env.subRepo.CreateSubscription(context.Background(), sub, platform, purchaseToken, port.OutboxEvent{}))
 	return sub
 }
 
@@ -337,7 +345,7 @@ func TestHandleGoogleNotification_SubscriptionNotFound(t *testing.T) {
 // case 固有の env 差し替えは configure で受ける — if 分岐をテスト内に入れない。
 func TestHandleGoogleNotification_VerifierPaths(t *testing.T) {
 	withNilVerifier := func(env *testSubEnv) {
-		env.svc = NewSubscriptionService(env.subRepo, env.premiumPub, nil)
+		env.svc = NewSubscriptionService(env.subRepo, env.builder, nil)
 	}
 	withVerifierError := func(env *testSubEnv) {
 		env.googleVerifier.err = fmt.Errorf("google API 500")

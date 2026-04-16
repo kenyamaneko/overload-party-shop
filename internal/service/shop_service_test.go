@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
@@ -22,7 +23,10 @@ func (f *fakeCardLister) ListAllCards(_ context.Context) ([]*apishop.CardView, e
 	return f.cards, nil
 }
 
-type fakeFactionPublisher struct {
+// fakeFactionBuilder は BuildFactionSelected 呼び出しを記録するテスト用ダブル。
+// 既存テストが期待する .calls スライスのインタフェースを維持するため、
+// OutboxEventBuilder の「faction-selected 側」を担当する小さな型として切り分けている。
+type fakeFactionBuilder struct {
 	calls []fakeFactionPubCall
 	err   error
 }
@@ -32,12 +36,16 @@ type fakeFactionPubCall struct {
 	Faction  string
 }
 
-func (f *fakeFactionPublisher) PublishFactionSelected(_ context.Context, playerID, faction string) error {
+func (f *fakeFactionBuilder) Build(playerID, faction string) (port.OutboxEvent, error) {
 	f.calls = append(f.calls, fakeFactionPubCall{PlayerID: playerID, Faction: faction})
-	return f.err
+	if f.err != nil {
+		return port.OutboxEvent{}, f.err
+	}
+	return port.OutboxEvent{EventID: uuid.New(), Topic: "faction-selected", Payload: []byte(`{}`)}, nil
 }
 
-type fakePremiumPublisher struct {
+// fakePremiumBuilder は BuildPremiumUpdated 呼び出しを記録するテスト用ダブル。
+type fakePremiumBuilder struct {
 	calls []fakePremiumPubCall
 	err   error
 }
@@ -48,9 +56,35 @@ type fakePremiumPubCall struct {
 	ExpiresAt *time.Time
 }
 
-func (f *fakePremiumPublisher) PublishPremiumUpdated(_ context.Context, playerID string, isPremium bool, expiresAt *time.Time) error {
+func (f *fakePremiumBuilder) Build(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
 	f.calls = append(f.calls, fakePremiumPubCall{PlayerID: playerID, IsPremium: isPremium, ExpiresAt: expiresAt})
-	return f.err
+	if f.err != nil {
+		return port.OutboxEvent{}, f.err
+	}
+	return port.OutboxEvent{EventID: uuid.New(), Topic: "premium-updated", Payload: []byte(`{}`)}, nil
+}
+
+// fakeEventBuilder は OutboxEventBuilder を満たし、内部に faction/premium の
+// サブビルダーを保持する。テストは env.factionPub.calls / env.premiumPub.calls で
+// 旧来の publisher テストと同じ観点の観察を行える。
+type fakeEventBuilder struct {
+	factionPub *fakeFactionBuilder
+	premiumPub *fakePremiumBuilder
+}
+
+func newFakeEventBuilder(factionErr, premiumErr error) *fakeEventBuilder {
+	return &fakeEventBuilder{
+		factionPub: &fakeFactionBuilder{err: factionErr},
+		premiumPub: &fakePremiumBuilder{err: premiumErr},
+	}
+}
+
+func (f *fakeEventBuilder) BuildFactionSelected(playerID, faction string) (port.OutboxEvent, error) {
+	return f.factionPub.Build(playerID, faction)
+}
+
+func (f *fakeEventBuilder) BuildPremiumUpdated(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
+	return f.premiumPub.Build(playerID, isPremium, expiresAt)
 }
 
 type testShopEnv struct {
@@ -60,8 +94,11 @@ type testShopEnv struct {
 	itemPurchaseRepo    *postgres.ItemPurchaseRepository
 	purchaseLookup      *postgres.PurchaseLookupRepository
 	subRepo             *postgres.SubscriptionRepository
-	factionPub          *fakeFactionPublisher
-	premiumPub          *fakePremiumPublisher
+	// factionPub / premiumPub は旧 publisher 時代の観測 API を踏襲した
+	// builder 側のスパイ。テストは env.factionPub.calls / env.premiumPub.calls で
+	// 「どのイベントが enqueue 要求されたか」を検証する。
+	factionPub *fakeFactionBuilder
+	premiumPub *fakePremiumBuilder
 }
 
 // shopEnvOption は newTestShopEnv に渡す依存差し替えオプション。verifier 等
@@ -74,8 +111,6 @@ type shopEnvDeps struct {
 	googleVerifier port.ReceiptVerifier
 	factionPubErr  error
 	premiumPubErr  error
-	nilFactionPub  bool
-	nilPremiumPub  bool
 }
 
 func withAppleVerifier(v port.ReceiptVerifier) shopEnvOption {
@@ -92,14 +127,6 @@ func withFactionPubErr(err error) shopEnvOption {
 
 func withPremiumPubErr(err error) shopEnvOption {
 	return func(d *shopEnvDeps) { d.premiumPubErr = err }
-}
-
-func withNilFactionPub() shopEnvOption {
-	return func(d *shopEnvDeps) { d.nilFactionPub = true }
-}
-
-func withNilPremiumPub() shopEnvOption {
-	return func(d *shopEnvDeps) { d.nilPremiumPub = true }
 }
 
 func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
@@ -119,17 +146,7 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	itemPurchaseRepo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	purchaseLookup := postgres.NewPurchaseLookupRepository(sharedPg.Pool)
 	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
-	factionPub := &fakeFactionPublisher{err: deps.factionPubErr}
-	premiumPub := &fakePremiumPublisher{err: deps.premiumPubErr}
-
-	var factionPubArg port.FactionEventPublisher = factionPub
-	if deps.nilFactionPub {
-		factionPubArg = nil
-	}
-	var premiumPubArg port.PremiumEventPublisher = premiumPub
-	if deps.nilPremiumPub {
-		premiumPubArg = nil
-	}
+	builder := newFakeEventBuilder(deps.factionPubErr, deps.premiumPubErr)
 
 	cards := []*apishop.CardView{
 		{CardID: "SH-0001", CardName: "SHE Compute", Faction: "SHE", CardType: "Compute", Restriction: "unlimited", IsActive: true},
@@ -137,7 +154,7 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	}
 	cardLister := &fakeCardLister{cards: cards}
 
-	svc := NewShopService(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, cardLister, deps.appleVerifier, deps.googleVerifier, factionPubArg, premiumPubArg)
+	svc := NewShopService(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, cardLister, deps.appleVerifier, deps.googleVerifier, builder)
 
 	return &testShopEnv{
 		svc:                 svc,
@@ -146,8 +163,8 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 		itemPurchaseRepo:    itemPurchaseRepo,
 		purchaseLookup:      purchaseLookup,
 		subRepo:             subRepo,
-		factionPub:          factionPub,
-		premiumPub:          premiumPub,
+		factionPub:          builder.factionPub,
+		premiumPub:          builder.premiumPub,
 	}
 }
 
@@ -523,7 +540,7 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 		CurrentPeriodEnd:   now.Add(30 * 24 * time.Hour),
 		CreatedAt:          now,
 		UpdatedAt:          now,
-	}, apishop.PlatformIOS, "sub-token"))
+	}, apishop.PlatformIOS, "sub-token", port.OutboxEvent{}))
 
 	products, err := env.svc.GetProducts(context.Background(), playerID)
 	require.NoError(t, err)
@@ -603,7 +620,7 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 				CurrentPeriodEnd:   tt.periodEnd,
 				CreatedAt:          now,
 				UpdatedAt:          now,
-			}, apishop.PlatformIOS, fmt.Sprintf("sub-token-%d", i)))
+			}, apishop.PlatformIOS, fmt.Sprintf("sub-token-%d", i), port.OutboxEvent{}))
 			products, err := env.svc.GetProducts(context.Background(), playerID)
 			require.NoError(t, err)
 			require.Len(t, products, 1)
@@ -753,27 +770,34 @@ func TestPurchase_DefensivePaths(t *testing.T) {
 	}
 }
 
-// Purchase 後の publisher 経路 — error 伝播と nil publisher の skip を検証する。
+// Purchase 後の event builder 経路 — ビルダーエラー時は tx ごと rollback され
+// 購入行も outbox 行も残らない (dual-write 問題を避けるための atomic 契約)。
 func TestPurchase_FactionPublisherPaths(t *testing.T) {
 	tests := []struct {
-		name        string
-		opts        []shopEnvOption
-		wantErr     bool
-		wantErrSubs string
-		wantCalls   int
+		name          string
+		opts          []shopEnvOption
+		wantErr       bool
+		wantErrSubs   string
+		wantCalls     int
+		wantFactionDB bool
 	}{
 		{
-			// publish 失敗時は webhook リトライで再駆動するため Purchase は 5xx 相当で失敗させる
-			name:        "publisher がエラーを返す（フロー失敗）",
-			opts:        []shopEnvOption{withFactionPubErr(fmt.Errorf("pubsub down"))},
-			wantErr:     true,
-			wantErrSubs: "publish faction-selected",
-			wantCalls:   1,
+			// EventBuilder が失敗するケース。購入行 + outbox 行が同一 tx なので
+			// ビルダーエラーは tx 開始前に露見し、購入行も書かれない。
+			name:          "event builder がエラーを返す（購入行も残らない）",
+			opts:          []shopEnvOption{withFactionPubErr(fmt.Errorf("build failed"))},
+			wantErr:       true,
+			wantErrSubs:   "build faction-selected",
+			wantCalls:     1,
+			wantFactionDB: false,
 		},
 		{
-			name:      "publisher が nil（publish skip・Purchase は成功）",
-			opts:      []shopEnvOption{withNilFactionPub()},
-			wantCalls: 0,
+			// 正常系: builder 成功 → 購入行 + outbox 行が同一 tx で書かれる。
+			name:          "event builder が成功（購入行が永続化される）",
+			opts:          nil,
+			wantErr:       false,
+			wantCalls:     1,
+			wantFactionDB: true,
 		},
 	}
 	for i, tt := range tests {
@@ -805,10 +829,13 @@ func TestPurchase_FactionPublisherPaths(t *testing.T) {
 			}
 			assert.Len(t, env.factionPub.calls, tt.wantCalls)
 
-			// 購入 row は publish 結果に関わらず必ず永続化される（publish はコミット後に実行）
 			factions, ferr := env.factionPurchaseRepo.ListOwnedFactions(context.Background(), playerID)
 			require.NoError(t, ferr)
-			assert.Contains(t, factions, "Tenki")
+			if tt.wantFactionDB {
+				assert.Contains(t, factions, "Tenki")
+			} else {
+				assert.NotContains(t, factions, "Tenki", "builder 失敗時は購入行も rollback される")
+			}
 		})
 	}
 }
@@ -866,7 +893,8 @@ func TestSubscribe_VerifierReturnsError(t *testing.T) {
 	assert.Empty(t, env.premiumPub.calls)
 }
 
-// Subscribe 後の premium publisher 経路 — error 伝播と nil publisher の skip を検証する。
+// Subscribe 後の event builder 経路 — ビルダーエラー時は subscription 行も残らない
+// (同一 tx で outbox と atomic なため)。
 func TestSubscribe_PremiumPublisherPaths(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -874,18 +902,22 @@ func TestSubscribe_PremiumPublisherPaths(t *testing.T) {
 		wantErr     bool
 		wantErrSubs string
 		wantCalls   int
+		wantSubDB   bool
 	}{
 		{
-			name:        "publisher がエラーを返す（フロー失敗）",
-			opts:        []shopEnvOption{withPremiumPubErr(fmt.Errorf("pubsub down"))},
+			name:        "event builder がエラーを返す（フロー失敗、subscription 行も残らない）",
+			opts:        []shopEnvOption{withPremiumPubErr(fmt.Errorf("build failed"))},
 			wantErr:     true,
-			wantErrSubs: "publish premium-updated",
+			wantErrSubs: "build premium-updated",
 			wantCalls:   1,
+			wantSubDB:   false,
 		},
 		{
-			name:      "publisher が nil（publish skip・Subscribe は成功）",
-			opts:      []shopEnvOption{withNilPremiumPub()},
-			wantCalls: 0,
+			name:      "event builder が成功（subscription 行が永続化される）",
+			opts:      nil,
+			wantErr:   false,
+			wantCalls: 1,
+			wantSubDB: true,
 		},
 	}
 	for i, tt := range tests {
@@ -918,11 +950,14 @@ func TestSubscribe_PremiumPublisherPaths(t *testing.T) {
 			}
 			assert.Len(t, env.premiumPub.calls, tt.wantCalls)
 
-			// publish 結果に関わらず subscription 行は永続化される
 			sub, ferr := env.subRepo.GetLatestSubscription(context.Background(), playerID)
 			require.NoError(t, ferr)
-			require.NotNil(t, sub)
-			assert.Equal(t, apishop.SubscriptionStatusActive, sub.Status)
+			if tt.wantSubDB {
+				require.NotNil(t, sub)
+				assert.Equal(t, apishop.SubscriptionStatusActive, sub.Status)
+			} else {
+				assert.Nil(t, sub, "builder 失敗時は subscription 行も rollback される")
+			}
 		})
 	}
 }

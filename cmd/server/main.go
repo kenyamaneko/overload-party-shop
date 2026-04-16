@@ -11,6 +11,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/config"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
@@ -23,6 +24,7 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/router"
 	"github.com/kenyamaneko/overload-party-shop/internal/service"
+	"github.com/kenyamaneko/overload-party-shop/internal/worker"
 )
 
 func main() {
@@ -37,6 +39,14 @@ type nilCardLister struct{}
 
 func (nilCardLister) ListAllCards(_ context.Context) ([]*apishop.CardView, error) {
 	return nil, nil
+}
+
+// verifiers は IAP_MODE=production のときだけ初期化される 3 種の verifier をまとめる。
+// local モードでは全て nil のまま返り、shop_service 側で ErrUnsupportedPlatform を返す。
+type verifiers struct {
+	apple     port.ReceiptVerifier
+	google    port.ReceiptVerifier
+	googleSub port.GoogleSubVerifier
 }
 
 func run() error {
@@ -59,17 +69,10 @@ func run() error {
 		return fmt.Errorf("firestore new client: %w", err)
 	}
 	defer func() { _ = fsClient.Close() }()
-
-	productRepo := postgres.NewProductRepository(pool)
-	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(pool)
-	itemPurchaseRepo := postgres.NewItemPurchaseRepository(pool)
-	purchaseLookup := postgres.NewPurchaseLookupRepository(pool)
-	subRepo := postgres.NewSubscriptionRepository(pool)
 	// game_config は現在 shop の runtime パスから参照していない。
 	// クライアント到達性は起動時に検証するため、repo を生成だけしておく。
 	_ = shopfirestore.NewGameConfigRepository(fsClient)
 
-	// Pub/Sub publisher（faction-selected + premium-updated）。
 	pub, err := shoppubsub.New(ctx, cfg.GoogleCloudProject, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
 	if err != nil {
 		return fmt.Errorf("shop publisher: %w", err)
@@ -80,80 +83,126 @@ func run() error {
 		}
 	}()
 
-	var (
-		appleVerifier     port.ReceiptVerifier
-		googleVerifier    port.ReceiptVerifier
-		googleSubVerifier port.GoogleSubVerifier
-	)
-
-	if cfg.IAPMode == config.IAPModeProduction {
-		av, err := shopadapter.NewVerifierFromPEM(
-			cfg.AppleKeyID, cfg.AppleIssuerID, cfg.AppleBundleID,
-			cfg.ApplePrivateKeyPEM, cfg.AppleEnvironment,
-		)
-		if err != nil {
-			return fmt.Errorf("apple verifier: %w", err)
-		}
-		appleVerifier = av
-
-		gv, err := googleadapter.NewVerifier(ctx, cfg.GooglePackageName)
-		if err != nil {
-			return fmt.Errorf("google verifier: %w", err)
-		}
-		googleVerifier = gv
-
-		gsv, err := googleadapter.NewSubVerifier(ctx, cfg.GooglePackageName)
-		if err != nil {
-			return fmt.Errorf("google sub verifier: %w", err)
-		}
-		googleSubVerifier = gsv
-	} else {
-		log.Printf("shop: IAP_MODE=local — skipping Apple/Google verifier init and webhook route registration")
+	eventBuilder, err := shoppubsub.NewEventBuilder(cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
+	if err != nil {
+		return fmt.Errorf("shop event builder: %w", err)
 	}
+
+	vfs, err := setupVerifiers(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	outboxWorker, err := buildOutboxWorker(pool, pub, cfg)
+	if err != nil {
+		return err
+	}
+
+	handler := buildHTTPHandler(cfg, pool, eventBuilder, vfs)
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	log.Printf("shop: listening on %s (gcp project=%s faction-topic=%s premium-topic=%s)",
+		srv.Addr, cfg.GoogleCloudProject, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
+
+	return runHTTPAndWorker(ctx, srv, outboxWorker)
+}
+
+// setupVerifiers は IAP_MODE に応じて Apple/Google verifier を初期化する。
+// local モードでは全 verifier を nil のまま返し、webhook ルートも未登録となる。
+func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) {
+	if cfg.IAPMode != config.IAPModeProduction {
+		log.Printf("shop: IAP_MODE=local — skipping Apple/Google verifier init and webhook route registration")
+		return verifiers{}, nil
+	}
+	av, err := shopadapter.NewVerifierFromPEM(
+		cfg.AppleKeyID, cfg.AppleIssuerID, cfg.AppleBundleID,
+		cfg.ApplePrivateKeyPEM, cfg.AppleEnvironment,
+	)
+	if err != nil {
+		return verifiers{}, fmt.Errorf("apple verifier: %w", err)
+	}
+	gv, err := googleadapter.NewVerifier(ctx, cfg.GooglePackageName)
+	if err != nil {
+		return verifiers{}, fmt.Errorf("google verifier: %w", err)
+	}
+	gsv, err := googleadapter.NewSubVerifier(ctx, cfg.GooglePackageName)
+	if err != nil {
+		return verifiers{}, fmt.Errorf("google sub verifier: %w", err)
+	}
+	return verifiers{apple: av, google: gv, googleSub: gsv}, nil
+}
+
+// buildHTTPHandler は repo / service / handler の配線を一箇所にまとめる。
+// run() の肥大を避けるための分割であり、起動順には依存していない。
+func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.OutboxEventBuilder, vfs verifiers) http.Handler {
+	productRepo := postgres.NewProductRepository(pool)
+	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(pool)
+	itemPurchaseRepo := postgres.NewItemPurchaseRepository(pool)
+	purchaseLookup := postgres.NewPurchaseLookupRepository(pool)
+	subRepo := postgres.NewSubscriptionRepository(pool)
 
 	shopSvc := service.NewShopService(
 		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup,
 		subRepo, nilCardLister{},
-		appleVerifier, googleVerifier,
-		pub, pub,
+		vfs.apple, vfs.google,
+		eventBuilder,
 	)
-	subSvc := service.NewSubscriptionService(subRepo, pub, googleSubVerifier)
+	subSvc := service.NewSubscriptionService(subRepo, eventBuilder, vfs.googleSub)
 
 	shopH := rest.NewShopHandler(shopSvc)
-
 	var webhookH *rest.WebhookHandler
 	if cfg.IAPMode == config.IAPModeProduction {
 		webhookH = rest.NewWebhookHandler(subSvc)
 	}
+	return router.New(shopH, webhookH)
+}
 
-	r := router.New(shopH, webhookH)
+// buildOutboxWorker は outbox 消費 worker を構築する。worker は pool を借りて
+// 独自に outbox_repo を作る (handler 経由のビジネス repo とは独立した依存関係)。
+func buildOutboxWorker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *config.Config) (*worker.OutboxPublisher, error) {
+	outboxRepo := postgres.NewOutboxRepository(pool)
+	return worker.New(outboxRepo, pub, worker.Config{
+		PollInterval:     cfg.OutboxPollInterval,
+		BatchSize:        cfg.OutboxBatchSize,
+		FailureThreshold: cfg.OutboxFailureThreshold,
+	})
+}
 
-	srv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           r,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+// runHTTPAndWorker は HTTP server と outbox worker を並行起動し、
+// どちらかの失敗・シグナル到来で両方を graceful に停止する。
+// errgroup を使うのは「どちらが先に終わっても相方を畳む」ためで、shop 独自の
+// 停止順序 (http 先・worker 後) が必要になった場合はここを変える。
+func runHTTPAndWorker(ctx context.Context, srv *http.Server, outboxWorker *worker.OutboxPublisher) error {
+	g, gCtx := errgroup.WithContext(ctx)
 
-	errCh := make(chan error, 1)
-	go func() {
-		log.Printf("shop: listening on %s (gcp project=%s faction-topic=%s premium-topic=%s)",
-			srv.Addr, cfg.GoogleCloudProject, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
+	g.Go(func() error {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
+			return fmt.Errorf("http server: %w", err)
 		}
-	}()
+		return nil
+	})
 
-	select {
-	case <-ctx.Done():
+	g.Go(func() error {
+		return outboxWorker.Run(gCtx)
+	})
+
+	g.Go(func() error {
+		<-gCtx.Done()
 		log.Printf("shop: shutdown requested")
-	case err := <-errCh:
-		return err
-	}
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("http shutdown: %w", err)
+		}
+		return nil
+	})
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("http shutdown: %w", err)
+	if err := g.Wait(); err != nil {
+		return err
 	}
 	return nil
 }

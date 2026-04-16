@@ -19,23 +19,40 @@ Shop は **IAP 取引そのもの** の single source of truth だが、**プレ
 
 subscriber (account / card / gateway) は `faction-selected` / `premium-updated` イベントを消費して各自の read model を構築する。shop は他サービスを直接呼ばない。
 
-## イベント配信モデル (publish-after-commit + 多層冪等性)
+## イベント配信モデル (Transactional Outbox)
 
-publish は **DB commit 後** に行う。これは shop 行を durable record として扱うための意図的な順序で、publish が失敗した場合の回復経路は以下のように分業される:
+shop は **Transactional Outbox パターン** で Pub/Sub 発行を DB commit と atomic に揃える。dual-write 問題 (DB commit と Pub/Sub publish が別トランザクションになり、片方だけが成功して整合が壊れる現象) を構造的に排除するための中核機構。
 
-| 失敗箇所 | 回復経路 |
-|---|---|
-| Purchase の publish 失敗 | handler が 5xx を返す → クライアントリトライ → 既存 purchaseToken を early-return でスキップし、publish のみ再実行 |
-| Webhook 起点の publish 失敗 | 5xx を返して Apple/Google のリトライ予算で再駆動 |
-| Subscribe の publish 失敗 | 同上 (クライアントリトライ) |
+### enqueue: ビジネス行と outbox 行を同一 tx で commit
 
-冪等性は単一の仕組みではなく多層で担保している:
+各 aggregate repo (faction_purchase / item_purchase / subscription) は、ビジネステーブルの INSERT/UPDATE と同じトランザクションに `shop.outbox_events` 行の INSERT を相乗りさせる。service 層は `OutboxEventBuilder.Build*` で構築した `OutboxEvent` を repo に渡すだけで、repo 内部で同一 tx 書き込みが完結する。
 
-- **Shop 内**: `purchaseToken` の PK UNIQUE (`shop.*_purchase_tokens` / `shop.*_subscription_tokens`) と、事前 lookup による early-return
-- **Subscriber 側**: 各サービスが `processed_events` / 複合 PK で event_id 単位の二重適用を防ぐ
-- shop 側のリトライと subscriber 側のリトライは独立しており、どちらが何度発火しても副作用は冪等
+```
+BEGIN TX
+  INSERT INTO shop.one_time_purchases ...
+  INSERT INTO shop.apple_purchase_tokens ...
+  INSERT INTO shop.player_owned_factions ...
+  INSERT INTO shop.outbox_events ...     ← 同一 tx に相乗り
+COMMIT
+```
 
-2 回目の publish は新しい `event_id` を生成する。これは意図的で、subscriber 側の重複検知は event_id ではなく **業務キー + 複合 PK** で行う前提。
+DB commit が成功した瞬間にイベントは必ず発行される運命にある (worker が未来のどこかで publish する)。commit が失敗すれば両方巻き戻る。REST ハンドラ視点では「Purchase が 200 を返した ⇔ subscriber にイベントが届く」の保証が得られる。
+
+### 配信: 別プロセスの worker が未配信行を claim して publish
+
+`internal/worker/outbox_publisher.go` が常駐 goroutine としてポーリングし、未 publish 行を `FOR UPDATE SKIP LOCKED` で claim → Pub/Sub に送出 → `published_at` 更新。ポーリング間隔・バッチサイズ・失敗閾値は env (`OUTBOX_POLL_INTERVAL` / `OUTBOX_BATCH_SIZE` / `OUTBOX_FAILURE_THRESHOLD`) で可変。
+
+複数 pod で同時に走っても `SKIP LOCKED` により同じ行を奪い合わない。pod がクラッシュしても未 publish 行は DB に残り、次回 tick 以降で再試行される。
+
+### 冪等性の契約
+
+- 各 outbox 行の `event_id` は enqueue 時点で確定し、payload 内 `eventId` と一致する。再試行しても同じ event_id を送るため、subscriber は `processed_events` / 複合 PK で重複適用を排除できる (at-least-once)。
+- shop 側の再入 (再 Purchase / 再 Subscribe) は purchaseToken 単位の `FindPurchaseByToken` / `FindSubscriptionByToken` で早期 return する。既存 purchase があれば outbox 行も既に書かれている前提で、同じ event を二重 enqueue しない。
+- 失敗継続した outbox 行は `failure_count` と `last_error` を積み、閾値 (`OUTBOX_FAILURE_THRESHOLD`) 超過で worker が ERROR ログを吐く。常駐プロセスに自動復旧手段はないため監視側でアラート。
+
+### 配信済み行は削除しない
+
+`published_at` が埋まった行も削除せず保持する (監査・障害調査のため)。partial index `idx_outbox_events_unpublished WHERE published_at IS NULL` により worker の claim クエリは未配信行だけを見るため、積み上がっても検索性能は劣化しない。将来テーブルサイズが問題になったら別 job で古い行を DELETE する (現時点では未実装)。
 
 ## エンタイトルメント維持契約
 
@@ -45,7 +62,7 @@ publish は **DB commit 後** に行う。これは shop 行を durable record �
 
 > 解約されても `current_period_end` まではエンタイトルメントを維持する。subscriber は `premium-updated(is_premium=false)` が届くまで `is_premium` を落としてはならない。期限到来時は Apple/Google から `EXPIRED` 通知が届き、そこで初めて `is_premium=false` が流れる。
 
-両プラットフォームで同一の契約を敷くため、Apple 側と Google 側の通知ハンドラで同じ振る舞いを実装している (`internal/service/apple_notification.go` と `internal/service/google_notification.go` の `cancelled` ケース)。新プラットフォームを足すときもこの契約を維持すること。
+両プラットフォームで同一の契約を敷くため、Apple/Google の通知ハンドラはどちらも `SubscriptionService.applySubChangeNoEvent` (outbox 行を書かない UPDATE) を cancelled ケースで呼ぶ。新プラットフォームを足すときもこの契約を維持すること。
 
 ## Token 仕様変更への耐性
 
@@ -64,13 +81,13 @@ Apple と Google で信頼の引き方が違う。新プラットフォーム追
 
 どちらも gateway を経由しない外部エンドポイントだが、信頼境界を引くレイヤが異なる。この前提があるため、router に gateway 認証を挟んでいない。
 
-webhook の deterministic error (decode 失敗 / unknown subscription 等) は **200 で ack** してストア側のリトライを止める。transient error (DB・pub/sub 障害等) は 5xx を返してリトライさせる (`internal/handler/rest/webhook_handler.go` の `respondWebhook`)。
+webhook の deterministic error (decode 失敗 / unknown subscription 等) は **200 で ack** してストア側のリトライを止める。transient error (DB・pub/sub 障害等) は 5xx を返してリトライさせる (`internal/handler/rest/webhook_handler.go` の `respondWebhook`)。outbox 導入後は webhook 起点の DB 更新 + outbox 行も同一 tx なので、DB 失敗で 5xx が返るケースはビジネス行と outbox 行を両方巻き戻した上でストアリトライを待つ形になる。
 
 ## IAP_MODE=local の構造的安全性
 
 `IAP_MODE=local` は開発用モードで、Apple/Google verifier を初期化しない。ここで重要なのは **未認証 POST が nil verifier に到達する経路がコードの構造上存在しない** こと。これは 3 ファイルの合意で成立している:
 
-1. `cmd/server/main.go`: `IAP_MODE!=production` のとき `webhookH = nil` のまま router に渡す
+1. `cmd/server/main.go`: `IAP_MODE!=production` のとき verifier 系を全て nil のまま返し、webhookH も nil 構築する
 2. `internal/router/router.go`: `webhookH == nil` のとき `/webhook/*` ルートを **登録しない**
 3. `internal/service/shop_service.go` の `getVerifier`: 内部 `/purchase` / `/subscribe` ルートから呼ばれ、platform 不明時は `ErrUnsupportedPlatform`
 
@@ -80,19 +97,20 @@ webhook の deterministic error (decode 失敗 / unknown subscription 等) は *
 
 ### 環境変数 / Secret Manager
 
-環境変数の一覧と必須条件は [internal/config/config.go](../internal/config/config.go) が SSoT (`loadProductionIAP` / `loadLocalIAP` が起動時に検証、欠ければ即 fail)。
+環境変数の一覧と必須条件は [internal/config/config.go](../internal/config/config.go) が SSoT (`loadProductionIAP` / `loadLocalIAP` / `loadOutboxConfig` が起動時に検証、欠ければ即 fail)。
 
 運用上の注意点のみ:
 
 - **`IAP_MODE=production`** では Apple/Google の機密情報 (`shop-apple-*` / `shop-google-package-name` 等) を Secret Manager から起動時に取得する。k8s マニフェストにシークレットは載せない。
 - シークレットの追加は手動: `gcloud secrets versions add <secret-id> --data-file=-`
+- **`OUTBOX_POLL_INTERVAL` / `OUTBOX_BATCH_SIZE` / `OUTBOX_FAILURE_THRESHOLD`** は負荷試験やインシデント時にデプロイなしで試行錯誤できるよう env で持つ。
 - ローカル開発では `make run` が env を自動注入するため shell 側 export は不要。
 
 ### Pub/Sub トピックと subscriber
 
 | トピック | 発行契機 | subscriber |
 |---|---|---|
-| `faction-selected` | `faction_set` 購入の DB commit 後 | account, card, gateway |
+| `faction-selected` | `faction_set` 購入の DB commit 後 (worker が outbox 消費) | account, card, gateway |
 | `premium-updated` | サブスクリプション状態変化時 (解約時は除く、上述の契約) | account, gateway |
 
 subscriber 列はこのリポジトリからは導けないので、変更時は各サービスの購読状況も確認すること。

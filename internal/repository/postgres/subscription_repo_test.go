@@ -33,7 +33,7 @@ func TestSubscriptionRepository_CreateSubscription_Apple(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	sub := newSub("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", now)
 
-	require.NoError(t, repo.CreateSubscription(ctx, sub, apishop.PlatformIOS, "apple-orig-tx-1"))
+	require.NoError(t, repo.CreateSubscription(ctx, sub, apishop.PlatformIOS, "apple-orig-tx-1", port.OutboxEvent{}))
 	assert.NotZero(t, sub.SubscriptionID)
 
 	found, err := repo.FindSubscriptionByToken(ctx, apishop.PlatformIOS, "apple-orig-tx-1")
@@ -49,7 +49,7 @@ func TestSubscriptionRepository_CreateSubscription_Google(t *testing.T) {
 	ctx := context.Background()
 
 	sub := newSub("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", time.Now().UTC())
-	require.NoError(t, repo.CreateSubscription(ctx, sub, apishop.PlatformAndroid, "google-purchase-tok-1"))
+	require.NoError(t, repo.CreateSubscription(ctx, sub, apishop.PlatformAndroid, "google-purchase-tok-1", port.OutboxEvent{}))
 
 	found, err := repo.FindSubscriptionByToken(ctx, apishop.PlatformAndroid, "google-purchase-tok-1")
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestSubscriptionRepository_CreateSubscription_UnsupportedPlatform(t *testin
 	ctx := context.Background()
 
 	sub := newSub("cccccccc-cccc-cccc-cccc-cccccccccccc", time.Now().UTC())
-	err := repo.CreateSubscription(ctx, sub, "windows", "tok")
+	err := repo.CreateSubscription(ctx, sub, "windows", "tok", port.OutboxEvent{})
 	assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 }
 
@@ -77,10 +77,10 @@ func TestSubscriptionRepository_GetLatestSubscription(t *testing.T) {
 
 	older := newSub(playerID, base)
 	older.Status = apishop.SubscriptionStatusExpired
-	require.NoError(t, repo.CreateSubscription(ctx, older, apishop.PlatformIOS, "old-tok"))
+	require.NoError(t, repo.CreateSubscription(ctx, older, apishop.PlatformIOS, "old-tok", port.OutboxEvent{}))
 
 	newer := newSub(playerID, base.Add(48*time.Hour))
-	require.NoError(t, repo.CreateSubscription(ctx, newer, apishop.PlatformIOS, "new-tok"))
+	require.NoError(t, repo.CreateSubscription(ctx, newer, apishop.PlatformIOS, "new-tok", port.OutboxEvent{}))
 
 	latest, err := repo.GetLatestSubscription(ctx, playerID)
 	require.NoError(t, err)
@@ -125,13 +125,13 @@ func TestSubscriptionRepository_UpdateSubscription(t *testing.T) {
 
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	sub := newSub("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", now)
-	require.NoError(t, repo.CreateSubscription(ctx, sub, apishop.PlatformIOS, "upd-token"))
+	require.NoError(t, repo.CreateSubscription(ctx, sub, apishop.PlatformIOS, "upd-token", port.OutboxEvent{}))
 
 	sub.Status = apishop.SubscriptionStatusCancelled
 	newEnd := now.Add(60 * 24 * time.Hour)
 	sub.CurrentPeriodEnd = newEnd
 	sub.UpdatedAt = now.Add(time.Hour)
-	require.NoError(t, repo.UpdateSubscription(ctx, sub))
+	require.NoError(t, repo.UpdateSubscription(ctx, sub, port.OutboxEvent{}))
 
 	got, err := repo.FindSubscriptionByToken(ctx, apishop.PlatformIOS, "upd-token")
 	require.NoError(t, err)

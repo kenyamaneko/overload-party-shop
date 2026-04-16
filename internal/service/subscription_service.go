@@ -11,36 +11,46 @@ import (
 
 // SubscriptionService は webhook 駆動のサブスクリプションライフサイクルイベントを処理する。
 // Pub/Sub fan-out リファクタ以降 account.players には触れず、shop.subscriptions を
-// ローカル更新し `premium-updated` イベントを発行する。
+// ローカル更新して `premium-updated` イベントを outbox に enqueue する (DB 更新 + outbox
+// 行は repo 層の単一 tx で atomic に commit される)。publish は worker が行う。
 type SubscriptionService struct {
-	subRepo          port.SubscriptionRepo
-	premiumPublisher port.PremiumEventPublisher
-	googleVerifier   port.GoogleSubVerifier
+	subRepo        port.SubscriptionRepo
+	eventBuilder   port.OutboxEventBuilder
+	googleVerifier port.GoogleSubVerifier
 }
 
 // NewSubscriptionService は依存を受け取り SubscriptionService を構築する。
 func NewSubscriptionService(
 	subRepo port.SubscriptionRepo,
-	premiumPublisher port.PremiumEventPublisher,
+	eventBuilder port.OutboxEventBuilder,
 	googleVerifier port.GoogleSubVerifier,
 ) *SubscriptionService {
 	return &SubscriptionService{
-		subRepo:          subRepo,
-		premiumPublisher: premiumPublisher,
-		googleVerifier:   googleVerifier,
+		subRepo:        subRepo,
+		eventBuilder:   eventBuilder,
+		googleVerifier: googleVerifier,
 	}
 }
 
-// applySubChangeAndPublish はサブスクリプション行を先に更新してから publish する。
-// sub 行が永続記録であり、publish 失敗時は webhook リトライが再駆動する。
-func (s *SubscriptionService) applySubChangeAndPublish(ctx context.Context, sub *apishop.Subscription, isPremium bool, expiresAt *time.Time) error {
-	if err := s.subRepo.UpdateSubscription(ctx, sub); err != nil {
+// applySubChangeWithEvent はサブスクリプション行の更新と premium-updated 行の
+// outbox enqueue を同一 tx で行う。DB commit 成功時点で publish は worker に
+// 委ねられ、dual-write 問題が起きない。
+func (s *SubscriptionService) applySubChangeWithEvent(ctx context.Context, sub *apishop.Subscription, isPremium bool, expiresAt *time.Time) error {
+	ev, err := s.eventBuilder.BuildPremiumUpdated(sub.PlayerID, isPremium, expiresAt)
+	if err != nil {
+		return fmt.Errorf("build premium-updated: %w", err)
+	}
+	if err := s.subRepo.UpdateSubscription(ctx, sub, ev); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
 	}
-	if s.premiumPublisher != nil {
-		if err := s.premiumPublisher.PublishPremiumUpdated(ctx, sub.PlayerID, isPremium, expiresAt); err != nil {
-			return fmt.Errorf("publish premium-updated: %w", err)
-		}
+	return nil
+}
+
+// applySubChangeNoEvent は premium-updated を発行しない状態遷移 (解約時の
+// cancelled 遷移など、エンタイトルメント維持契約により publish しないケース) で使う。
+func (s *SubscriptionService) applySubChangeNoEvent(ctx context.Context, sub *apishop.Subscription) error {
+	if err := s.subRepo.UpdateSubscription(ctx, sub, port.OutboxEvent{}); err != nil {
+		return fmt.Errorf("update subscription: %w", err)
 	}
 	return nil
 }

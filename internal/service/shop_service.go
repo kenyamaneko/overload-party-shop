@@ -20,11 +20,12 @@ type CardLister interface {
 }
 
 // ShopService は shop ローカルの購入フローを管理する。Pub/Sub fan-out リファクタ以降、
-// shop は `shop` スキーマのみを直接変更する。faction + premium 状態更新は Pub/Sub
-// 経由で account / card / gateway subscriber が処理する。IsOwned チェックは
-// shop ローカルの `player_owned_factions` read model で行う。
+// shop は `shop` スキーマのみを直接変更する。faction + premium 状態更新は
+// Transactional Outbox 経由で account / card / gateway subscriber が処理する。
+// IsOwned チェックは shop ローカルの `player_owned_factions` read model で行う。
 //
-// トランザクションは repo 層で完結する (各購入 aggregate が atomic な Create を提供)。
+// ビジネス行の INSERT と outbox 行の INSERT は repo 層の単一トランザクションで
+// 同時に commit される。publish は別プロセスの worker が outbox を消費して行う。
 type ShopService struct {
 	productRepo         port.ProductRepo
 	factionPurchaseRepo port.FactionPurchaseRepo
@@ -34,8 +35,7 @@ type ShopService struct {
 	cardLister          CardLister
 	appleVerifier       port.ReceiptVerifier
 	googleVerifier      port.ReceiptVerifier
-	factionPublisher    port.FactionEventPublisher
-	premiumPublisher    port.PremiumEventPublisher
+	eventBuilder        port.OutboxEventBuilder
 }
 
 func NewShopService(
@@ -47,8 +47,7 @@ func NewShopService(
 	cardLister CardLister,
 	appleVerifier port.ReceiptVerifier,
 	googleVerifier port.ReceiptVerifier,
-	factionPublisher port.FactionEventPublisher,
-	premiumPublisher port.PremiumEventPublisher,
+	eventBuilder port.OutboxEventBuilder,
 ) *ShopService {
 	return &ShopService{
 		productRepo:         productRepo,
@@ -59,8 +58,7 @@ func NewShopService(
 		cardLister:          cardLister,
 		appleVerifier:       appleVerifier,
 		googleVerifier:      googleVerifier,
-		factionPublisher:    factionPublisher,
-		premiumPublisher:    premiumPublisher,
+		eventBuilder:        eventBuilder,
 	}
 }
 
@@ -125,8 +123,10 @@ func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apish
 	return result, nil
 }
 
-// Purchase は単発購入フローを実行する。レシート検証・べき等チェック・購入記録・
-// faction-selected イベント発行を行う。トランザクションは repo 層で完結する。
+// Purchase は単発購入フローを実行する。レシート検証・べき等チェック・
+// 購入記録・faction-selected イベントの outbox enqueue を行う。
+// 購入行 + 所有権行 + outbox 行は repo 層の単一 tx で atomic に commit される。
+// publish は worker が outbox を消費して別途実行する。
 func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error {
 	verifier, err := s.getVerifier(pf)
 	if err != nil {
@@ -198,15 +198,14 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 		PurchasedAt: time.Now(),
 	}
 
-	var grantedFaction string
 	switch product.Type {
 	case apishop.ProductTypeFactionSet:
-		created, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken)
+		event, err := s.eventBuilder.BuildFactionSelected(playerID, factionContent.Faction)
 		if err != nil {
-			return fmt.Errorf("create faction purchase: %w", err)
+			return fmt.Errorf("build faction-selected: %w", err)
 		}
-		if created {
-			grantedFaction = factionContent.Faction
+		if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken, event); err != nil {
+			return fmt.Errorf("create faction purchase: %w", err)
 		}
 	case apishop.ProductTypeCosmetic:
 		item := &apishop.PlayerItem{
@@ -215,18 +214,8 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 			ItemNo:     cosmeticContent.ItemNo,
 			AcquiredAt: time.Now(),
 		}
-		if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, pf, purchaseToken); err != nil {
+		if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, pf, purchaseToken, port.OutboxEvent{}); err != nil {
 			return fmt.Errorf("create item purchase: %w", err)
-		}
-	}
-
-	// commit 後に publish する。shop 行 + ローカル read model が永続記録。
-	// publish 失敗時は webhook リトライがフローを再駆動する。
-	// created=false (webhook race で既存 token ヒット) の場合は初回 publish が
-	// 済んでいる前提で skip する。
-	if grantedFaction != "" && s.factionPublisher != nil {
-		if err := s.factionPublisher.PublishFactionSelected(ctx, playerID, grantedFaction); err != nil {
-			return fmt.Errorf("publish faction-selected: %w", err)
 		}
 	}
 
@@ -234,7 +223,8 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 }
 
 // Subscribe はサブスクリプション購入フローを実行する。レシート検証・べき等チェック・
-// サブスクリプション記録・premium-updated イベント発行を行う。
+// サブスクリプション記録・premium-updated イベントの outbox enqueue を行う。
+// subscription 行 + token 行 + outbox 行は repo 層の単一 tx で atomic に commit される。
 func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error) {
 	verifier, err := s.getVerifier(pf)
 	if err != nil {
@@ -275,14 +265,12 @@ func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, pu
 		UpdatedAt:          time.Now(),
 	}
 
-	if err := s.subRepo.CreateSubscription(ctx, sub, pf, purchaseToken); err != nil {
-		return nil, fmt.Errorf("create subscription: %w", err)
+	event, err := s.eventBuilder.BuildPremiumUpdated(playerID, true, &info.ExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("build premium-updated: %w", err)
 	}
-
-	if s.premiumPublisher != nil {
-		if err := s.premiumPublisher.PublishPremiumUpdated(ctx, playerID, true, &info.ExpiresAt); err != nil {
-			return nil, fmt.Errorf("publish premium-updated: %w", err)
-		}
+	if err := s.subRepo.CreateSubscription(ctx, sub, pf, purchaseToken, event); err != nil {
+		return nil, fmt.Errorf("create subscription: %w", err)
 	}
 
 	return &info.ExpiresAt, nil

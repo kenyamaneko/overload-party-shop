@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,9 @@ var allEnvKeys = []string{
 	"APPLE_BUNDLE_ID",
 	"APPLE_PRIVATE_KEY_PATH",
 	"GOOGLE_PACKAGE_NAME",
+	"OUTBOX_POLL_INTERVAL",
+	"OUTBOX_BATCH_SIZE",
+	"OUTBOX_FAILURE_THRESHOLD",
 }
 
 // setEnv は allEnvKeys を一括で上書きする。envs に無いキーは "" (未設定相当) として
@@ -48,12 +52,15 @@ func mergeEnv(maps ...map[string]string) map[string]string {
 // CLAUDE.md「デフォルト値へのフォールバックを行わない」方針により、
 // 全必須 env を明示的に供給する。各ケースはこれを baseline に override を重ねる。
 var validLocalEnv = map[string]string{
-	"PORT":                   "9006",
-	"DATABASE_CONN":          "host=localhost port=5432 dbname=test sslmode=disable",
-	"GOOGLE_CLOUD_PROJECT":   "test-project",
-	"FACTION_SELECTED_TOPIC": "faction-selected",
-	"PREMIUM_UPDATED_TOPIC":  "premium-updated",
-	"IAP_MODE":               "local",
+	"PORT":                     "9006",
+	"DATABASE_CONN":            "host=localhost port=5432 dbname=test sslmode=disable",
+	"GOOGLE_CLOUD_PROJECT":     "test-project",
+	"FACTION_SELECTED_TOPIC":   "faction-selected",
+	"PREMIUM_UPDATED_TOPIC":    "premium-updated",
+	"IAP_MODE":                 "local",
+	"OUTBOX_POLL_INTERVAL":     "1s",
+	"OUTBOX_BATCH_SIZE":        "100",
+	"OUTBOX_FAILURE_THRESHOLD": "5",
 }
 
 func TestFromEnv_Success(t *testing.T) {
@@ -79,6 +86,15 @@ func TestFromEnv_Success(t *testing.T) {
 				assert.Equal(t, "test-project", cfg.GoogleCloudProject)
 				assert.Equal(t, "faction-selected", cfg.FactionSelectedTopic)
 				assert.Equal(t, "premium-updated", cfg.PremiumUpdatedTopic)
+			},
+		},
+		{
+			name: "outbox 設定が env から Config に伝搬する",
+			envs: validLocalEnv,
+			assert: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, 1*time.Second, cfg.OutboxPollInterval)
+				assert.Equal(t, 100, cfg.OutboxBatchSize)
+				assert.Equal(t, 5, cfg.OutboxFailureThreshold)
 			},
 		},
 		{
@@ -185,6 +201,46 @@ func TestFromEnv_Errors(t *testing.T) {
 				"APPLE_ENVIRONMENT": "staging",
 			}),
 			wantErr: "APPLE_ENVIRONMENT must be",
+		},
+		{
+			name:    "OUTBOX_POLL_INTERVAL が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_POLL_INTERVAL": ""}),
+			wantErr: "OUTBOX_POLL_INTERVAL is required",
+		},
+		{
+			name:    "OUTBOX_POLL_INTERVAL が duration としてパースできないならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_POLL_INTERVAL": "abc"}),
+			wantErr: "OUTBOX_POLL_INTERVAL",
+		},
+		{
+			name:    "OUTBOX_POLL_INTERVAL が 0 以下ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_POLL_INTERVAL": "0s"}),
+			wantErr: "OUTBOX_POLL_INTERVAL must be positive",
+		},
+		{
+			name:    "OUTBOX_BATCH_SIZE が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_BATCH_SIZE": ""}),
+			wantErr: "OUTBOX_BATCH_SIZE is required",
+		},
+		{
+			name:    "OUTBOX_BATCH_SIZE が数値でないならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_BATCH_SIZE": "abc"}),
+			wantErr: "OUTBOX_BATCH_SIZE",
+		},
+		{
+			name:    "OUTBOX_BATCH_SIZE が 0 以下ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_BATCH_SIZE": "0"}),
+			wantErr: "OUTBOX_BATCH_SIZE must be positive",
+		},
+		{
+			name:    "OUTBOX_FAILURE_THRESHOLD が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": ""}),
+			wantErr: "OUTBOX_FAILURE_THRESHOLD is required",
+		},
+		{
+			name:    "OUTBOX_FAILURE_THRESHOLD が 0 以下ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": "0"}),
+			wantErr: "OUTBOX_FAILURE_THRESHOLD must be positive",
 		},
 	}
 	for _, tt := range tests {

@@ -62,21 +62,21 @@ func (s *SubscriptionService) HandleAppleNotification(ctx context.Context, signe
 		sub.CurrentPeriodEnd = expiresAt
 		sub.Status = apishop.SubscriptionStatusActive
 		sub.UpdatedAt = time.Now()
-		if err := s.applySubChangeAndPublish(ctx, sub, true, &expiresAt); err != nil {
+		if err := s.applySubChangeWithEvent(ctx, sub, true, &expiresAt); err != nil {
 			return err
 		}
 
 	case appleNotifExpired, appleNotifGracePeriodExpired:
 		sub.Status = apishop.SubscriptionStatusExpired
 		sub.UpdatedAt = time.Now()
-		if err := s.applySubChangeAndPublish(ctx, sub, false, nil); err != nil {
+		if err := s.applySubChangeWithEvent(ctx, sub, false, nil); err != nil {
 			return err
 		}
 
 	case appleNotifRevoke:
 		sub.Status = apishop.SubscriptionStatusRevoked
 		sub.UpdatedAt = time.Now()
-		if err := s.applySubChangeAndPublish(ctx, sub, false, nil); err != nil {
+		if err := s.applySubChangeWithEvent(ctx, sub, false, nil); err != nil {
 			return err
 		}
 
@@ -84,10 +84,11 @@ func (s *SubscriptionService) HandleAppleNotification(ctx context.Context, signe
 		if notif.Subtype == appleSubtypeAutoRenewDisabled {
 			sub.Status = apishop.SubscriptionStatusCancelled
 			sub.UpdatedAt = time.Now()
-			if err := s.subRepo.UpdateSubscription(ctx, sub); err != nil {
-				return fmt.Errorf("update subscription: %w", err)
+			// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
+			// (エンタイトルメント維持契約: docs/ARCHITECTURE.md)。
+			if err := s.applySubChangeNoEvent(ctx, sub); err != nil {
+				return err
 			}
-			// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない。
 		}
 	}
 

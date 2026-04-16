@@ -1,16 +1,10 @@
 package port
 
-import (
-	"context"
-	"time"
-)
+import "context"
 
-// FactionEventPublisher は faction-selected イベントをイベントバスに発行する。
-type FactionEventPublisher interface {
-	PublishFactionSelected(ctx context.Context, playerID, faction string) error
-}
-
-// PremiumEventPublisher は premium-updated イベントをイベントバスに発行する。
-type PremiumEventPublisher interface {
-	PublishPremiumUpdated(ctx context.Context, playerID string, isPremium bool, expiresAt *time.Time) error
+// RawEventPublisher は outbox worker が topic + payload で Pub/Sub に送出する
+// 低レベルインターフェース。イベント struct の構築は adapter/pubsub の
+// EventBuilder が担い、worker は構築済み payload を流すだけ。
+type RawEventPublisher interface {
+	Publish(ctx context.Context, topic string, payload []byte) error
 }

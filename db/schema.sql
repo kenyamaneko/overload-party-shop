@@ -145,11 +145,42 @@ CREATE TABLE shop.player_items (
 -- 所有状況の shop ローカル射影。authoritative な所有状況は account.player_factions
 -- が持つが、shop は cross-schema 読み込みを許されないため GetProducts の
 -- IsOwned 判定用に shop 内で独立した read model を保持する。
--- Purchase 成功時に書き込まれ、faction-selected イベントの publish は
--- この INSERT の後に行う。
+-- Purchase 成功時に書き込まれ、faction-selected イベントの outbox 行は
+-- この INSERT と同一トランザクションで書き込まれる。
 CREATE TABLE shop.player_owned_factions (
   player_id  UUID NOT NULL,                           -- 所有プレイヤー
   faction    VARCHAR(20) NOT NULL CHECK (faction IN ('SHE', 'Tenki', 'Sugar', 'Tuners')), -- 所有ファクション
   granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),      -- 付与日時
   PRIMARY KEY (player_id, faction)
 );
+
+-- =============================================================================
+-- Transactional Outbox
+-- =============================================================================
+
+-- shop.outbox_events は Pub/Sub 発行を DB commit と atomic に揃えるための
+-- outbox。ビジネス行の INSERT/UPDATE と同一トランザクションで 1 行 INSERT され、
+-- 別プロセスの worker が未 publish 行を claim して Pub/Sub に送出する。
+-- これにより「DB commit は成功したが publish が失敗してイベントが失われる」
+-- dual-write 問題を構造的に排除する。
+--
+-- event_id は payload 内の eventId と一致し、再試行しても同じ値。subscriber 側の
+-- 冪等性キー (processed_events / 複合 PK) と協調して at-least-once を担保する。
+-- 配信済み行は削除しない (監査・障害調査用に保持)。
+CREATE TABLE shop.outbox_events (
+  event_id          UUID NOT NULL,                        -- payload 内 eventId と一致
+  topic             VARCHAR(100) NOT NULL,                -- Pub/Sub topic 名
+  payload           JSONB NOT NULL,                       -- JSON Marshal 済みイベント本体
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),   -- enqueue 日時
+  published_at      TIMESTAMPTZ,                          -- NULL = 未配信
+  failure_count     INT NOT NULL DEFAULT 0,               -- 連続失敗回数
+  last_error        TEXT,                                 -- 直近エラーメッセージ
+  last_attempted_at TIMESTAMPTZ,                          -- 直近 publish 試行日時
+  PRIMARY KEY (event_id)
+);
+
+-- 未配信行だけに効く partial index。publish 済み行が積み上がっても worker の
+-- claim クエリ SELECT ... WHERE published_at IS NULL ORDER BY created_at が常に O(未配信数)。
+CREATE INDEX idx_outbox_events_unpublished
+  ON shop.outbox_events (created_at)
+  WHERE published_at IS NULL;

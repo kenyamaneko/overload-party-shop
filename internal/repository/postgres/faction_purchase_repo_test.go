@@ -127,11 +127,11 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			sharedPg.Truncate(t)
 			for _, s := range tt.seeds {
-				_, err := repo.CreatePurchase(ctx, newPurchase(s.playerID), s.faction, s.platform, s.token)
+				_, err := repo.CreatePurchase(ctx, newPurchase(s.playerID), s.faction, s.platform, s.token, port.OutboxEvent{})
 				require.NoError(t, err)
 			}
 
-			created, err := repo.CreatePurchase(ctx, newPurchase(tt.playerID), tt.faction, tt.platform, tt.token)
+			created, err := repo.CreatePurchase(ctx, newPurchase(tt.playerID), tt.faction, tt.platform, tt.token, port.OutboxEvent{})
 
 			if tt.wantErrIs != nil {
 				assert.ErrorIs(t, err, tt.wantErrIs)
@@ -168,7 +168,7 @@ func TestFactionPurchaseRepository_CreatePurchase_AtomicRollback_OwnedFaction(t 
 		ProductID:   "faction_tenki",
 		PurchasedAt: time.Now().UTC(),
 	}
-	created, err := repo.CreatePurchase(ctx, purchase, "Tenki", apishop.PlatformIOS, "new-token")
+	created, err := repo.CreatePurchase(ctx, purchase, "Tenki", apishop.PlatformIOS, "new-token", port.OutboxEvent{})
 	require.Error(t, err, "player_owned_factions PK違反で失敗するはず")
 	require.Contains(t, err.Error(), "insert owned faction",
 		"owned_faction INSERTで落ちている (purchase/token INSERT後の失敗)")
@@ -200,7 +200,7 @@ func TestFactionPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *testin
 		ProductID:   "faction_sugar",
 		PurchasedAt: time.Now().UTC(),
 	}
-	created, err := repo.CreatePurchase(ctx, purchase, "Sugar", apishop.PlatformIOS, tooLongToken)
+	created, err := repo.CreatePurchase(ctx, purchase, "Sugar", apishop.PlatformIOS, tooLongToken, port.OutboxEvent{})
 	require.Error(t, err, "VARCHAR(256)超えでtoken INSERTが失敗するはず")
 	require.Contains(t, err.Error(), "insert purchase token",
 		"token INSERTで落ちている (purchase INSERT後の失敗)")

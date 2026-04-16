@@ -25,7 +25,7 @@ func NewFactionPurchaseRepository(pool *pgxpool.Pool) *FactionPurchaseRepository
 	return &FactionPurchaseRepository{pool: pool}
 }
 
-func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, faction, platform, purchaseToken string) (created bool, err error) {
+func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, faction, platform, purchaseToken string, eventOnCreate port.OutboxEvent) (created bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin tx: %w", err)
@@ -49,6 +49,12 @@ func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase
 		purchase.PlayerID, faction,
 	); err != nil {
 		return false, fmt.Errorf("insert owned faction: %w", err)
+	}
+
+	if eventOnCreate.Topic != "" {
+		if err := writeOutboxEvent(ctx, tx, eventOnCreate); err != nil {
+			return false, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

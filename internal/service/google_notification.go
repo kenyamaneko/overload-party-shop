@@ -71,31 +71,32 @@ func (s *SubscriptionService) HandleGoogleNotification(ctx context.Context, msg 
 		sub.Status = apishop.SubscriptionStatusActive
 		sub.CurrentPeriodEnd = newExpiry
 		sub.UpdatedAt = time.Now()
-		if err := s.applySubChangeAndPublish(ctx, sub, true, &newExpiry); err != nil {
+		if err := s.applySubChangeWithEvent(ctx, sub, true, &newExpiry); err != nil {
 			return err
 		}
 
 	case googleSubExpired:
 		sub.Status = apishop.SubscriptionStatusExpired
 		sub.UpdatedAt = time.Now()
-		if err := s.applySubChangeAndPublish(ctx, sub, false, nil); err != nil {
+		if err := s.applySubChangeWithEvent(ctx, sub, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubRevoked:
 		sub.Status = apishop.SubscriptionStatusRevoked
 		sub.UpdatedAt = time.Now()
-		if err := s.applySubChangeAndPublish(ctx, sub, false, nil); err != nil {
+		if err := s.applySubChangeWithEvent(ctx, sub, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubCanceled:
 		sub.Status = apishop.SubscriptionStatusCancelled
 		sub.UpdatedAt = time.Now()
-		if err := s.subRepo.UpdateSubscription(ctx, sub); err != nil {
-			return fmt.Errorf("update subscription: %w", err)
+		// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
+		// (エンタイトルメント維持契約: docs/ARCHITECTURE.md)。
+		if err := s.applySubChangeNoEvent(ctx, sub); err != nil {
+			return err
 		}
-		// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない。
 	}
 
 	return nil

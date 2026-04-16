@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -54,6 +55,13 @@ type Config struct {
 
 	// Google Play
 	GooglePackageName string
+
+	// Outbox worker 設定。shop.outbox_events を消費する常駐 worker のチューニング値。
+	// ハードコードではなく env で持つのは、負荷試験やインシデント時にデプロイなしで
+	// 試行錯誤できるようにするため。
+	OutboxPollInterval     time.Duration // 例: 1s
+	OutboxBatchSize        int           // 1 tick で claim する最大行数
+	OutboxFailureThreshold int           // この回数以上の連続失敗で ERROR ログ (死蔵検知)
 }
 
 // FromEnv は環境変数から Config を構築する。
@@ -89,6 +97,10 @@ func FromEnv() (*Config, error) {
 	}
 	if cfg.PremiumUpdatedTopic == "" {
 		return nil, fmt.Errorf("config: PREMIUM_UPDATED_TOPIC is required")
+	}
+
+	if err := loadOutboxConfig(cfg); err != nil {
+		return nil, err
 	}
 
 	switch cfg.IAPMode {
@@ -143,6 +155,51 @@ func loadProductionIAP(cfg *Config) error {
 	}
 	cfg.ApplePrivateKeyPEM = []byte(pemStr)
 
+	return nil
+}
+
+// loadOutboxConfig は outbox worker のチューニング値を env から読む。
+// 全値必須で、パース不能・非正値は fail-fast する (CLAUDE.md「デフォルトへのフォール
+// バック禁止」方針)。
+func loadOutboxConfig(cfg *Config) error {
+	raw := os.Getenv("OUTBOX_POLL_INTERVAL")
+	if raw == "" {
+		return fmt.Errorf("config: OUTBOX_POLL_INTERVAL is required")
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return fmt.Errorf("config: OUTBOX_POLL_INTERVAL %q: %w", raw, err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("config: OUTBOX_POLL_INTERVAL must be positive, got %q", raw)
+	}
+	cfg.OutboxPollInterval = d
+
+	rawBatch := os.Getenv("OUTBOX_BATCH_SIZE")
+	if rawBatch == "" {
+		return fmt.Errorf("config: OUTBOX_BATCH_SIZE is required")
+	}
+	n, err := strconv.Atoi(rawBatch)
+	if err != nil {
+		return fmt.Errorf("config: OUTBOX_BATCH_SIZE %q: %w", rawBatch, err)
+	}
+	if n <= 0 {
+		return fmt.Errorf("config: OUTBOX_BATCH_SIZE must be positive, got %q", rawBatch)
+	}
+	cfg.OutboxBatchSize = n
+
+	rawThreshold := os.Getenv("OUTBOX_FAILURE_THRESHOLD")
+	if rawThreshold == "" {
+		return fmt.Errorf("config: OUTBOX_FAILURE_THRESHOLD is required")
+	}
+	t, err := strconv.Atoi(rawThreshold)
+	if err != nil {
+		return fmt.Errorf("config: OUTBOX_FAILURE_THRESHOLD %q: %w", rawThreshold, err)
+	}
+	if t <= 0 {
+		return fmt.Errorf("config: OUTBOX_FAILURE_THRESHOLD must be positive, got %q", rawThreshold)
+	}
+	cfg.OutboxFailureThreshold = t
 	return nil
 }
 
