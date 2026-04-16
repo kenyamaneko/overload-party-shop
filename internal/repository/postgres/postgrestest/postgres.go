@@ -1,9 +1,9 @@
 // Package testutil は DB を用いるテスト全般のヘルパを提供する。
 //
-// ADR-016 に従い、postgres:16-alpine の Testcontainers を起動して
-// 実 PostgreSQL に対してテストを実行する。コンテナはパッケージ単位で
-// 1 回だけ起動し（RunMain）、テスト関数間の状態リセットは Truncate（登録
-// された schema 配下の全テーブルを動的に列挙して TRUNCATE）で行う。
+// postgres:16-alpine の Testcontainers を起動して実 PostgreSQL に対してテストを
+// 実行する。コンテナはパッケージ単位で 1 回だけ起動し（RunMain）、テスト関数間の
+// 状態リセットは Truncate（登録された schema 配下の全テーブルを動的に列挙して
+// TRUNCATE）で行う。
 package postgrestest
 
 import (

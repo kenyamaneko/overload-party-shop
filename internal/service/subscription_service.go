@@ -10,9 +10,9 @@ import (
 )
 
 // SubscriptionService は webhook 駆動のサブスクリプションライフサイクルイベントを処理する。
-// Pub/Sub fan-out リファクタ以降 account.players には触れず、shop.subscriptions を
-// ローカル更新して `premium-updated` イベントを outbox に enqueue する (DB 更新 + outbox
-// 行は repo 層の単一 tx で atomic に commit される)。publish は worker が行う。
+// account.players には触れず、shop.subscriptions をローカル更新して `premium-updated`
+// イベントを outbox に enqueue する (DB 更新 + outbox 行は repo 層の単一 tx で atomic に
+// commit される)。publish は worker が行う。
 type SubscriptionService struct {
 	subRepo        port.SubscriptionRepo
 	eventBuilder   port.OutboxEventBuilder

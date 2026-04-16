@@ -19,10 +19,10 @@ type CardLister interface {
 	ListAllCards(ctx context.Context) ([]*apishop.CardView, error)
 }
 
-// ShopService は shop ローカルの購入フローを管理する。Pub/Sub fan-out リファクタ以降、
-// shop は `shop` スキーマのみを直接変更する。faction + premium 状態更新は
-// Transactional Outbox 経由で account / card / gateway subscriber が処理する。
-// IsOwned チェックは shop ローカルの `player_owned_factions` read model で行う。
+// ShopService は shop ローカルの購入フローを管理する。shop は `shop` スキーマ
+// のみを直接変更し、faction + premium 状態更新は Transactional Outbox 経由で
+// account / card / gateway subscriber が処理する。IsOwned チェックは shop ローカル
+// の `player_owned_factions` read model で行う。
 //
 // ビジネス行の INSERT と outbox 行の INSERT は repo 層の単一トランザクションで
 // 同時に commit される。publish は別プロセスの worker が outbox を消費して行う。

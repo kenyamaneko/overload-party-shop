@@ -34,7 +34,7 @@ func main() {
 }
 
 // nilCardLister は CardLister interface を空結果で満たす no-op 実装。
-// Pub/Sub リファクタ以降 shop はカード付与を行わないが、interface 充足のため保持。
+// shop はカード付与を行わないが、interface 充足のため保持。
 type nilCardLister struct{}
 
 func (nilCardLister) ListAllCards(_ context.Context) ([]*apishop.CardView, error) {

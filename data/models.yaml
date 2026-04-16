@@ -1,4 +1,4 @@
-# Shop service model definitions (service-owned SSoT per ADR-014/ADR-015).
+# Shop service model definitions (service-owned SSoT).
 #
 # scripts/generate_types.py reads this file and generates wire types into
 #   packages/api-shop/   (Go module, package apishop)

@@ -1,4 +1,4 @@
-# ADR-016: ローカル動作確認用の PostgreSQL。
+# ローカル動作確認用の PostgreSQL。
 # テストでは Testcontainers が別途コンテナを起動するため、
 # 本 compose はあくまで `make run` (cmd/server) のローカル動作確認用。
 services:

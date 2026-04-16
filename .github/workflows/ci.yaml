@@ -56,7 +56,7 @@ jobs:
         run: gcloud components install cloud-firestore-emulator beta --quiet
       - name: Start Firestore emulator
         run: .github/scripts/start-firestore-emulator.sh
-      # ADR-016: リポジトリ層テストは Testcontainers で postgres:16-alpine を起動する。
+      # リポジトリ層テストは Testcontainers で postgres:16-alpine を起動する。
       # 事前 pull で test step の初回コンテナ起動時間を短縮する。
       - name: Pre-pull postgres image (Testcontainers)
         run: docker pull postgres:16-alpine

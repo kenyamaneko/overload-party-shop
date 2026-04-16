@@ -1,16 +1,5 @@
 -- overload-party-shop - PostgreSQL DDL (service-owned)
 --
--- Scope (ADR-014):
---   shop.products                       - 商品マスター
---   shop.subscriptions                  - サブスクリプション契約 (純粋ドメイン)
---   shop.one_time_purchases             - 単発購入履歴 (純粋ドメイン)
---   shop.apple_subscription_tokens      - Apple サブスクトークン → subscription マップ
---   shop.google_subscription_tokens     - Google サブスクトークン → subscription マップ
---   shop.apple_purchase_tokens          - Apple 単発購入トークン → purchase マップ
---   shop.google_purchase_tokens         - Google 単発購入トークン → purchase マップ
---   shop.cosmetic_items                 - コスメティクスマスター
---   shop.player_items                   - プレイヤー所持コスメ
---
 -- psqldef 互換。
 -- Cross-schema reference（player_id -> account.players）は FK を張らない。
 
