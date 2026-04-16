@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 // GoogleRTDNMessage は Google Play RTDN（Real-Time Developer Notifications）のメッセージ構造。
@@ -34,8 +35,30 @@ const (
 	googleSubRevoked   = 13
 )
 
-// HandleGoogleNotification は Google Play RTDN 通知を処理する。
-func (s *Service) HandleGoogleNotification(ctx context.Context, msg GoogleRTDNMessage) error {
+// GoogleNotifier は Google Play RTDN webhook を処理する。
+// RTDN payload には expiry が含まれないため expiryFetcher (Play Developer API) で取得する。
+// Apple 側の依存は持たない。
+type GoogleNotifier struct {
+	subRepo       port.SubscriptionRepo
+	eventBuilder  port.OutboxEventBuilder
+	expiryFetcher port.GoogleSubVerifier
+}
+
+// NewGoogleNotifier は依存を受け取り GoogleNotifier を構築する。
+func NewGoogleNotifier(
+	subRepo port.SubscriptionRepo,
+	eventBuilder port.OutboxEventBuilder,
+	expiryFetcher port.GoogleSubVerifier,
+) *GoogleNotifier {
+	return &GoogleNotifier{
+		subRepo:       subRepo,
+		eventBuilder:  eventBuilder,
+		expiryFetcher: expiryFetcher,
+	}
+}
+
+// HandleNotification は Google Play RTDN 通知を処理する。
+func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNMessage) error {
 	data, err := base64.StdEncoding.DecodeString(msg.Message.Data)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrDecodeRTDNData, err)
@@ -51,7 +74,7 @@ func (s *Service) HandleGoogleNotification(ctx context.Context, msg GoogleRTDNMe
 	}
 
 	notif := rtdn.SubscriptionNotification
-	sub, err := s.subRepo.FindSubscriptionByToken(ctx, apishop.PlatformAndroid, notif.PurchaseToken)
+	sub, err := n.subRepo.FindSubscriptionByToken(ctx, apishop.PlatformAndroid, notif.PurchaseToken)
 	if err != nil {
 		return fmt.Errorf("find subscription: %w", err)
 	}
@@ -61,31 +84,31 @@ func (s *Service) HandleGoogleNotification(ctx context.Context, msg GoogleRTDNMe
 
 	switch notif.NotificationType {
 	case googleSubRenewed, googleSubRecovered:
-		if s.googleVerifier == nil {
+		if n.expiryFetcher == nil {
 			return fmt.Errorf("google subscription verifier not configured")
 		}
-		newExpiry, err := s.googleVerifier.GetSubscriptionExpiry(ctx, notif.PurchaseToken)
+		newExpiry, err := n.expiryFetcher.GetSubscriptionExpiry(ctx, notif.PurchaseToken)
 		if err != nil {
 			return fmt.Errorf("get subscription expiry from Google: %w", err)
 		}
 		sub.Status = apishop.SubscriptionStatusActive
 		sub.CurrentPeriodEnd = newExpiry
 		sub.UpdatedAt = time.Now()
-		if err := s.applySubChangeWithEvent(ctx, sub, true, &newExpiry); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, n.eventBuilder, sub, true, &newExpiry); err != nil {
 			return err
 		}
 
 	case googleSubExpired:
 		sub.Status = apishop.SubscriptionStatusExpired
 		sub.UpdatedAt = time.Now()
-		if err := s.applySubChangeWithEvent(ctx, sub, false, nil); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, n.eventBuilder, sub, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubRevoked:
 		sub.Status = apishop.SubscriptionStatusRevoked
 		sub.UpdatedAt = time.Now()
-		if err := s.applySubChangeWithEvent(ctx, sub, false, nil); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, n.eventBuilder, sub, false, nil); err != nil {
 			return err
 		}
 
@@ -94,7 +117,7 @@ func (s *Service) HandleGoogleNotification(ctx context.Context, msg GoogleRTDNMe
 		sub.UpdatedAt = time.Now()
 		// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
 		// (エンタイトルメント維持契約: docs/ARCHITECTURE.md)。
-		if err := s.applySubChangeNoEvent(ctx, sub); err != nil {
+		if err := writeNoEvent(ctx, n.subRepo, sub); err != nil {
 			return err
 		}
 	}

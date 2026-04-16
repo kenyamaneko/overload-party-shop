@@ -43,12 +43,13 @@ func (nilCardLister) ListAllCards(_ context.Context) ([]*apishop.CardView, error
 	return nil, nil
 }
 
-// verifiers は IAP_MODE=production のときだけ初期化される 3 種の verifier をまとめる。
+// verifiers は IAP_MODE=production のときだけ初期化される verifier をまとめる。
 // local モードでは全て nil のまま返り、shop_service 側で ErrUnsupportedPlatform を返す。
 type verifiers struct {
 	apple     port.ReceiptVerifier
 	google    port.ReceiptVerifier
 	googleSub port.GoogleSubVerifier
+	appleJWS  port.AppleJWSVerifier
 }
 
 func run() error {
@@ -135,7 +136,8 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 	if err != nil {
 		return verifiers{}, fmt.Errorf("google sub verifier: %w", err)
 	}
-	return verifiers{apple: av, google: gv, googleSub: gsv}, nil
+	ajws := shopadapter.NewJWSVerifier()
+	return verifiers{apple: av, google: gv, googleSub: gsv, appleJWS: ajws}, nil
 }
 
 // buildHTTPHandler は repo / service / handler の配線を一箇所にまとめる。
@@ -153,14 +155,20 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.
 		vfs.apple, vfs.google,
 		eventBuilder,
 	)
-	subSvc := subscription.New(subRepo, eventBuilder, vfs.googleSub)
-
 	shopH := rest.NewShopHandler(shopSvc)
-	var webhookH *rest.WebhookHandler
+	var (
+		appleWH  *rest.AppleWebhookHandler
+		googleWH *rest.GoogleWebhookHandler
+	)
 	if cfg.IAPMode == config.IAPModeProduction {
-		webhookH = rest.NewWebhookHandler(subSvc)
+		appleWH = rest.NewAppleWebhookHandler(
+			subscription.NewAppleNotifier(subRepo, eventBuilder, vfs.appleJWS),
+		)
+		googleWH = rest.NewGoogleWebhookHandler(
+			subscription.NewGoogleNotifier(subRepo, eventBuilder, vfs.googleSub),
+		)
 	}
-	return router.New(shopH, webhookH)
+	return router.New(shopH, appleWH, googleWH)
 }
 
 // buildOutboxTicker は outbox 消費フローを構成する 2 コンポーネント (service の

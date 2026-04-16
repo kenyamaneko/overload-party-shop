@@ -1,4 +1,4 @@
-package subscription
+package apple
 
 import (
 	"crypto/ecdsa"
@@ -11,19 +11,15 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 // appleRootCAG3PEM は Apple Root CA - G3（ECDSA P-384）。
-// https://www.apple.com/certificateauthority/ からダウンロー���。
+// https://www.apple.com/certificateauthority/ からダウンロード。
 //
 //go:embed apple_root_ca_g3.pem
 var appleRootCAG3PEM string
-
-// jwsHeader は JWS の JOSE ヘッダを表す。
-type jwsHeader struct {
-	Alg string   `json:"alg"`
-	X5C []string `json:"x5c"`
-}
 
 var appleRootPool *x509.CertPool
 
@@ -40,9 +36,27 @@ func init() {
 	appleRootPool.AddCert(cert)
 }
 
-// verifyAppleJWS は Apple JWS token の x5c 証明書チェーンと ECDSA 署名を検証し、
-// 生の payload バイト列を返す。
-func verifyAppleJWS(jws string) ([]byte, error) {
+// JWSVerifier は Apple App Store Server Notifications V2 の signed JWS を
+// Apple Root CA に対して検証する port.AppleJWSVerifier 実装。
+type JWSVerifier struct{}
+
+var _ port.AppleJWSVerifier = (*JWSVerifier)(nil)
+
+// NewJWSVerifier は JWSVerifier を構築する。Apple Root CA は init で
+// パッケージレベルにロード済みなので追加引数なし。
+func NewJWSVerifier() *JWSVerifier {
+	return &JWSVerifier{}
+}
+
+// jwsHeader は JWS の JOSE ヘッダを表す。
+type jwsHeader struct {
+	Alg string   `json:"alg"`
+	X5C []string `json:"x5c"`
+}
+
+// Verify は Apple JWS token の x5c 証明書チェーンと ECDSA 署名を検証し、
+// 生 payload バイト列を返す。
+func (v *JWSVerifier) Verify(jws string) ([]byte, error) {
 	parts := strings.Split(jws, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWS format: expected 3 parts, got %d", len(parts))
@@ -124,23 +138,4 @@ func verifyAppleJWS(jws string) ([]byte, error) {
 	}
 
 	return payload, nil
-}
-
-// jwsVerifyFunc は JWS payload の検証・抽出に使用する関数。
-// テストでは Apple 証明書検証をバイパスするためにオーバーライドされる。
-var jwsVerifyFunc = verifyAppleJWS
-
-// decodeVerifiedJWSPayload は Apple JWS token の x5c 証明書チェーンと ECDSA 署名を
-// 検証し、payload を T に unmarshal する。
-func decodeVerifiedJWSPayload[T any](jws string) (*T, error) {
-	payload, err := jwsVerifyFunc(jws)
-	if err != nil {
-		return nil, err
-	}
-
-	var v T
-	if err := json.Unmarshal(payload, &v); err != nil {
-		return nil, fmt.Errorf("unmarshal JWS payload: %w", err)
-	}
-	return &v, nil
 }

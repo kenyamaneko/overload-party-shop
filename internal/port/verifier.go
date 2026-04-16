@@ -36,3 +36,10 @@ type ReceiptVerifier interface {
 type GoogleSubVerifier interface {
 	GetSubscriptionExpiry(ctx context.Context, purchaseToken string) (time.Time, error)
 }
+
+// AppleJWSVerifier は Apple App Store Server Notifications V2 で送られてくる
+// signed JWS を Apple Root CA に対して検証し、生 payload を返す。
+// webhook 駆動の通知処理で使用する。
+type AppleJWSVerifier interface {
+	Verify(jws string) ([]byte, error)
+}

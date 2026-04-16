@@ -8,10 +8,10 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
 )
 
-// New は shop の HTTP ルーターを構築する。webhookH は IAP_MODE=local のとき nil になり得る。
-// その場合 `/webhook/*` ルートは一切登録されず、未認証 POST が nil verifier パスに
-// 到達することはない。
-func New(shopH *rest.ShopHandler, webhookH *rest.WebhookHandler) *gin.Engine {
+// New は shop の HTTP ルーターを構築する。
+// appleWH / googleWH は IAP_MODE=local のとき nil になり得る。その場合該当する
+// `/webhook/*` ルートは登録されず、未認証 POST が nil notifier パスに到達することはない。
+func New(shopH *rest.ShopHandler, appleWH *rest.AppleWebhookHandler, googleWH *rest.GoogleWebhookHandler) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
@@ -26,14 +26,13 @@ func New(shopH *rest.ShopHandler, webhookH *rest.WebhookHandler) *gin.Engine {
 		players.POST("/subscribe", shopH.Subscribe)
 	}
 
-	if webhookH != nil {
-		// ストア webhook — 外部到達可能。Apple/Google がリクエストに署名するため
-		// gateway 側の認証は不要。
-		webhooks := r.Group("/webhook")
-		{
-			webhooks.POST("/apple", webhookH.HandleAppleWebhook)
-			webhooks.POST("/google", webhookH.HandleGoogleWebhook)
-		}
+	// ストア webhook — 外部到達可能。Apple/Google がリクエストに署名するため
+	// gateway 側の認証は不要。各 handler は独立に登録され、片側だけ有効化することも可能。
+	if appleWH != nil {
+		r.POST("/webhook/apple", appleWH.Handle)
+	}
+	if googleWH != nil {
+		r.POST("/webhook/google", googleWH.Handle)
 	}
 	return r
 }
