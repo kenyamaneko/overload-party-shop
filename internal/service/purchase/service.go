@@ -1,4 +1,4 @@
-package service
+package purchase
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
 )
 
 // CardLister は shop が faction-set カード列挙に必要とする card サービスの狭い
@@ -19,14 +20,14 @@ type CardLister interface {
 	ListAllCards(ctx context.Context) ([]*apishop.CardView, error)
 }
 
-// ShopService は shop ローカルの購入フローを管理する。shop は `shop` スキーマ
+// Service は shop ローカルの購入フローを管理する。shop は `shop` スキーマ
 // のみを直接変更し、faction + premium 状態更新は Transactional Outbox 経由で
 // account / card / gateway subscriber が処理する。IsOwned チェックは shop ローカル
 // の `player_owned_factions` read model で行う。
 //
 // ビジネス行の INSERT と outbox 行の INSERT は repo 層の単一トランザクションで
 // 同時に commit される。publish は別プロセスの worker が outbox を消費して行う。
-type ShopService struct {
+type Service struct {
 	productRepo         port.ProductRepo
 	factionPurchaseRepo port.FactionPurchaseRepo
 	itemPurchaseRepo    port.ItemPurchaseRepo
@@ -38,7 +39,7 @@ type ShopService struct {
 	eventBuilder        port.OutboxEventBuilder
 }
 
-func NewShopService(
+func New(
 	productRepo port.ProductRepo,
 	factionPurchaseRepo port.FactionPurchaseRepo,
 	itemPurchaseRepo port.ItemPurchaseRepo,
@@ -48,8 +49,8 @@ func NewShopService(
 	appleVerifier port.ReceiptVerifier,
 	googleVerifier port.ReceiptVerifier,
 	eventBuilder port.OutboxEventBuilder,
-) *ShopService {
-	return &ShopService{
+) *Service {
+	return &Service{
 		productRepo:         productRepo,
 		factionPurchaseRepo: factionPurchaseRepo,
 		itemPurchaseRepo:    itemPurchaseRepo,
@@ -63,7 +64,7 @@ func NewShopService(
 }
 
 // GetProducts はプレイヤー向けの商品一覧を所有状態付きで返す。
-func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apishop.ProductResponse, error) {
+func (s *Service) GetProducts(ctx context.Context, playerID string) ([]apishop.ProductResponse, error) {
 	products, err := s.productRepo.GetActiveProducts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get products: %w", err)
@@ -78,7 +79,7 @@ func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apish
 	if err != nil {
 		return nil, fmt.Errorf("get subscription: %w", err)
 	}
-	subEntitled := isEntitled(latestSub, time.Now())
+	subEntitled := subscription.IsEntitled(latestSub, time.Now())
 
 	ownedItems, err := s.itemPurchaseRepo.ListPlayerItems(ctx, playerID)
 	if err != nil {
@@ -127,7 +128,7 @@ func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]apish
 // 購入記録・faction-selected イベントの outbox enqueue を行う。
 // 購入行 + 所有権行 + outbox 行は repo 層の単一 tx で atomic に commit される。
 // publish は worker が outbox を消費して別途実行する。
-func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error {
+func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error {
 	verifier, err := s.getVerifier(pf)
 	if err != nil {
 		return err
@@ -225,7 +226,7 @@ func (s *ShopService) Purchase(ctx context.Context, playerID, productID, pf, pur
 // Subscribe はサブスクリプション購入フローを実行する。レシート検証・べき等チェック・
 // サブスクリプション記録・premium-updated イベントの outbox enqueue を行う。
 // subscription 行 + token 行 + outbox 行は repo 層の単一 tx で atomic に commit される。
-func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error) {
+func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error) {
 	verifier, err := s.getVerifier(pf)
 	if err != nil {
 		return nil, err
@@ -276,7 +277,7 @@ func (s *ShopService) Subscribe(ctx context.Context, playerID, productID, pf, pu
 	return &info.ExpiresAt, nil
 }
 
-func (s *ShopService) getVerifier(pf string) (port.ReceiptVerifier, error) {
+func (s *Service) getVerifier(pf string) (port.ReceiptVerifier, error) {
 	switch pf {
 	case apishop.PlatformIOS:
 		return s.appleVerifier, nil

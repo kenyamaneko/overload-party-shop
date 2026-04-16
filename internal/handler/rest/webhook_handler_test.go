@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/service"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
 )
 
 type fakeSubscriptionNotifier struct {
@@ -28,7 +28,7 @@ func (f *fakeSubscriptionNotifier) HandleAppleNotification(_ context.Context, _ 
 	return f.appleErr
 }
 
-func (f *fakeSubscriptionNotifier) HandleGoogleNotification(_ context.Context, _ service.GoogleRTDNMessage) error {
+func (f *fakeSubscriptionNotifier) HandleGoogleNotification(_ context.Context, _ subscription.GoogleRTDNMessage) error {
 	f.googleCalls++
 	return f.googleErr
 }
@@ -65,14 +65,14 @@ func TestHandleAppleWebhook(t *testing.T) {
 		{
 			name:       "確定的エラー (decode 失敗) → 200 ack してリトライを止める",
 			body:       validBody,
-			svcErr:     fmt.Errorf("wrap: %w", service.ErrDecodeNotification),
+			svcErr:     fmt.Errorf("wrap: %w", subscription.ErrDecodeNotification),
 			wantStatus: http.StatusOK,
 			wantCalls:  1,
 		},
 		{
 			name:       "確定的エラー (subscription 未存在) → 200 ack",
 			body:       validBody,
-			svcErr:     fmt.Errorf("wrap: %w", service.ErrSubscriptionNotFound),
+			svcErr:     fmt.Errorf("wrap: %w", subscription.ErrSubscriptionNotFound),
 			wantStatus: http.StatusOK,
 			wantCalls:  1,
 		},
@@ -126,14 +126,14 @@ func TestHandleGoogleWebhook(t *testing.T) {
 		{
 			name:       "確定的エラー (RTDN base64 壊れ) → 200 ack",
 			body:       validBody,
-			svcErr:     fmt.Errorf("wrap: %w", service.ErrDecodeRTDNData),
+			svcErr:     fmt.Errorf("wrap: %w", subscription.ErrDecodeRTDNData),
 			wantStatus: http.StatusOK,
 			wantCalls:  1,
 		},
 		{
 			name:       "確定的エラー (RTDN JSON 壊れ) → 200 ack",
 			body:       validBody,
-			svcErr:     fmt.Errorf("wrap: %w", service.ErrUnmarshalRTDNData),
+			svcErr:     fmt.Errorf("wrap: %w", subscription.ErrUnmarshalRTDNData),
 			wantStatus: http.StatusOK,
 			wantCalls:  1,
 		},

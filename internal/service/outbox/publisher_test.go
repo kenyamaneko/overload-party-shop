@@ -1,4 +1,4 @@
-package service
+package outbox
 
 import (
 	"context"
@@ -67,53 +67,53 @@ func (p *fakeRawPublisher) Publish(_ context.Context, topic string, payload []by
 	return nil
 }
 
-func TestNewOutboxPublisher_Validation(t *testing.T) {
+func TestNew_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
 		store   port.OutboxStore
 		pub     port.RawEventPublisher
-		cfg     OutboxPublisherConfig
+		cfg     Config
 		wantSub string
 	}{
 		{
 			name:    "store が nil",
 			store:   nil,
 			pub:     &fakeRawPublisher{},
-			cfg:     OutboxPublisherConfig{BatchSize: 1, FailureThreshold: 1, VisibilityTimeout: time.Second},
+			cfg:     Config{BatchSize: 1, FailureThreshold: 1, VisibilityTimeout: time.Second},
 			wantSub: "store is nil",
 		},
 		{
 			name:    "publisher が nil",
 			store:   &fakeOutboxStore{},
 			pub:     nil,
-			cfg:     OutboxPublisherConfig{BatchSize: 1, FailureThreshold: 1, VisibilityTimeout: time.Second},
+			cfg:     Config{BatchSize: 1, FailureThreshold: 1, VisibilityTimeout: time.Second},
 			wantSub: "publisher is nil",
 		},
 		{
 			name:    "BatchSize が 0",
 			store:   &fakeOutboxStore{},
 			pub:     &fakeRawPublisher{},
-			cfg:     OutboxPublisherConfig{BatchSize: 0, FailureThreshold: 1, VisibilityTimeout: time.Second},
+			cfg:     Config{BatchSize: 0, FailureThreshold: 1, VisibilityTimeout: time.Second},
 			wantSub: "BatchSize must be positive",
 		},
 		{
 			name:    "FailureThreshold が 0",
 			store:   &fakeOutboxStore{},
 			pub:     &fakeRawPublisher{},
-			cfg:     OutboxPublisherConfig{BatchSize: 1, FailureThreshold: 0, VisibilityTimeout: time.Second},
+			cfg:     Config{BatchSize: 1, FailureThreshold: 0, VisibilityTimeout: time.Second},
 			wantSub: "FailureThreshold must be positive",
 		},
 		{
 			name:    "VisibilityTimeout が 0",
 			store:   &fakeOutboxStore{},
 			pub:     &fakeRawPublisher{},
-			cfg:     OutboxPublisherConfig{BatchSize: 1, FailureThreshold: 1, VisibilityTimeout: 0},
+			cfg:     Config{BatchSize: 1, FailureThreshold: 1, VisibilityTimeout: 0},
 			wantSub: "VisibilityTimeout must be positive",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewOutboxPublisher(tt.store, tt.pub, tt.cfg)
+			_, err := New(tt.store, tt.pub, tt.cfg)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantSub)
 		})
@@ -122,7 +122,7 @@ func TestNewOutboxPublisher_Validation(t *testing.T) {
 
 // RunOnce の各ケースを claim 返却 + publish 結果指定 + 期待する mark/fail 呼び出し
 // で表現する。各ケースは自己完結 (runner に if を入れない)。
-func TestOutboxPublisher_RunOnce(t *testing.T) {
+func TestPublisher_RunOnce(t *testing.T) {
 	okID := uuid.New()
 	ngID := uuid.New()
 
@@ -135,7 +135,7 @@ func TestOutboxPublisher_RunOnce(t *testing.T) {
 		wantPublishCalls int
 	}{
 		{
-			name: "claim 0 件なら publish も mark も呼ばれない",
+			name:    "claim 0 件なら publish も mark も呼ばれない",
 			claimed: nil,
 		},
 		{
@@ -172,7 +172,7 @@ func TestOutboxPublisher_RunOnce(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &fakeOutboxStore{claimed: tt.claimed}
 			pub := &fakeRawPublisher{errByTopic: tt.publishErrs}
-			s, err := NewOutboxPublisher(store, pub, OutboxPublisherConfig{
+			s, err := New(store, pub, Config{
 				BatchSize: 10, FailureThreshold: 5, VisibilityTimeout: 30 * time.Second,
 			})
 			require.NoError(t, err)
@@ -193,10 +193,10 @@ func TestOutboxPublisher_RunOnce(t *testing.T) {
 
 // RunOnce は store が返したエラーだけを上位に伝播する (ticker 側で ERROR ログ化されるため)。
 // publish 単独の失敗は RunOnce の戻り値に影響しない。
-func TestOutboxPublisher_RunOnce_ClaimErrorSurfaces(t *testing.T) {
+func TestPublisher_RunOnce_ClaimErrorSurfaces(t *testing.T) {
 	store := &fakeOutboxStore{claimErr: errors.New("db down")}
 	pub := &fakeRawPublisher{}
-	s, err := NewOutboxPublisher(store, pub, OutboxPublisherConfig{
+	s, err := New(store, pub, Config{
 		BatchSize: 10, FailureThreshold: 5, VisibilityTimeout: 30 * time.Second,
 	})
 	require.NoError(t, err)
@@ -211,10 +211,10 @@ func TestOutboxPublisher_RunOnce_ClaimErrorSurfaces(t *testing.T) {
 
 // Config の BatchSize / VisibilityTimeout は store.ClaimUnpublished にそのまま渡される
 // (env 可変設定の到達検証)。
-func TestOutboxPublisher_RunOnce_PassesConfigToStore(t *testing.T) {
+func TestPublisher_RunOnce_PassesConfigToStore(t *testing.T) {
 	store := &fakeOutboxStore{}
 	pub := &fakeRawPublisher{}
-	s, err := NewOutboxPublisher(store, pub, OutboxPublisherConfig{
+	s, err := New(store, pub, Config{
 		BatchSize: 42, FailureThreshold: 5, VisibilityTimeout: 17 * time.Second,
 	})
 	require.NoError(t, err)

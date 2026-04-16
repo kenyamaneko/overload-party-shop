@@ -24,7 +24,9 @@ import (
 	shopfirestore "github.com/kenyamaneko/overload-party-shop/internal/repository/firestore"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/router"
-	"github.com/kenyamaneko/overload-party-shop/internal/service"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/outbox"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/purchase"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
 )
 
 func main() {
@@ -145,13 +147,13 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.
 	purchaseLookup := postgres.NewPurchaseLookupRepository(pool)
 	subRepo := postgres.NewSubscriptionRepository(pool)
 
-	shopSvc := service.NewShopService(
+	shopSvc := purchase.New(
 		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup,
 		subRepo, nilCardLister{},
 		vfs.apple, vfs.google,
 		eventBuilder,
 	)
-	subSvc := service.NewSubscriptionService(subRepo, eventBuilder, vfs.googleSub)
+	subSvc := subscription.New(subRepo, eventBuilder, vfs.googleSub)
 
 	shopH := rest.NewShopHandler(shopSvc)
 	var webhookH *rest.WebhookHandler
@@ -165,7 +167,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.
 // use case + handler/worker の ticker) を組み立てる。依存方向は worker → service → port。
 func buildOutboxTicker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *config.Config) (*worker.OutboxTicker, error) {
 	outboxRepo := postgres.NewOutboxRepository(pool)
-	publisher, err := service.NewOutboxPublisher(outboxRepo, pub, service.OutboxPublisherConfig{
+	publisher, err := outbox.New(outboxRepo, pub, outbox.Config{
 		BatchSize:         cfg.OutboxBatchSize,
 		FailureThreshold:  cfg.OutboxFailureThreshold,
 		VisibilityTimeout: cfg.OutboxVisibilityTimeout,

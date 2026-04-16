@@ -1,4 +1,4 @@
-package service
+package subscription
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
@@ -39,8 +40,49 @@ func (m *mockGoogleSubVerifier) GetSubscriptionExpiry(_ context.Context, _ strin
 	return m.expiry, m.err
 }
 
+// fakePremiumBuilder は BuildPremiumUpdated 呼び出しを記録するテスト用ダブル。
+// subscription package のテストは premium-updated イベントの enqueue だけを観測する。
+type fakePremiumBuilder struct {
+	calls []fakePremiumPubCall
+	err   error
+}
+
+type fakePremiumPubCall struct {
+	PlayerID  string
+	IsPremium bool
+	ExpiresAt *time.Time
+}
+
+func (f *fakePremiumBuilder) Build(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
+	f.calls = append(f.calls, fakePremiumPubCall{PlayerID: playerID, IsPremium: isPremium, ExpiresAt: expiresAt})
+	if f.err != nil {
+		return port.OutboxEvent{}, f.err
+	}
+	return port.OutboxEvent{EventID: uuid.New(), Topic: "premium-updated", Payload: []byte(`{}`)}, nil
+}
+
+// fakeEventBuilder は OutboxEventBuilder を満たす。subscription テストでは
+// faction 側は呼ばれないので no-op。
+type fakeEventBuilder struct {
+	premiumPub *fakePremiumBuilder
+}
+
+func newFakeEventBuilder(premiumErr error) *fakeEventBuilder {
+	return &fakeEventBuilder{
+		premiumPub: &fakePremiumBuilder{err: premiumErr},
+	}
+}
+
+func (f *fakeEventBuilder) BuildFactionSelected(_, _ string) (port.OutboxEvent, error) {
+	return port.OutboxEvent{}, nil
+}
+
+func (f *fakeEventBuilder) BuildPremiumUpdated(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
+	return f.premiumPub.Build(playerID, isPremium, expiresAt)
+}
+
 type testSubEnv struct {
-	svc            *SubscriptionService
+	svc            *Service
 	subRepo        *postgres.SubscriptionRepository
 	premiumPub     *fakePremiumBuilder
 	builder        *fakeEventBuilder
@@ -52,9 +94,9 @@ func newTestSubscriptionService(t *testing.T) *testSubEnv {
 	sharedPg.Truncate(t)
 
 	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
-	builder := newFakeEventBuilder(nil, nil)
+	builder := newFakeEventBuilder(nil)
 	gv := &mockGoogleSubVerifier{expiry: time.Now().Add(30 * 24 * time.Hour)}
-	svc := NewSubscriptionService(subRepo, builder, gv)
+	svc := New(subRepo, builder, gv)
 	return &testSubEnv{
 		svc:            svc,
 		subRepo:        subRepo,
@@ -345,7 +387,7 @@ func TestHandleGoogleNotification_SubscriptionNotFound(t *testing.T) {
 // case 固有の env 差し替えは configure で受ける — if 分岐をテスト内に入れない。
 func TestHandleGoogleNotification_VerifierPaths(t *testing.T) {
 	withNilVerifier := func(env *testSubEnv) {
-		env.svc = NewSubscriptionService(env.subRepo, env.builder, nil)
+		env.svc = New(env.subRepo, env.builder, nil)
 	}
 	withVerifierError := func(env *testSubEnv) {
 		env.googleVerifier.err = fmt.Errorf("google API 500")

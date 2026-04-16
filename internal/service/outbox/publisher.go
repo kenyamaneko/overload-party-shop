@@ -1,4 +1,7 @@
-package service
+// Package outbox は Transactional Outbox パターンの消費側ユースケースを提供する。
+// shop のビジネスドメインからは独立しており、repo (data access) + publisher (adapter)
+// を orchestrate する。呼び出し契機 (ticker / cron) は持たず、handler/worker 側が制御する。
+package outbox
 
 import (
 	"context"
@@ -10,15 +13,13 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-// OutboxPublisher は outbox パターンの消費側ユースケース。
+// Publisher は outbox パターンの消費側ユースケース。
 // ClaimUnpublished で未配信行を取得し、Publish して MarkPublished / RecordFailure で
-// 結果を記録する。このフロー自体は Transactional Outbox の実装詳細であり
-// shop のビジネスドメインとは独立しているが、repo (data access) + publisher (adapter)
-// の両方を扱う orchestration なので service 層に配置する。
+// 結果を記録する。
 //
 // 呼び出し契機 (ticker / cron / 1 回だけ) は持たない。周期駆動は
 // handler/worker 側が担当する (依存方向: handler/worker → service → port)。
-type OutboxPublisher struct {
+type Publisher struct {
 	store             port.OutboxStore
 	pub               port.RawEventPublisher
 	batchSize         int
@@ -26,8 +27,8 @@ type OutboxPublisher struct {
 	visibilityTimeout time.Duration
 }
 
-// OutboxPublisherConfig は OutboxPublisher の駆動パラメータ。ゼロ値は禁止。
-type OutboxPublisherConfig struct {
+// Config は Publisher の駆動パラメータ。ゼロ値は禁止。
+type Config struct {
 	// BatchSize は 1 回の RunOnce で claim する最大行数。
 	BatchSize int
 	// FailureThreshold はこの回数以上の連続失敗で ERROR ログを出す閾値 (死蔵検知)。
@@ -38,8 +39,8 @@ type OutboxPublisherConfig struct {
 	VisibilityTimeout time.Duration
 }
 
-// NewOutboxPublisher は OutboxPublisher を構築する。依存・ゼロ値バリデーションは起動時に行う。
-func NewOutboxPublisher(store port.OutboxStore, pub port.RawEventPublisher, cfg OutboxPublisherConfig) (*OutboxPublisher, error) {
+// New は Publisher を構築する。依存・ゼロ値バリデーションは起動時に行う。
+func New(store port.OutboxStore, pub port.RawEventPublisher, cfg Config) (*Publisher, error) {
 	if store == nil {
 		return nil, errors.New("outbox publisher: store is nil")
 	}
@@ -55,7 +56,7 @@ func NewOutboxPublisher(store port.OutboxStore, pub port.RawEventPublisher, cfg 
 	if cfg.VisibilityTimeout <= 0 {
 		return nil, errors.New("outbox publisher: VisibilityTimeout must be positive")
 	}
-	return &OutboxPublisher{
+	return &Publisher{
 		store:             store,
 		pub:               pub,
 		batchSize:         cfg.BatchSize,
@@ -68,7 +69,7 @@ func NewOutboxPublisher(store port.OutboxStore, pub port.RawEventPublisher, cfg 
 // claim 自体が失敗した場合のみエラーを返す (DB 到達不能などの致命的状況)。
 // 各行の publish 失敗は RecordFailure で記録し、RunOnce 自体はエラーにしない
 // (visibility timeout 経過後に自動再試行される契約)。
-func (s *OutboxPublisher) RunOnce(ctx context.Context) error {
+func (s *Publisher) RunOnce(ctx context.Context) error {
 	claimed, err := s.store.ClaimUnpublished(ctx, s.batchSize, s.visibilityTimeout)
 	if err != nil {
 		return fmt.Errorf("claim unpublished: %w", err)
@@ -81,7 +82,7 @@ func (s *OutboxPublisher) RunOnce(ctx context.Context) error {
 
 // processOne は 1 行の publish と結果記録を行う。エラーを伝播しないのは
 // 同バッチ内の他行処理を止めないため。記録自体が失敗した場合は ERROR ログだけ出して継続。
-func (s *OutboxPublisher) processOne(ctx context.Context, ev port.ClaimedOutboxEvent) {
+func (s *Publisher) processOne(ctx context.Context, ev port.ClaimedOutboxEvent) {
 	pubErr := s.pub.Publish(ctx, ev.Topic, ev.Payload)
 	if pubErr == nil {
 		if err := s.store.MarkPublished(ctx, ev.EventID); err != nil {

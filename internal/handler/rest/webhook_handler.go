@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/service"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
 )
 
 // subscriptionNotifier は webhook handler が依存するサービス層の狭い contract。
@@ -15,7 +15,7 @@ import (
 // 渡して成否だけ受け取る。
 type subscriptionNotifier interface {
 	HandleAppleNotification(ctx context.Context, signedPayload string) error
-	HandleGoogleNotification(ctx context.Context, msg service.GoogleRTDNMessage) error
+	HandleGoogleNotification(ctx context.Context, msg subscription.GoogleRTDNMessage) error
 }
 
 // WebhookHandler は Apple/Google ストアからの webhook 通知を処理する。
@@ -23,14 +23,14 @@ type WebhookHandler struct {
 	subscriptionService subscriptionNotifier
 }
 
-// NewWebhookHandler は SubscriptionService を受け取り WebhookHandler を構築する。
+// NewWebhookHandler は subscription service を受け取り WebhookHandler を構築する。
 func NewWebhookHandler(subscriptionService subscriptionNotifier) *WebhookHandler {
 	return &WebhookHandler{subscriptionService: subscriptionService}
 }
 
 // HandleAppleWebhook は Apple App Store Server Notifications V2 を受信する。
 func (h *WebhookHandler) HandleAppleWebhook(c *gin.Context) {
-	var payload service.AppleNotificationPayload
+	var payload subscription.AppleNotificationPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -41,7 +41,7 @@ func (h *WebhookHandler) HandleAppleWebhook(c *gin.Context) {
 
 // HandleGoogleWebhook は Google Play RTDN（Real-Time Developer Notifications）を受信する。
 func (h *WebhookHandler) HandleGoogleWebhook(c *gin.Context) {
-	var msg service.GoogleRTDNMessage
+	var msg subscription.GoogleRTDNMessage
 	if err := c.ShouldBindJSON(&msg); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -59,7 +59,7 @@ func respondWebhook(c *gin.Context, source string, err error) {
 		c.Status(http.StatusOK)
 		return
 	}
-	if service.IsDeterministic(err) {
+	if isDeterministic(err) {
 		log.Printf("webhook %s deterministic failure (acked): %v", source, err)
 		c.Status(http.StatusOK)
 		return

@@ -1,4 +1,4 @@
-package service
+package subscription
 
 import (
 	"context"
@@ -37,7 +37,7 @@ type appleNotificationTxn struct {
 }
 
 // HandleAppleNotification は Apple App Store Server Notification V2 を処理する。
-func (s *SubscriptionService) HandleAppleNotification(ctx context.Context, signedPayload string) error {
+func (s *Service) HandleAppleNotification(ctx context.Context, signedPayload string) error {
 	notif, err := decodeVerifiedJWSPayload[appleNotification](signedPayload)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrDecodeNotification, err)

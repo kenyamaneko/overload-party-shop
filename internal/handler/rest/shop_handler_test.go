@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
-	"github.com/kenyamaneko/overload-party-shop/internal/service"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/purchase"
 )
 
 type fakeShopServicer struct {
@@ -74,7 +74,7 @@ func TestGetProducts_Success(t *testing.T) {
 func TestGetProducts_PropagatesServiceError(t *testing.T) {
 	svc := &fakeShopServicer{
 		getProductsFn: func(_ context.Context, _ string) ([]apishop.ProductResponse, error) {
-			return nil, service.ErrVerifyReceipt
+			return nil, purchase.ErrVerifyReceipt
 		},
 	}
 	r := newShopTestServer(svc)
@@ -126,7 +126,7 @@ func TestPurchase_ErrorResponses(t *testing.T) {
 			name: "Conflict 分類エラー (既に所有) は 409",
 			body: validBody,
 			svc: &fakeShopServicer{
-				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return service.ErrAlreadyOwned },
+				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return purchase.ErrAlreadyOwned },
 			},
 			wantStatus: http.StatusConflict,
 		},
@@ -134,7 +134,7 @@ func TestPurchase_ErrorResponses(t *testing.T) {
 			name: "PaymentFailed 分類エラー (レシート無効) は 402",
 			body: validBody,
 			svc: &fakeShopServicer{
-				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return service.ErrReceiptVerificationFailed },
+				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return purchase.ErrReceiptVerificationFailed },
 			},
 			wantStatus: http.StatusPaymentRequired,
 		},
@@ -203,7 +203,7 @@ func TestSubscribe_ErrorResponses(t *testing.T) {
 			body: validBody,
 			svc: &fakeShopServicer{
 				subscribeFn: func(_ context.Context, _, _, _, _ string) (*time.Time, error) {
-					return nil, service.ErrProductNotSubscription
+					return nil, purchase.ErrProductNotSubscription
 				},
 			},
 			wantStatus: http.StatusBadRequest,

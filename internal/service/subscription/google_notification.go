@@ -1,4 +1,4 @@
-package service
+package subscription
 
 import (
 	"context"
@@ -35,7 +35,7 @@ const (
 )
 
 // HandleGoogleNotification は Google Play RTDN 通知を処理する。
-func (s *SubscriptionService) HandleGoogleNotification(ctx context.Context, msg GoogleRTDNMessage) error {
+func (s *Service) HandleGoogleNotification(ctx context.Context, msg GoogleRTDNMessage) error {
 	data, err := base64.StdEncoding.DecodeString(msg.Message.Data)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrDecodeRTDNData, err)

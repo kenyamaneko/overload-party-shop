@@ -1,4 +1,4 @@
-package service
+package purchase
 
 import (
 	"context"
@@ -88,7 +88,7 @@ func (f *fakeEventBuilder) BuildPremiumUpdated(playerID string, isPremium bool, 
 }
 
 type testShopEnv struct {
-	svc                 *ShopService
+	svc                 *Service
 	productRepo         *postgres.ProductRepository
 	factionPurchaseRepo *postgres.FactionPurchaseRepository
 	itemPurchaseRepo    *postgres.ItemPurchaseRepository
@@ -102,7 +102,7 @@ type testShopEnv struct {
 }
 
 // shopEnvOption は newTestShopEnv に渡す依存差し替えオプション。verifier 等
-// テストごとに変えたい依存はここから注入し、ShopService 生成後の field 上書き
+// テストごとに変えたい依存はここから注入し、Service 生成後の field 上書き
 // は禁止（DI 経由のみで構築する設計を保つため）。
 type shopEnvOption func(*shopEnvDeps)
 
@@ -154,7 +154,7 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	}
 	cardLister := &fakeCardLister{cards: cards}
 
-	svc := NewShopService(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, cardLister, deps.appleVerifier, deps.googleVerifier, builder)
+	svc := New(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, cardLister, deps.appleVerifier, deps.googleVerifier, builder)
 
 	return &testShopEnv{
 		svc:                 svc,
