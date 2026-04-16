@@ -30,7 +30,15 @@ db-reset: ## Drop volume and recreate DB
 	docker compose down -v
 	docker compose up -d postgres
 
-run: db-up ## Run shop server locally against compose Postgres
+run: db-up ## Run shop server locally against compose Postgres (local env 込み)
+	PORT=9006 \
+	DATABASE_CONN="host=localhost port=5432 dbname=shop user=shop password=shop sslmode=disable" \
+	GOOGLE_CLOUD_PROJECT=shop-local \
+	FACTION_SELECTED_TOPIC=faction-selected \
+	PREMIUM_UPDATED_TOPIC=premium-updated \
+	IAP_MODE=local \
+	PUBSUB_EMULATOR_HOST=localhost:8085 \
+	FIRESTORE_EMULATOR_HOST=localhost:9041 \
 	go run ./cmd/server
 
 help: ## Show this help

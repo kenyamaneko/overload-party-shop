@@ -24,23 +24,23 @@ const (
 
 // Config は shop サービスの起動設定を保持する。
 type Config struct {
-	Port        int
-	Env         string
-	DatabaseURL string
+	Port int
 
-	// faction-selected + premium-updated topic をホストする Google Cloud project。
-	// 必須 — 設定がない場合イベントが静かに失われるため fail-fast する。
-	PubsubProjectID string
-	// topic 名はクロスプロジェクトテスト用に変更可能。本番はデフォルト値を使用。
+	// DatabaseConn は libpq キーワード形式の接続文字列（URL 形式ではない）。
+	// 本番は Cloud SQL Auth Proxy + IAM 認証で接続するためパスワードを含まない。
+	// したがって機密情報ではなく ConfigMap で注入して良い。
+	DatabaseConn string
+
+	// GoogleCloudProject はこのサービスが利用する全 GCP リソース
+	// （Pub/Sub topic / Firestore / Secret Manager）の project ID。
+	GoogleCloudProject string
+
 	FactionSelectedTopic string
 	PremiumUpdatedTopic  string
 
-	// strict / permissive verifier 要件を切り替える。必須設定 — 未指定で fail する。
+	// IAPMode は IAP verifier 設定を必須とするかを制御する。
 	// IAP_MODE=local にすると IAP 設定なしで起動でき、webhook ルートは登録されない。
 	IAPMode IAPMode
-
-	// Secret Manager 参照用 Google Cloud project ID。IAPMode == production のとき必須。
-	GoogleCloudProject string
 
 	// Apple IAP
 	AppleKeyID         string
@@ -54,43 +54,41 @@ type Config struct {
 
 	// Google Play
 	GooglePackageName string
-
-	// FirestoreProjectID は game_config の読み取り先プロジェクト ID。
-	// ローカル/CI では FIRESTORE_EMULATOR_HOST を別途設定することでエミュレーターに接続。
-	FirestoreProjectID string
 }
 
 // FromEnv は環境変数から Config を構築する。
+// 全 env は必須。未設定や未定義値は起動時に fail する（デフォルトへのフォールバック禁止）。
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		Port:                 9006,
-		Env:                  getEnv("ENV", "dev"),
-		DatabaseURL:          os.Getenv("DATABASE_URL"),
-		PubsubProjectID:      os.Getenv("PUBSUB_PROJECT_ID"),
-		FactionSelectedTopic: getEnv("FACTION_SELECTED_TOPIC", "faction-selected"),
-		PremiumUpdatedTopic:  getEnv("PREMIUM_UPDATED_TOPIC", "premium-updated"),
-		IAPMode:              IAPMode(os.Getenv("IAP_MODE")),
+		DatabaseConn:         os.Getenv("DATABASE_CONN"),
 		GoogleCloudProject:   os.Getenv("GOOGLE_CLOUD_PROJECT"),
-		AppleEnvironment:     getEnv("APPLE_ENVIRONMENT", "Sandbox"),
-		FirestoreProjectID:   os.Getenv("FIRESTORE_PROJECT_ID"),
+		FactionSelectedTopic: os.Getenv("FACTION_SELECTED_TOPIC"),
+		PremiumUpdatedTopic:  os.Getenv("PREMIUM_UPDATED_TOPIC"),
+		IAPMode:              IAPMode(os.Getenv("IAP_MODE")),
+		AppleEnvironment:     os.Getenv("APPLE_ENVIRONMENT"),
 	}
 
-	if raw := os.Getenv("PORT"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil {
-			return nil, fmt.Errorf("config: PORT %q: %w", raw, err)
-		}
-		cfg.Port = n
+	rawPort := os.Getenv("PORT")
+	if rawPort == "" {
+		return nil, fmt.Errorf("config: PORT is required")
 	}
+	n, err := strconv.Atoi(rawPort)
+	if err != nil {
+		return nil, fmt.Errorf("config: PORT %q: %w", rawPort, err)
+	}
+	cfg.Port = n
 
-	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("config: DATABASE_URL is required")
+	if cfg.DatabaseConn == "" {
+		return nil, fmt.Errorf("config: DATABASE_CONN is required")
 	}
-	if cfg.PubsubProjectID == "" {
-		return nil, fmt.Errorf("config: PUBSUB_PROJECT_ID is required (shop publishes faction-selected / premium-updated events)")
+	if cfg.GoogleCloudProject == "" {
+		return nil, fmt.Errorf("config: GOOGLE_CLOUD_PROJECT is required")
 	}
-	if cfg.FirestoreProjectID == "" {
-		return nil, fmt.Errorf("config: FIRESTORE_PROJECT_ID is required (game_config)")
+	if cfg.FactionSelectedTopic == "" {
+		return nil, fmt.Errorf("config: FACTION_SELECTED_TOPIC is required")
+	}
+	if cfg.PremiumUpdatedTopic == "" {
+		return nil, fmt.Errorf("config: PREMIUM_UPDATED_TOPIC is required")
 	}
 
 	switch cfg.IAPMode {
@@ -107,10 +105,12 @@ func FromEnv() (*Config, error) {
 }
 
 // loadProductionIAP は Secret Manager から IAP 認証情報を取得する。
-// GOOGLE_CLOUD_PROJECT 未設定やシークレット到達不可の場合は fail-fast する。
+// APPLE_ENVIRONMENT が不正・シークレット到達不可の場合は fail-fast する。
 func loadProductionIAP(cfg *Config) error {
-	if cfg.GoogleCloudProject == "" {
-		return fmt.Errorf("config: GOOGLE_CLOUD_PROJECT is required when IAP_MODE=production")
+	switch cfg.AppleEnvironment {
+	case "Production", "Sandbox":
+	default:
+		return fmt.Errorf("config: APPLE_ENVIRONMENT must be %q or %q when IAP_MODE=production, got %q", "Production", "Sandbox", cfg.AppleEnvironment)
 	}
 
 	ctx := context.Background()
@@ -165,11 +165,4 @@ func accessSecret(ctx context.Context, client *secretmanager.Client, project, se
 		return "", fmt.Errorf("config: access secret %s: %w", secretID, err)
 	}
 	return string(result.Payload.Data), nil
-}
-
-func getEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

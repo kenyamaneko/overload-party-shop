@@ -48,13 +48,13 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	pool, err := pgxpool.New(ctx, cfg.DatabaseConn)
 	if err != nil {
 		return fmt.Errorf("pgxpool new: %w", err)
 	}
 	defer pool.Close()
 
-	fsClient, err := firestore.NewClient(ctx, cfg.FirestoreProjectID)
+	fsClient, err := firestore.NewClient(ctx, cfg.GoogleCloudProject)
 	if err != nil {
 		return fmt.Errorf("firestore new client: %w", err)
 	}
@@ -70,7 +70,7 @@ func run() error {
 	_ = shopfirestore.NewGameConfigRepository(fsClient)
 
 	// Pub/Sub publisher（faction-selected + premium-updated）。
-	pub, err := shoppubsub.New(ctx, cfg.PubsubProjectID, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
+	pub, err := shoppubsub.New(ctx, cfg.GoogleCloudProject, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
 	if err != nil {
 		return fmt.Errorf("shop publisher: %w", err)
 	}
@@ -136,8 +136,8 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("shop: listening on %s (pubsub project=%s faction-topic=%s premium-topic=%s)",
-			srv.Addr, cfg.PubsubProjectID, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
+		log.Printf("shop: listening on %s (gcp project=%s faction-topic=%s premium-topic=%s)",
+			srv.Addr, cfg.GoogleCloudProject, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}

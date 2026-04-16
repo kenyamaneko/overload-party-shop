@@ -10,16 +10,13 @@ import (
 // allEnvKeys は FromEnv が読む全 env キー。各テストは毎回これらを明示値（または ""）
 // で上書きし、シェル環境からの漏れで Given が非決定になるのを防ぐ。
 var allEnvKeys = []string{
-	"ENV",
 	"PORT",
-	"DATABASE_URL",
-	"PUBSUB_PROJECT_ID",
+	"DATABASE_CONN",
+	"GOOGLE_CLOUD_PROJECT",
 	"FACTION_SELECTED_TOPIC",
 	"PREMIUM_UPDATED_TOPIC",
 	"IAP_MODE",
-	"GOOGLE_CLOUD_PROJECT",
 	"APPLE_ENVIRONMENT",
-	"FIRESTORE_PROJECT_ID",
 	"APPLE_KEY_ID",
 	"APPLE_ISSUER_ID",
 	"APPLE_BUNDLE_ID",
@@ -47,13 +44,16 @@ func mergeEnv(maps ...map[string]string) map[string]string {
 	return out
 }
 
-// validLocalEnv は IAP_MODE=local での最小構成（必須 env のみ設定）。
-// 各ケースはこれを baseline に override を重ねる。
+// validLocalEnv は IAP_MODE=local での最小構成（必須 env を全て明示）。
+// CLAUDE.md「デフォルト値へのフォールバックを行わない」方針により、
+// 全必須 env を明示的に供給する。各ケースはこれを baseline に override を重ねる。
 var validLocalEnv = map[string]string{
-	"DATABASE_URL":         "postgres://localhost/test",
-	"PUBSUB_PROJECT_ID":    "test-project",
-	"FIRESTORE_PROJECT_ID": "test-project",
-	"IAP_MODE":             "local",
+	"PORT":                   "9006",
+	"DATABASE_CONN":          "host=localhost port=5432 dbname=test sslmode=disable",
+	"GOOGLE_CLOUD_PROJECT":   "test-project",
+	"FACTION_SELECTED_TOPIC": "faction-selected",
+	"PREMIUM_UPDATED_TOPIC":  "premium-updated",
+	"IAP_MODE":               "local",
 }
 
 func TestFromEnv_Success(t *testing.T) {
@@ -63,26 +63,26 @@ func TestFromEnv_Success(t *testing.T) {
 		assert func(t *testing.T, cfg *Config)
 	}{
 		{
-			name: "local mode は IAP 設定なしでも起動する（GOOGLE_CLOUD_PROJECT も不要）",
+			name: "local mode は IAP 設定なしでも起動する",
 			envs: validLocalEnv,
 			assert: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, IAPModeLocal, cfg.IAPMode)
-				assert.Empty(t, cfg.GoogleCloudProject, "local mode では GOOGLE_CLOUD_PROJECT 不要")
 				assert.Empty(t, cfg.AppleKeyID, "IAP 設定欠落でも起動する")
 			},
 		},
 		{
-			name: "デフォルト値が適用される（Port / Env / topic 名）",
+			name: "必須 env が Config に伝搬する",
 			envs: validLocalEnv,
 			assert: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, 9006, cfg.Port)
-				assert.Equal(t, "dev", cfg.Env)
+				assert.Equal(t, "host=localhost port=5432 dbname=test sslmode=disable", cfg.DatabaseConn)
+				assert.Equal(t, "test-project", cfg.GoogleCloudProject)
 				assert.Equal(t, "faction-selected", cfg.FactionSelectedTopic)
 				assert.Equal(t, "premium-updated", cfg.PremiumUpdatedTopic)
 			},
 		},
 		{
-			name: "IAP 設定が env から Config に伝搬する",
+			name: "IAP 設定が env から Config に伝搬する（local mode）",
 			envs: mergeEnv(validLocalEnv, map[string]string{
 				"APPLE_KEY_ID":           "KEY123",
 				"APPLE_ISSUER_ID":        "ISS456",
@@ -99,27 +99,14 @@ func TestFromEnv_Success(t *testing.T) {
 			},
 		},
 		{
-			name: "PORT の env override",
-			envs: mergeEnv(validLocalEnv, map[string]string{"PORT": "8080"}),
-			assert: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, 8080, cfg.Port)
-			},
-		},
-		{
-			name: "ENV の env override",
-			envs: mergeEnv(validLocalEnv, map[string]string{"ENV": "staging"}),
-			assert: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "staging", cfg.Env)
-			},
-		},
-		{
-			// topic 名はクロスプロジェクトテスト用に override 可能という設計意図を固定
-			name: "topic 名の env override",
+			name: "PORT / topic 名が env から上書きされる",
 			envs: mergeEnv(validLocalEnv, map[string]string{
+				"PORT":                   "8080",
 				"FACTION_SELECTED_TOPIC": "faction-selected-ci",
 				"PREMIUM_UPDATED_TOPIC":  "premium-updated-ci",
 			}),
 			assert: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, 8080, cfg.Port)
 				assert.Equal(t, "faction-selected-ci", cfg.FactionSelectedTopic)
 				assert.Equal(t, "premium-updated-ci", cfg.PremiumUpdatedTopic)
 			},
@@ -135,6 +122,8 @@ func TestFromEnv_Success(t *testing.T) {
 	}
 }
 
+// TestFromEnv_Errors は「必須 env が未設定・未定義値で起動を拒否する」仕様を固定する。
+// CLAUDE.md「デフォルト値へのフォールバックを行わない」方針の回帰防止。
 func TestFromEnv_Errors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -142,42 +131,60 @@ func TestFromEnv_Errors(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "DATABASE_URL が未設定で fail",
-			envs:    mergeEnv(validLocalEnv, map[string]string{"DATABASE_URL": ""}),
-			wantErr: "DATABASE_URL is required",
+			name:    "PORT が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"PORT": ""}),
+			wantErr: "PORT is required",
 		},
 		{
-			name:    "PUBSUB_PROJECT_ID が未設定で fail",
-			envs:    mergeEnv(validLocalEnv, map[string]string{"PUBSUB_PROJECT_ID": ""}),
-			wantErr: "PUBSUB_PROJECT_ID is required",
+			name:    "PORT が数値でないならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"PORT": "not-a-number"}),
+			wantErr: "PORT",
 		},
 		{
-			name:    "FIRESTORE_PROJECT_ID が未設定で fail",
-			envs:    mergeEnv(validLocalEnv, map[string]string{"FIRESTORE_PROJECT_ID": ""}),
-			wantErr: "FIRESTORE_PROJECT_ID is required",
+			name:    "DATABASE_CONN が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"DATABASE_CONN": ""}),
+			wantErr: "DATABASE_CONN is required",
 		},
 		{
-			name:    "IAP_MODE が未設定で fail（デフォルトにフォールバックしない）",
+			name:    "GOOGLE_CLOUD_PROJECT が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"GOOGLE_CLOUD_PROJECT": ""}),
+			wantErr: "GOOGLE_CLOUD_PROJECT is required",
+		},
+		{
+			name:    "FACTION_SELECTED_TOPIC が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"FACTION_SELECTED_TOPIC": ""}),
+			wantErr: "FACTION_SELECTED_TOPIC is required",
+		},
+		{
+			name:    "PREMIUM_UPDATED_TOPIC が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"PREMIUM_UPDATED_TOPIC": ""}),
+			wantErr: "PREMIUM_UPDATED_TOPIC is required",
+		},
+		{
+			name:    "IAP_MODE が未設定ならエラー",
 			envs:    mergeEnv(validLocalEnv, map[string]string{"IAP_MODE": ""}),
 			wantErr: "IAP_MODE must be",
 		},
 		{
-			name:    "IAP_MODE が未定義値で fail",
+			name:    "IAP_MODE が未定義値ならエラー",
 			envs:    mergeEnv(validLocalEnv, map[string]string{"IAP_MODE": "invalid"}),
 			wantErr: "IAP_MODE must be",
 		},
 		{
-			name: "production mode で GOOGLE_CLOUD_PROJECT 未設定で fail",
+			name: "production mode で APPLE_ENVIRONMENT が未設定ならエラー",
 			envs: mergeEnv(validLocalEnv, map[string]string{
-				"IAP_MODE":             "production",
-				"GOOGLE_CLOUD_PROJECT": "",
+				"IAP_MODE":          "production",
+				"APPLE_ENVIRONMENT": "",
 			}),
-			wantErr: "GOOGLE_CLOUD_PROJECT is required when IAP_MODE=production",
+			wantErr: "APPLE_ENVIRONMENT must be",
 		},
 		{
-			name:    "PORT が数値として解釈できない",
-			envs:    mergeEnv(validLocalEnv, map[string]string{"PORT": "not-a-number"}),
-			wantErr: "PORT",
+			name: "production mode で APPLE_ENVIRONMENT が未定義値ならエラー",
+			envs: mergeEnv(validLocalEnv, map[string]string{
+				"IAP_MODE":          "production",
+				"APPLE_ENVIRONMENT": "staging",
+			}),
+			wantErr: "APPLE_ENVIRONMENT must be",
 		},
 	}
 	for _, tt := range tests {
