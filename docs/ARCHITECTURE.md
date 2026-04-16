@@ -38,11 +38,27 @@ COMMIT
 
 DB commit が成功した瞬間にイベントは必ず発行される運命にある (worker が未来のどこかで publish する)。commit が失敗すれば両方巻き戻る。REST ハンドラ視点では「Purchase が 200 を返した ⇔ subscriber にイベントが届く」の保証が得られる。
 
-### 配信: 別プロセスの worker が未配信行を claim して publish
+### 配信: 2 層に分けた常駐 worker が未配信行を claim して publish
 
-`internal/worker/outbox_publisher.go` が常駐 goroutine としてポーリングし、未 publish 行を `FOR UPDATE SKIP LOCKED` で claim → Pub/Sub に送出 → `published_at` 更新。ポーリング間隔・バッチサイズ・失敗閾値は env (`OUTBOX_POLL_INTERVAL` / `OUTBOX_BATCH_SIZE` / `OUTBOX_FAILURE_THRESHOLD`) で可変。
+消費フローは Clean Architecture 上の責務ごとに 2 コンポーネントに分けている:
 
-複数 pod で同時に走っても `SKIP LOCKED` により同じ行を奪い合わない。pod がクラッシュしても未 publish 行は DB に残り、次回 tick 以降で再試行される。
+| ファイル | 層 | 責務 |
+|---|---|---|
+| [internal/service/outbox_publisher.go](../internal/service/outbox_publisher.go) | service (use case) | `RunOnce` で claim → publish → mark/fail の orchestration。`port.OutboxStore` と `port.RawEventPublisher` に依存 |
+| [internal/handler/worker/outbox_ticker.go](../internal/handler/worker/outbox_ticker.go) | handler (delivery) | ticker で `service.OutboxPublisher.RunOnce` を周期呼び出し。ctx キャンセル制御と tick 失敗時の ERROR ログだけを持つ |
+
+依存方向: `handler/worker` → `service` → `port`。handler/worker は service の具体実装を知らず、service は postgres / pubsub の具体型を知らない。
+
+repo (`postgres.OutboxRepository`) は `port.OutboxStore` を実装する pure data access 層で、orchestration は持たない。ポーリング間隔・バッチサイズ・失敗閾値・visibility timeout は env (`OUTBOX_POLL_INTERVAL` / `OUTBOX_BATCH_SIZE` / `OUTBOX_FAILURE_THRESHOLD` / `OUTBOX_VISIBILITY_TIMEOUT`) で可変。
+
+### 二重配信の防止: visibility timeout パターン
+
+`ClaimUnpublished` は `FOR UPDATE SKIP LOCKED` で未配信行を選ぶのと同じ SQL で `last_attempted_at = now()` を更新する。以降 `OUTBOX_VISIBILITY_TIMEOUT` の間、他 worker の claim はその行を除外する (「直近試行から N 秒経過していない行はスキップ」という WHERE 条件)。
+
+この仕組みにより:
+- 複数 pod が同時に走っても同じ行を重複処理しない
+- worker が publish 途中でクラッシュしても、visibility timeout 経過で自動的に再試行対象に戻る (claim 行ロックは claim tx 終了で解放されるため、長時間の「見えない行」が発生しない)
+- publish が visibility timeout より長くかかった場合は他 worker が再 claim して重複 publish が起きるが、subscriber 側の event_id 冪等性で吸収される (at-least-once 契約)
 
 ### 冪等性の契約
 

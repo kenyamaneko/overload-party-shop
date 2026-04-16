@@ -19,12 +19,12 @@ import (
 	googleadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/google"
 	shoppubsub "github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
+	"github.com/kenyamaneko/overload-party-shop/internal/handler/worker"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	shopfirestore "github.com/kenyamaneko/overload-party-shop/internal/repository/firestore"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/router"
 	"github.com/kenyamaneko/overload-party-shop/internal/service"
-	"github.com/kenyamaneko/overload-party-shop/internal/worker"
 )
 
 func main() {
@@ -93,7 +93,7 @@ func run() error {
 		return err
 	}
 
-	outboxWorker, err := buildOutboxWorker(pool, pub, cfg)
+	outboxTicker, err := buildOutboxTicker(pool, pub, cfg)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func run() error {
 	log.Printf("shop: listening on %s (gcp project=%s faction-topic=%s premium-topic=%s)",
 		srv.Addr, cfg.GoogleCloudProject, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
 
-	return runHTTPAndWorker(ctx, srv, outboxWorker)
+	return runHTTPAndWorker(ctx, srv, outboxTicker)
 }
 
 // setupVerifiers は IAP_MODE に応じて Apple/Google verifier を初期化する。
@@ -161,22 +161,26 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.
 	return router.New(shopH, webhookH)
 }
 
-// buildOutboxWorker は outbox 消費 worker を構築する。worker は pool を借りて
-// 独自に outbox_repo を作る (handler 経由のビジネス repo とは独立した依存関係)。
-func buildOutboxWorker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *config.Config) (*worker.OutboxPublisher, error) {
+// buildOutboxTicker は outbox 消費フローを構成する 2 コンポーネント (service の
+// use case + handler/worker の ticker) を組み立てる。依存方向は worker → service → port。
+func buildOutboxTicker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *config.Config) (*worker.OutboxTicker, error) {
 	outboxRepo := postgres.NewOutboxRepository(pool)
-	return worker.New(outboxRepo, pub, worker.Config{
-		PollInterval:     cfg.OutboxPollInterval,
-		BatchSize:        cfg.OutboxBatchSize,
-		FailureThreshold: cfg.OutboxFailureThreshold,
+	publisher, err := service.NewOutboxPublisher(outboxRepo, pub, service.OutboxPublisherConfig{
+		BatchSize:         cfg.OutboxBatchSize,
+		FailureThreshold:  cfg.OutboxFailureThreshold,
+		VisibilityTimeout: cfg.OutboxVisibilityTimeout,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return worker.NewOutboxTicker(publisher, cfg.OutboxPollInterval)
 }
 
-// runHTTPAndWorker は HTTP server と outbox worker を並行起動し、
+// runHTTPAndWorker は HTTP server と outbox ticker を並行起動し、
 // どちらかの失敗・シグナル到来で両方を graceful に停止する。
 // errgroup を使うのは「どちらが先に終わっても相方を畳む」ためで、shop 独自の
 // 停止順序 (http 先・worker 後) が必要になった場合はここを変える。
-func runHTTPAndWorker(ctx context.Context, srv *http.Server, outboxWorker *worker.OutboxPublisher) error {
+func runHTTPAndWorker(ctx context.Context, srv *http.Server, outboxTicker *worker.OutboxTicker) error {
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
@@ -187,7 +191,7 @@ func runHTTPAndWorker(ctx context.Context, srv *http.Server, outboxWorker *worke
 	})
 
 	g.Go(func() error {
-		return outboxWorker.Run(gCtx)
+		return outboxTicker.Run(gCtx)
 	})
 
 	g.Go(func() error {

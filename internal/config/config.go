@@ -59,9 +59,10 @@ type Config struct {
 	// Outbox worker 設定。shop.outbox_events を消費する常駐 worker のチューニング値。
 	// ハードコードではなく env で持つのは、負荷試験やインシデント時にデプロイなしで
 	// 試行錯誤できるようにするため。
-	OutboxPollInterval     time.Duration // 例: 1s
-	OutboxBatchSize        int           // 1 tick で claim する最大行数
-	OutboxFailureThreshold int           // この回数以上の連続失敗で ERROR ログ (死蔵検知)
+	OutboxPollInterval      time.Duration // 例: 1s
+	OutboxBatchSize         int           // 1 tick で claim する最大行数
+	OutboxFailureThreshold  int           // この回数以上の連続失敗で ERROR ログ (死蔵検知)
+	OutboxVisibilityTimeout time.Duration // claim 後この期間は他 worker が同じ行を拾わない。publish 中の worker がクラッシュしたらこの時間経過後に他 worker が再試行する。
 }
 
 // FromEnv は環境変数から Config を構築する。
@@ -200,6 +201,19 @@ func loadOutboxConfig(cfg *Config) error {
 		return fmt.Errorf("config: OUTBOX_FAILURE_THRESHOLD must be positive, got %q", rawThreshold)
 	}
 	cfg.OutboxFailureThreshold = t
+
+	rawVis := os.Getenv("OUTBOX_VISIBILITY_TIMEOUT")
+	if rawVis == "" {
+		return fmt.Errorf("config: OUTBOX_VISIBILITY_TIMEOUT is required")
+	}
+	v, err := time.ParseDuration(rawVis)
+	if err != nil {
+		return fmt.Errorf("config: OUTBOX_VISIBILITY_TIMEOUT %q: %w", rawVis, err)
+	}
+	if v <= 0 {
+		return fmt.Errorf("config: OUTBOX_VISIBILITY_TIMEOUT must be positive, got %q", rawVis)
+	}
+	cfg.OutboxVisibilityTimeout = v
 	return nil
 }
 

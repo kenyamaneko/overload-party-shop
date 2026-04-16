@@ -40,6 +40,7 @@ run: db-up ## Run shop server locally against compose Postgres (local env 込み
 	OUTBOX_POLL_INTERVAL=1s \
 	OUTBOX_BATCH_SIZE=100 \
 	OUTBOX_FAILURE_THRESHOLD=5 \
+	OUTBOX_VISIBILITY_TIMEOUT=30s \
 	PUBSUB_EMULATOR_HOST=localhost:8085 \
 	FIRESTORE_EMULATOR_HOST=localhost:9041 \
 	go run ./cmd/server

@@ -26,6 +26,7 @@ var allEnvKeys = []string{
 	"OUTBOX_POLL_INTERVAL",
 	"OUTBOX_BATCH_SIZE",
 	"OUTBOX_FAILURE_THRESHOLD",
+	"OUTBOX_VISIBILITY_TIMEOUT",
 }
 
 // setEnv は allEnvKeys を一括で上書きする。envs に無いキーは "" (未設定相当) として
@@ -52,15 +53,16 @@ func mergeEnv(maps ...map[string]string) map[string]string {
 // CLAUDE.md「デフォルト値へのフォールバックを行わない」方針により、
 // 全必須 env を明示的に供給する。各ケースはこれを baseline に override を重ねる。
 var validLocalEnv = map[string]string{
-	"PORT":                     "9006",
-	"DATABASE_CONN":            "host=localhost port=5432 dbname=test sslmode=disable",
-	"GOOGLE_CLOUD_PROJECT":     "test-project",
-	"FACTION_SELECTED_TOPIC":   "faction-selected",
-	"PREMIUM_UPDATED_TOPIC":    "premium-updated",
-	"IAP_MODE":                 "local",
-	"OUTBOX_POLL_INTERVAL":     "1s",
-	"OUTBOX_BATCH_SIZE":        "100",
-	"OUTBOX_FAILURE_THRESHOLD": "5",
+	"PORT":                      "9006",
+	"DATABASE_CONN":             "host=localhost port=5432 dbname=test sslmode=disable",
+	"GOOGLE_CLOUD_PROJECT":      "test-project",
+	"FACTION_SELECTED_TOPIC":    "faction-selected",
+	"PREMIUM_UPDATED_TOPIC":     "premium-updated",
+	"IAP_MODE":                  "local",
+	"OUTBOX_POLL_INTERVAL":      "1s",
+	"OUTBOX_BATCH_SIZE":         "100",
+	"OUTBOX_FAILURE_THRESHOLD":  "5",
+	"OUTBOX_VISIBILITY_TIMEOUT": "30s",
 }
 
 func TestFromEnv_Success(t *testing.T) {
@@ -95,6 +97,7 @@ func TestFromEnv_Success(t *testing.T) {
 				assert.Equal(t, 1*time.Second, cfg.OutboxPollInterval)
 				assert.Equal(t, 100, cfg.OutboxBatchSize)
 				assert.Equal(t, 5, cfg.OutboxFailureThreshold)
+				assert.Equal(t, 30*time.Second, cfg.OutboxVisibilityTimeout)
 			},
 		},
 		{
@@ -241,6 +244,21 @@ func TestFromEnv_Errors(t *testing.T) {
 			name:    "OUTBOX_FAILURE_THRESHOLD が 0 以下ならエラー",
 			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": "0"}),
 			wantErr: "OUTBOX_FAILURE_THRESHOLD must be positive",
+		},
+		{
+			name:    "OUTBOX_VISIBILITY_TIMEOUT が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": ""}),
+			wantErr: "OUTBOX_VISIBILITY_TIMEOUT is required",
+		},
+		{
+			name:    "OUTBOX_VISIBILITY_TIMEOUT が duration としてパースできないならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "abc"}),
+			wantErr: "OUTBOX_VISIBILITY_TIMEOUT",
+		},
+		{
+			name:    "OUTBOX_VISIBILITY_TIMEOUT が 0 以下ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "0s"}),
+			wantErr: "OUTBOX_VISIBILITY_TIMEOUT must be positive",
 		},
 	}
 	for _, tt := range tests {

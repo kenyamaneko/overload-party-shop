@@ -3,7 +3,6 @@ package postgres_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -32,12 +31,21 @@ func normalizeJSON(t *testing.T, raws []string) []string {
 	return out
 }
 
-// outbox 行は aggregate repo 経由でのみ書き込まれる (package 外に書き込み API を
-// 公開しない設計)。ProcessBatch のテストでは faction_purchase 経由で事前に outbox 行を
-// 植えた上で worker 側の claim/publish/mark フローを検証する。
-func seedOutboxViaFactionPurchase(t *testing.T, playerID, faction, token string, payload []byte) uuid.UUID {
+// validFactions は player_owned_factions CHECK 制約で許される値。
+// 1 ケースあたり最大 4 seed まで (CHECK 制約の都合)。
+var validFactions = []string{"Tenki", "SHE", "Sugar", "Tuners"}
+
+// insertOutboxRow はユニークな player_id / token / faction で outbox 行を 1 本挿入する。
+// 書き込み API は package 外に公開していないので faction_purchase 経由で作る。
+// seed 追加の変種 (published 済み / in-flight 等) は apply 関数で後続の mutation を合成する。
+func insertOutboxRow(t *testing.T, testIdx, seedIdx int, payload []byte) uuid.UUID {
 	t.Helper()
+	require.Less(t, seedIdx, len(validFactions), "1 ケースあたりの seed 数は faction CHECK 制約で 4 まで")
 	id := uuid.New()
+	playerID := fmt.Sprintf("%08d-%04d-%04d-0000-000000000000", testIdx+1, seedIdx, seedIdx)
+	faction := validFactions[seedIdx]
+	token := fmt.Sprintf("tok-%d-%d", testIdx, seedIdx)
+
 	factionRepo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	purchase := &apishop.OneTimePurchase{PlayerID: playerID, ProductID: "faction_" + faction, PurchasedAt: time.Now().UTC()}
 	_, err := factionRepo.CreatePurchase(context.Background(), purchase, faction, apishop.PlatformIOS, token,
@@ -46,176 +54,278 @@ func seedOutboxViaFactionPurchase(t *testing.T, playerID, faction, token string,
 	return id
 }
 
-// countOutboxRows は発行状態別の行数を返す。
-func countOutboxRows(t *testing.T) (total, unpublished int) {
+// markPublished は seed 後に published_at を埋める（既配信行のシミュレーション）。
+func markPublishedDirectly(t *testing.T, id uuid.UUID) {
 	t.Helper()
+	_, err := sharedPg.Pool.Exec(context.Background(),
+		`UPDATE shop.outbox_events SET published_at = now() WHERE event_id = $1`, id)
+	require.NoError(t, err)
+}
+
+// backdateLastAttempted は last_attempted_at を過去方向に移動させ、別 worker が既に
+// 試行中 (visibility timeout 内) もしくは試行後 (timeout 超過) の状態を作る。
+func backdateLastAttempted(t *testing.T, id uuid.UUID, ago time.Duration) {
+	t.Helper()
+	interval := fmt.Sprintf("%d milliseconds", ago.Milliseconds())
+	_, err := sharedPg.Pool.Exec(context.Background(),
+		`UPDATE shop.outbox_events SET last_attempted_at = now() - ($2::text)::interval WHERE event_id = $1`,
+		id, interval)
+	require.NoError(t, err)
+}
+
+// seed は 1 行の挿入と、必要に応じた状態変更までを含む自己完結した Given 断片。
+// runner は insert 関数を呼ぶだけで、ケースごとの if 分岐を持たない。
+type seed struct {
+	payload string
+	insert  func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID
+}
+
+// insertUnpublished は基本の未配信行を挿入する。
+func insertUnpublished(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
+	return insertOutboxRow(t, testIdx, seedIdx, []byte(payload))
+}
+
+// insertAlreadyPublished は seed 時点で既に配信済みの行 (published_at あり)。
+func insertAlreadyPublished(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
+	id := insertOutboxRow(t, testIdx, seedIdx, []byte(payload))
+	markPublishedDirectly(t, id)
+	return id
+}
+
+// insertInFlight は別 worker が試行中 (visibility timeout 以内) の行を作る。
+func insertInFlight(ago time.Duration) func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
+	return func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
+		id := insertOutboxRow(t, testIdx, seedIdx, []byte(payload))
+		backdateLastAttempted(t, id, ago)
+		return id
+	}
+}
+
+// defaultVisibility はケース指定がない時の visibility timeout (30s)。
+const defaultVisibility = 30 * time.Second
+
+func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
+	repo := postgres.NewOutboxRepository(sharedPg.Pool)
 	ctx := context.Background()
+
+	tests := []struct {
+		name              string
+		seeds             []seed
+		limit             int
+		visibilityTimeout time.Duration
+		wantPayloads      []string // order-insensitive. 空スライスは「何も claim されない」を表す。
+	}{
+		{
+			name: "未配信行を payload そのままで返す",
+			seeds: []seed{
+				{payload: `{"k":"a"}`, insert: insertUnpublished},
+				{payload: `{"k":"b"}`, insert: insertUnpublished},
+			},
+			limit:             10,
+			visibilityTimeout: defaultVisibility,
+			wantPayloads:      []string{`{"k":"a"}`, `{"k":"b"}`},
+		},
+		{
+			name: "published_at が埋まった行はスキップ",
+			seeds: []seed{
+				{payload: `{"k":"old"}`, insert: insertAlreadyPublished},
+				{payload: `{"k":"new"}`, insert: insertUnpublished},
+			},
+			limit:             10,
+			visibilityTimeout: defaultVisibility,
+			wantPayloads:      []string{`{"k":"new"}`},
+		},
+		{
+			name: "visibility timeout 以内に試行された行はスキップ (in-flight 扱い)",
+			seeds: []seed{
+				{payload: `{"k":"in-flight"}`, insert: insertInFlight(5 * time.Second)},
+				{payload: `{"k":"available"}`, insert: insertUnpublished},
+			},
+			limit:             10,
+			visibilityTimeout: defaultVisibility,
+			wantPayloads:      []string{`{"k":"available"}`},
+		},
+		{
+			name: "visibility timeout を超えた行は再 claim 対象 (worker クラッシュ後の再試行)",
+			seeds: []seed{
+				{payload: `{"k":"recovered"}`, insert: insertInFlight(60 * time.Second)},
+			},
+			limit:             10,
+			visibilityTimeout: defaultVisibility,
+			wantPayloads:      []string{`{"k":"recovered"}`},
+		},
+		{
+			name:              "未配信行がなければ空で返す",
+			seeds:             nil,
+			limit:             10,
+			visibilityTimeout: defaultVisibility,
+			wantPayloads:      []string{},
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sharedPg.Truncate(t)
+			for j, s := range tt.seeds {
+				s.insert(t, i, j, s.payload)
+			}
+
+			claimed, err := repo.ClaimUnpublished(ctx, tt.limit, tt.visibilityTimeout)
+			require.NoError(t, err)
+
+			got := make([]string, len(claimed))
+			for k, ev := range claimed {
+				got[k] = string(ev.Payload)
+			}
+			assert.ElementsMatch(t, tt.wantPayloads, normalizeJSON(t, got))
+		})
+	}
+}
+
+// limit の効き目は「claim 件数 <= limit」「残り unpublished = 全体 - claim 数」で固定する。
+// どの行が選ばれるかは同 ms 挿入時に不定なので、本体テーブルから分離して件数のみ検証する。
+func TestOutboxRepository_ClaimUnpublished_RespectsLimit(t *testing.T) {
+	sharedPg.Truncate(t)
+	ctx := context.Background()
+	repo := postgres.NewOutboxRepository(sharedPg.Pool)
+
+	const totalSeeded = 3
+	const limit = 2
+	for j := range totalSeeded {
+		insertUnpublished(t, 0, j, fmt.Sprintf(`{"k":"%d"}`, j))
+	}
+
+	claimed, err := repo.ClaimUnpublished(ctx, limit, defaultVisibility)
+	require.NoError(t, err)
+	assert.Len(t, claimed, limit, "limit で claim 件数が制限される")
+
+	var remaining int
 	require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM shop.outbox_events`).Scan(&total))
+		`SELECT COUNT(*) FROM shop.outbox_events
+		  WHERE published_at IS NULL AND last_attempted_at IS NULL`,
+	).Scan(&remaining))
+	assert.Equal(t, totalSeeded-limit, remaining, "claim されなかった行は未試行のまま残る")
+}
+
+// ClaimUnpublished は side-effect として last_attempted_at を更新する。これが
+// 他 worker からの in-flight 扱いに必要な不変条件なので、独立テストとして固定。
+func TestOutboxRepository_ClaimUnpublished_UpdatesLastAttemptedAt(t *testing.T) {
+	sharedPg.Truncate(t)
+	ctx := context.Background()
+	repo := postgres.NewOutboxRepository(sharedPg.Pool)
+
+	id := insertOutboxRow(t, 0, 0, []byte(`{"k":"v"}`))
+
+	_, err := repo.ClaimUnpublished(ctx, 10, defaultVisibility)
+	require.NoError(t, err)
+
+	var lastAttemptedNotNull bool
 	require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM shop.outbox_events WHERE published_at IS NULL`).Scan(&unpublished))
-	return total, unpublished
+		`SELECT last_attempted_at IS NOT NULL FROM shop.outbox_events WHERE event_id = $1`,
+		id).Scan(&lastAttemptedNotNull))
+	assert.True(t, lastAttemptedNotNull, "claim 成功後は last_attempted_at が now() に更新される")
 }
 
-func TestOutboxRepository_ProcessBatch_AllSucceed(t *testing.T) {
-	sharedPg.Truncate(t)
+func TestOutboxRepository_MarkPublished(t *testing.T) {
+	repo := postgres.NewOutboxRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	seedOutboxViaFactionPurchase(t, "11111111-0000-0000-0000-000000000001", "Tenki", "tok-A", []byte(`{"kind":"A"}`))
-	seedOutboxViaFactionPurchase(t, "11111111-0000-0000-0000-000000000002", "SHE", "tok-B", []byte(`{"kind":"B"}`))
+	tests := []struct {
+		name  string
+		seed  seed
+	}{
+		{
+			name: "未配信行を配信済みにする",
+			seed: seed{payload: `{"k":"v"}`, insert: insertUnpublished},
+		},
+		{
+			// 同じ event を別 worker が重複処理しても落ちないこと (at-least-once 契約の一部)。
+			name: "既配信行への再呼び出しは冪等",
+			seed: seed{payload: `{"k":"v"}`, insert: insertAlreadyPublished},
+		},
+	}
 
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sharedPg.Truncate(t)
+			id := tt.seed.insert(t, i, 0, tt.seed.payload)
 
-	var delivered []string
-	succeeded, failed, err := repo.ProcessBatch(ctx, 10, func(_ context.Context, ev postgres.ClaimedOutboxEvent) error {
-		delivered = append(delivered, string(ev.Payload))
-		return nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 2, succeeded)
-	assert.Equal(t, 0, failed)
-	// JSONB は DB 側で空白等が正規化されるため、意味的比較で固定する。
-	require.Len(t, delivered, 2)
-	assert.ElementsMatch(t, []string{`{"kind":"A"}`, `{"kind":"B"}`}, normalizeJSON(t, delivered))
+			require.NoError(t, repo.MarkPublished(ctx, id))
 
-	total, unpublished := countOutboxRows(t)
-	assert.Equal(t, 2, total)
-	assert.Equal(t, 0, unpublished, "全行が published_at 更新済みになる")
+			var publishedAtNotNull bool
+			var lastError *string
+			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+				`SELECT published_at IS NOT NULL, last_error FROM shop.outbox_events WHERE event_id = $1`,
+				id).Scan(&publishedAtNotNull, &lastError))
+			assert.True(t, publishedAtNotNull, "published_at が立つ")
+			assert.Nil(t, lastError, "last_error は解除される")
+		})
+	}
 }
 
-func TestOutboxRepository_ProcessBatch_PublishFailureRecorded(t *testing.T) {
-	sharedPg.Truncate(t)
+func TestOutboxRepository_RecordFailure(t *testing.T) {
+	repo := postgres.NewOutboxRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	seedOutboxViaFactionPurchase(t, "22222222-0000-0000-0000-000000000001", "Tenki", "tok-fail", []byte(`{"k":"v"}`))
-
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
-
-	boom := errors.New("pubsub unavailable")
-	succeeded, failed, err := repo.ProcessBatch(ctx, 10, func(_ context.Context, _ postgres.ClaimedOutboxEvent) error {
-		return boom
-	})
-	require.NoError(t, err, "publish 単発失敗は ProcessBatch の戻りエラーにならない")
-	assert.Equal(t, 0, succeeded)
-	assert.Equal(t, 1, failed)
-
-	total, unpublished := countOutboxRows(t)
-	assert.Equal(t, 1, total)
-	assert.Equal(t, 1, unpublished, "失敗行は未 publish のまま")
-
-	var fc int
-	var lastErr *string
-	require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-		`SELECT failure_count, last_error FROM shop.outbox_events`).Scan(&fc, &lastErr))
-	assert.Equal(t, 1, fc)
-	require.NotNil(t, lastErr)
-	assert.Contains(t, *lastErr, "pubsub unavailable")
-}
-
-// claim は「未 publish 行のみ」を対象にする。
-func TestOutboxRepository_ProcessBatch_SkipsPublished(t *testing.T) {
-	sharedPg.Truncate(t)
-	ctx := context.Background()
-
-	seedOutboxViaFactionPurchase(t, "33333333-0000-0000-0000-000000000001", "Tenki", "tok-old", []byte(`{"k":"old"}`))
-	seedOutboxViaFactionPurchase(t, "33333333-0000-0000-0000-000000000002", "SHE", "tok-new", []byte(`{"k":"new"}`))
-
-	// 1 行だけ手動で published_at を埋める (別 worker で配信済み相当)。
-	_, err := sharedPg.Pool.Exec(ctx,
-		`UPDATE shop.outbox_events SET published_at = now() WHERE payload = '{"k":"old"}'::jsonb`)
-	require.NoError(t, err)
-
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
-
-	var seen []string
-	succeeded, failed, err := repo.ProcessBatch(ctx, 10, func(_ context.Context, ev postgres.ClaimedOutboxEvent) error {
-		seen = append(seen, string(ev.Payload))
-		return nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, succeeded)
-	assert.Equal(t, 0, failed)
-	assert.Equal(t, []string{`{"k":"new"}`}, normalizeJSON(t, seen), "published_at 済み行は claim されない")
-}
-
-// 混在バッチ (成功 + 失敗) でも各行独立に状態が反映される。
-func TestOutboxRepository_ProcessBatch_MixedResults(t *testing.T) {
-	sharedPg.Truncate(t)
-	ctx := context.Background()
-
-	okID := seedOutboxViaFactionPurchase(t, "44444444-0000-0000-0000-000000000001", "Tenki", "tok-ok", []byte(`{"k":"ok"}`))
-	ngID := seedOutboxViaFactionPurchase(t, "44444444-0000-0000-0000-000000000002", "SHE", "tok-ng", []byte(`{"k":"ng"}`))
-
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
-
-	succeeded, failed, err := repo.ProcessBatch(ctx, 10, func(_ context.Context, ev postgres.ClaimedOutboxEvent) error {
-		if ev.EventID == ngID {
-			return errors.New("nope")
-		}
-		return nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, succeeded)
-	assert.Equal(t, 1, failed)
-
-	assertPublished := func(id uuid.UUID, want bool) {
-		var publishedAt *string
-		var fc int
-		require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-			`SELECT published_at::text, failure_count FROM shop.outbox_events WHERE event_id = $1`, id,
-		).Scan(&publishedAt, &fc))
-		if want {
-			assert.NotNil(t, publishedAt, "成功行は published_at が埋まる")
-			assert.Equal(t, 0, fc)
-		} else {
-			assert.Nil(t, publishedAt, "失敗行は published_at が NULL のまま")
-			assert.Equal(t, 1, fc)
+	// recordN は RecordFailure を n 回呼んで行を「n 回連続失敗済み」状態にするヘルパ。
+	// テストケース間で priorFailures の初期化を宣言的に揃える。
+	recordN := func(n int, msgPrefix string) func(t *testing.T, id uuid.UUID) {
+		return func(t *testing.T, id uuid.UUID) {
+			for i := range n {
+				require.NoError(t, repo.RecordFailure(context.Background(), id, fmt.Sprintf("%s-%d", msgPrefix, i)))
+			}
 		}
 	}
-	assertPublished(okID, true)
-	assertPublished(ngID, false)
-}
+	noPrior := func(t *testing.T, id uuid.UUID) {}
 
-// limit は claim 行数を制限する。次回 tick で残りが拾われる。
-func TestOutboxRepository_ProcessBatch_RespectsLimit(t *testing.T) {
-	sharedPg.Truncate(t)
-	ctx := context.Background()
-
-	const n = 5
-	for i := 0; i < n; i++ {
-		seedOutboxViaFactionPurchase(t,
-			fmt.Sprintf("55555555-0000-0000-0000-%012d", i),
-			"Tenki",
-			fmt.Sprintf("tok-%d", i),
-			[]byte(`{"k":"v"}`))
+	tests := []struct {
+		name             string
+		priorFailures    func(t *testing.T, id uuid.UUID) // 本体呼び出し前の状態作り
+		errMsg           string
+		wantFailureCount int
+		wantLastError    string
+	}{
+		{
+			name:             "初回失敗で failure_count=1、last_error を記録",
+			priorFailures:    noPrior,
+			errMsg:           "pubsub down",
+			wantFailureCount: 1,
+			wantLastError:    "pubsub down",
+		},
+		{
+			name:             "連続失敗で failure_count が積み上がる (死蔵検知の素材)",
+			priorFailures:    recordN(2, "prior"),
+			errMsg:           "still down",
+			wantFailureCount: 3,
+			wantLastError:    "still down",
+		},
+		{
+			name:             "last_error は直近エラーで上書きされる",
+			priorFailures:    recordN(1, "prior"),
+			errMsg:           "newer error",
+			wantFailureCount: 2,
+			wantLastError:    "newer error",
+		},
 	}
-	// 同一ファクションは 2 行目以降 CHECK 違反になるため、2 行目以降は faction を変える。
-	// seedOutboxViaFactionPurchase が player ごとに独立なので n 件が全て別 player で書ける。
 
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
-	succeeded, _, err := repo.ProcessBatch(ctx, 2, func(_ context.Context, _ postgres.ClaimedOutboxEvent) error {
-		return nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 2, succeeded)
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sharedPg.Truncate(t)
+			id := insertOutboxRow(t, i, 0, []byte(`{"k":"v"}`))
+			tt.priorFailures(t, id)
 
-	_, unpublished := countOutboxRows(t)
-	assert.Equal(t, n-2, unpublished)
-}
+			require.NoError(t, repo.RecordFailure(ctx, id, tt.errMsg))
 
-// 空テーブルでは何も起きずエラーも出ない。
-func TestOutboxRepository_ProcessBatch_EmptyTable(t *testing.T) {
-	sharedPg.Truncate(t)
-	ctx := context.Background()
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
-
-	publishCalled := false
-	succeeded, failed, err := repo.ProcessBatch(ctx, 10, func(_ context.Context, _ postgres.ClaimedOutboxEvent) error {
-		publishCalled = true
-		return nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 0, succeeded)
-	assert.Equal(t, 0, failed)
-	assert.False(t, publishCalled, "行がないと publish 関数は呼ばれない")
+			var fc int
+			var lastError *string
+			var publishedAtNotNull bool
+			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+				`SELECT failure_count, last_error, published_at IS NOT NULL FROM shop.outbox_events WHERE event_id = $1`,
+				id).Scan(&fc, &lastError, &publishedAtNotNull))
+			assert.Equal(t, tt.wantFailureCount, fc)
+			require.NotNil(t, lastError)
+			assert.Equal(t, tt.wantLastError, *lastError)
+			assert.False(t, publishedAtNotNull, "失敗は published_at に影響しない")
+		})
+	}
 }
