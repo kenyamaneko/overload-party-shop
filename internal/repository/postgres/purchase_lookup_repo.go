@@ -1,4 +1,4 @@
-package repository
+package postgres
 
 import (
 	"context"
@@ -12,19 +12,19 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-var _ port.PurchaseLookupRepo = (*PgPurchaseLookupRepository)(nil)
+var _ port.PurchaseLookupRepo = (*PurchaseLookupRepository)(nil)
 
-// PgPurchaseLookupRepository は token から一回きり購入を引く cross-cutting 読み取り repo。
+// PurchaseLookupRepository は token から一回きり購入を引く cross-cutting 読み取り repo。
 // faction / item どちらの aggregate にも属さず、webhook 冪等性チェック用の早期 short-circuit に使う。
-type PgPurchaseLookupRepository struct {
+type PurchaseLookupRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewPgPurchaseLookupRepository(pool *pgxpool.Pool) *PgPurchaseLookupRepository {
-	return &PgPurchaseLookupRepository{pool: pool}
+func NewPurchaseLookupRepository(pool *pgxpool.Pool) *PurchaseLookupRepository {
+	return &PurchaseLookupRepository{pool: pool}
 }
 
-func (r *PgPurchaseLookupRepository) FindPurchaseByToken(ctx context.Context, platform, purchaseToken string) (*apishop.OneTimePurchase, error) {
+func (r *PurchaseLookupRepository) FindPurchaseByToken(ctx context.Context, platform, purchaseToken string) (*apishop.OneTimePurchase, error) {
 	table, err := purchaseTokenTableForPlatform(platform)
 	if err != nil {
 		return nil, err

@@ -1,4 +1,4 @@
-package repository_test
+package postgres_test
 
 import (
 	"context"
@@ -11,11 +11,11 @@ import (
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
-func TestPgItemPurchaseRepository_CreatePurchase(t *testing.T) {
-	repo := repository.NewPgItemPurchaseRepository(sharedPg.Pool)
+func TestItemPurchaseRepository_CreatePurchase(t *testing.T) {
+	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const (
@@ -145,9 +145,9 @@ func TestPgItemPurchaseRepository_CreatePurchase(t *testing.T) {
 	}
 }
 
-func TestPgItemPurchaseRepository_CreatePurchase_AtomicRollback_PlayerItem(t *testing.T) {
+func TestItemPurchaseRepository_CreatePurchase_AtomicRollback_PlayerItem(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgItemPurchaseRepository(sharedPg.Pool)
+	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const playerID = "99999999-9999-9999-9999-999999999999"
@@ -175,9 +175,9 @@ func TestPgItemPurchaseRepository_CreatePurchase_AtomicRollback_PlayerItem(t *te
 	assert.Equal(t, 1, items, "既存seed分のみ残る")
 }
 
-func TestPgItemPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *testing.T) {
+func TestItemPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgItemPurchaseRepository(sharedPg.Pool)
+	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const playerID = "88888888-8888-8888-8888-888888888888"
@@ -204,9 +204,9 @@ func TestPgItemPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *testing
 	assert.Equal(t, 0, items)
 }
 
-func TestPgItemPurchaseRepository_ListPlayerItems(t *testing.T) {
+func TestItemPurchaseRepository_ListPlayerItems(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgItemPurchaseRepository(sharedPg.Pool)
+	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const (
@@ -245,9 +245,9 @@ func TestPgItemPurchaseRepository_ListPlayerItems(t *testing.T) {
 	}
 }
 
-func TestPgItemPurchaseRepository_HasPlayerItem(t *testing.T) {
+func TestItemPurchaseRepository_HasPlayerItem(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgItemPurchaseRepository(sharedPg.Pool)
+	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const (

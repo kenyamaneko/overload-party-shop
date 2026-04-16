@@ -1,4 +1,4 @@
-package repository_test
+package postgres_test
 
 import (
 	"context"
@@ -11,11 +11,11 @@ import (
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
-func TestPgFactionPurchaseRepository_CreatePurchase(t *testing.T) {
-	repo := repository.NewPgFactionPurchaseRepository(sharedPg.Pool)
+func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
+	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const (
@@ -155,9 +155,9 @@ func TestPgFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 	}
 }
 
-func TestPgFactionPurchaseRepository_CreatePurchase_AtomicRollback_OwnedFaction(t *testing.T) {
+func TestFactionPurchaseRepository_CreatePurchase_AtomicRollback_OwnedFaction(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgFactionPurchaseRepository(sharedPg.Pool)
+	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const playerID = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
@@ -187,9 +187,9 @@ func TestPgFactionPurchaseRepository_CreatePurchase_AtomicRollback_OwnedFaction(
 	assert.Equal(t, 1, owned, "既存seed分のみ、新規INSERTは反映されない")
 }
 
-func TestPgFactionPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *testing.T) {
+func TestFactionPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgFactionPurchaseRepository(sharedPg.Pool)
+	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const playerID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
@@ -219,9 +219,9 @@ func TestPgFactionPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *test
 	assert.Equal(t, 0, owned, "owned_factionは手前で短絡してINSERTされないはず")
 }
 
-func TestPgFactionPurchaseRepository_ListOwnedFactions(t *testing.T) {
+func TestFactionPurchaseRepository_ListOwnedFactions(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgFactionPurchaseRepository(sharedPg.Pool)
+	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const (

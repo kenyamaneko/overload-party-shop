@@ -1,4 +1,4 @@
-package service
+package postgres_test
 
 import (
 	"os"

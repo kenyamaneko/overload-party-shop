@@ -10,7 +10,7 @@ import (
 	"time"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +40,7 @@ func (m *mockGoogleSubVerifier) GetSubscriptionExpiry(_ context.Context, _ strin
 
 type testSubEnv struct {
 	svc            *SubscriptionService
-	subRepo        *repository.PgSubscriptionRepository
+	subRepo        *postgres.SubscriptionRepository
 	premiumPub     *fakePremiumPublisher
 	googleVerifier *mockGoogleSubVerifier
 }
@@ -49,7 +49,7 @@ func newTestSubscriptionService(t *testing.T) *testSubEnv {
 	t.Helper()
 	sharedPg.Truncate(t)
 
-	subRepo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	premiumPub := &fakePremiumPublisher{}
 	gv := &mockGoogleSubVerifier{expiry: time.Now().Add(30 * 24 * time.Hour)}
 	svc := NewSubscriptionService(subRepo, premiumPub, gv)

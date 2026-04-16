@@ -1,4 +1,4 @@
-package repository
+package postgres
 
 import (
 	"context"
@@ -13,17 +13,17 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-var _ port.ProductRepo = (*PgProductRepository)(nil)
+var _ port.ProductRepo = (*ProductRepository)(nil)
 
-type PgProductRepository struct {
+type ProductRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewPgProductRepository(pool *pgxpool.Pool) *PgProductRepository {
-	return &PgProductRepository{pool: pool}
+func NewProductRepository(pool *pgxpool.Pool) *ProductRepository {
+	return &ProductRepository{pool: pool}
 }
 
-func (r *PgProductRepository) GetActiveProducts(ctx context.Context) ([]*apishop.Product, error) {
+func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]*apishop.Product, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT product_id, name, type, price, content, description, image_url, is_active
 		 FROM shop.products WHERE is_active = true`)
@@ -48,7 +48,7 @@ func (r *PgProductRepository) GetActiveProducts(ctx context.Context) ([]*apishop
 	return products, nil
 }
 
-func (r *PgProductRepository) GetProductByID(ctx context.Context, productID string) (*apishop.Product, error) {
+func (r *ProductRepository) GetProductByID(ctx context.Context, productID string) (*apishop.Product, error) {
 	row := r.pool.QueryRow(ctx,
 		`SELECT product_id, name, type, price, content, description, image_url, is_active
 		 FROM shop.products WHERE product_id = $1`,

@@ -1,4 +1,4 @@
-package repository
+package firestore
 
 import (
 	"context"
@@ -13,20 +13,20 @@ import (
 
 const gameConfigCollection = "game_config"
 
-var _ port.GameConfigRepo = (*FirestoreGameConfigRepository)(nil)
+var _ port.GameConfigRepo = (*GameConfigRepository)(nil)
 
-// FirestoreGameConfigRepository は Firestore を使用した GameConfigRepo 実装。
-type FirestoreGameConfigRepository struct {
+// GameConfigRepository は Firestore を使用した GameConfigRepo 実装。
+type GameConfigRepository struct {
 	client *firestore.Client
 }
 
-func NewFirestoreGameConfigRepository(client *firestore.Client) *FirestoreGameConfigRepository {
-	return &FirestoreGameConfigRepository{client: client}
+func NewGameConfigRepository(client *firestore.Client) *GameConfigRepository {
+	return &GameConfigRepository{client: client}
 }
 
 // GetInt64 は指定キーの設定値を int64 で返します。
 // ドキュメント不在は port.ErrNotFound を返す（fail-fast）。
-func (r *FirestoreGameConfigRepository) GetInt64(ctx context.Context, key string) (int64, error) {
+func (r *GameConfigRepository) GetInt64(ctx context.Context, key string) (int64, error) {
 	snap, err := r.client.Collection(gameConfigCollection).Doc(key).Get(ctx)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {

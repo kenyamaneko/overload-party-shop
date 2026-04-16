@@ -1,4 +1,4 @@
-package repository_test
+package postgres_test
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
 func newSub(playerID string, now time.Time) *apishop.Subscription {
@@ -25,9 +25,9 @@ func newSub(playerID string, now time.Time) *apishop.Subscription {
 	}
 }
 
-func TestPgSubscriptionRepository_CreateSubscription_Apple(t *testing.T) {
+func TestSubscriptionRepository_CreateSubscription_Apple(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -43,9 +43,9 @@ func TestPgSubscriptionRepository_CreateSubscription_Apple(t *testing.T) {
 	assert.Equal(t, apishop.SubscriptionStatusActive, found.Status)
 }
 
-func TestPgSubscriptionRepository_CreateSubscription_Google(t *testing.T) {
+func TestSubscriptionRepository_CreateSubscription_Google(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	sub := newSub("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", time.Now().UTC())
@@ -57,9 +57,9 @@ func TestPgSubscriptionRepository_CreateSubscription_Google(t *testing.T) {
 	assert.Equal(t, sub.SubscriptionID, found.SubscriptionID)
 }
 
-func TestPgSubscriptionRepository_CreateSubscription_UnsupportedPlatform(t *testing.T) {
+func TestSubscriptionRepository_CreateSubscription_UnsupportedPlatform(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	sub := newSub("cccccccc-cccc-cccc-cccc-cccccccccccc", time.Now().UTC())
@@ -67,9 +67,9 @@ func TestPgSubscriptionRepository_CreateSubscription_UnsupportedPlatform(t *test
 	assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 }
 
-func TestPgSubscriptionRepository_GetLatestSubscription(t *testing.T) {
+func TestSubscriptionRepository_GetLatestSubscription(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	playerID := "dddddddd-dddd-dddd-dddd-dddddddddddd"
@@ -89,9 +89,9 @@ func TestPgSubscriptionRepository_GetLatestSubscription(t *testing.T) {
 	assert.Equal(t, apishop.SubscriptionStatusActive, latest.Status)
 }
 
-func TestPgSubscriptionRepository_GetLatestSubscription_NotFound(t *testing.T) {
+func TestSubscriptionRepository_GetLatestSubscription_NotFound(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	got, err := repo.GetLatestSubscription(ctx, "ffffffff-ffff-ffff-ffff-ffffffffffff")
@@ -99,9 +99,9 @@ func TestPgSubscriptionRepository_GetLatestSubscription_NotFound(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-func TestPgSubscriptionRepository_FindSubscriptionByToken_NotFound(t *testing.T) {
+func TestSubscriptionRepository_FindSubscriptionByToken_NotFound(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	got, err := repo.FindSubscriptionByToken(ctx, apishop.PlatformIOS, "nonexistent-token")
@@ -109,18 +109,18 @@ func TestPgSubscriptionRepository_FindSubscriptionByToken_NotFound(t *testing.T)
 	assert.Nil(t, got)
 }
 
-func TestPgSubscriptionRepository_FindSubscriptionByToken_UnsupportedPlatform(t *testing.T) {
+func TestSubscriptionRepository_FindSubscriptionByToken_UnsupportedPlatform(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	_, err := repo.FindSubscriptionByToken(ctx, "windows", "tok")
 	assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 }
 
-func TestPgSubscriptionRepository_UpdateSubscription(t *testing.T) {
+func TestSubscriptionRepository_UpdateSubscription(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	now := time.Now().UTC().Truncate(time.Microsecond)

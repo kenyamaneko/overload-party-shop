@@ -10,7 +10,7 @@ import (
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/platform"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,11 +56,11 @@ func (f *fakePremiumPublisher) PublishPremiumUpdated(_ context.Context, playerID
 
 type testShopEnv struct {
 	svc                 *ShopService
-	productRepo         *repository.PgProductRepository
-	factionPurchaseRepo *repository.PgFactionPurchaseRepository
-	itemPurchaseRepo    *repository.PgItemPurchaseRepository
-	purchaseLookup      *repository.PgPurchaseLookupRepository
-	subRepo             *repository.PgSubscriptionRepository
+	productRepo         *postgres.ProductRepository
+	factionPurchaseRepo *postgres.FactionPurchaseRepository
+	itemPurchaseRepo    *postgres.ItemPurchaseRepository
+	purchaseLookup      *postgres.PurchaseLookupRepository
+	subRepo             *postgres.SubscriptionRepository
 	factionPub          *fakeFactionPublisher
 	premiumPub          *fakePremiumPublisher
 }
@@ -115,11 +115,11 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 		opt(deps)
 	}
 
-	productRepo := repository.NewPgProductRepository(sharedPg.Pool)
-	factionPurchaseRepo := repository.NewPgFactionPurchaseRepository(sharedPg.Pool)
-	itemPurchaseRepo := repository.NewPgItemPurchaseRepository(sharedPg.Pool)
-	purchaseLookup := repository.NewPgPurchaseLookupRepository(sharedPg.Pool)
-	subRepo := repository.NewPgSubscriptionRepository(sharedPg.Pool)
+	productRepo := postgres.NewProductRepository(sharedPg.Pool)
+	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
+	itemPurchaseRepo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
+	purchaseLookup := postgres.NewPurchaseLookupRepository(sharedPg.Pool)
+	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	factionPub := &fakeFactionPublisher{err: deps.factionPubErr}
 	premiumPub := &fakePremiumPublisher{err: deps.premiumPubErr}
 

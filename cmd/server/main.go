@@ -17,7 +17,8 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
 	"github.com/kenyamaneko/overload-party-shop/internal/platform"
 	shoppubsub "github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository"
+	shopfirestore "github.com/kenyamaneko/overload-party-shop/internal/repository/firestore"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/router"
 	"github.com/kenyamaneko/overload-party-shop/internal/service"
 )
@@ -57,14 +58,14 @@ func run() error {
 	}
 	defer func() { _ = fsClient.Close() }()
 
-	productRepo := repository.NewPgProductRepository(pool)
-	factionPurchaseRepo := repository.NewPgFactionPurchaseRepository(pool)
-	itemPurchaseRepo := repository.NewPgItemPurchaseRepository(pool)
-	purchaseLookup := repository.NewPgPurchaseLookupRepository(pool)
-	subRepo := repository.NewPgSubscriptionRepository(pool)
+	productRepo := postgres.NewProductRepository(pool)
+	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(pool)
+	itemPurchaseRepo := postgres.NewItemPurchaseRepository(pool)
+	purchaseLookup := postgres.NewPurchaseLookupRepository(pool)
+	subRepo := postgres.NewSubscriptionRepository(pool)
 	// game_config は現在 shop の runtime パスから参照していない。
 	// クライアント到達性は起動時に検証するため、repo を生成だけしておく。
-	_ = repository.NewFirestoreGameConfigRepository(fsClient)
+	_ = shopfirestore.NewGameConfigRepository(fsClient)
 
 	// Pub/Sub publisher（faction-selected + premium-updated）。
 	pub, err := shoppubsub.New(ctx, cfg.PubsubProjectID, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)

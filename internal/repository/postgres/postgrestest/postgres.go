@@ -4,7 +4,7 @@
 // 実 PostgreSQL に対してテストを実行する。コンテナはパッケージ単位で
 // 1 回だけ起動し（RunMain）、テスト関数間の状態リセットは Truncate（登録
 // された schema 配下の全テーブルを動的に列挙して TRUNCATE）で行う。
-package testutil
+package postgrestest
 
 import (
 	"context"

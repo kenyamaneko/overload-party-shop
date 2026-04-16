@@ -1,4 +1,4 @@
-package repository
+package postgres
 
 import (
 	"context"
@@ -10,22 +10,22 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-var _ port.FactionPurchaseRepo = (*PgFactionPurchaseRepository)(nil)
+var _ port.FactionPurchaseRepo = (*FactionPurchaseRepository)(nil)
 
-// PgFactionPurchaseRepository は faction_set 購入 aggregate を扱う。
+// FactionPurchaseRepository は faction_set 購入 aggregate を扱う。
 // 書き込みは shop.one_time_purchases + shop.{apple,google}_purchase_tokens +
 // shop.player_owned_factions の 3 テーブルを同一 tx で更新する。
 // shop.player_owned_factions は authoritative な account.player_factions の shop ローカル射影
 // (cross-schema 読み込み不可のため GetProducts の IsOwned 判定用に独立保持)。
-type PgFactionPurchaseRepository struct {
+type FactionPurchaseRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewPgFactionPurchaseRepository(pool *pgxpool.Pool) *PgFactionPurchaseRepository {
-	return &PgFactionPurchaseRepository{pool: pool}
+func NewFactionPurchaseRepository(pool *pgxpool.Pool) *FactionPurchaseRepository {
+	return &FactionPurchaseRepository{pool: pool}
 }
 
-func (r *PgFactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, faction, platform, purchaseToken string) (created bool, err error) {
+func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, faction, platform, purchaseToken string) (created bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin tx: %w", err)
@@ -57,7 +57,7 @@ func (r *PgFactionPurchaseRepository) CreatePurchase(ctx context.Context, purcha
 	return true, nil
 }
 
-func (r *PgFactionPurchaseRepository) ListOwnedFactions(ctx context.Context, playerID string) ([]string, error) {
+func (r *FactionPurchaseRepository) ListOwnedFactions(ctx context.Context, playerID string) ([]string, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT faction FROM shop.player_owned_factions WHERE player_id = $1`,
 		playerID)

@@ -1,4 +1,4 @@
-package repository_test
+package postgres_test
 
 import (
 	"context"
@@ -10,13 +10,13 @@ import (
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
-func TestPgPurchaseLookupRepository_FindPurchaseByToken(t *testing.T) {
+func TestPurchaseLookupRepository_FindPurchaseByToken(t *testing.T) {
 	sharedPg.Truncate(t)
-	lookup := repository.NewPgPurchaseLookupRepository(sharedPg.Pool)
-	factionPurchase := repository.NewPgFactionPurchaseRepository(sharedPg.Pool)
+	lookup := postgres.NewPurchaseLookupRepository(sharedPg.Pool)
+	factionPurchase := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	const user1 = "11111111-4444-4444-4444-111111111111"

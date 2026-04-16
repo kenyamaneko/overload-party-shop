@@ -1,4 +1,4 @@
-package repository_test
+package postgres_test
 
 import (
 	"context"
@@ -9,11 +9,11 @@ import (
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
-func TestPgProductRepository_GetActiveProducts(t *testing.T) {
-	repo := repository.NewPgProductRepository(sharedPg.Pool)
+func TestProductRepository_GetActiveProducts(t *testing.T) {
+	repo := postgres.NewProductRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	type productSeed struct {
@@ -70,9 +70,9 @@ func TestPgProductRepository_GetActiveProducts(t *testing.T) {
 	}
 }
 
-func TestPgProductRepository_GetProductByID(t *testing.T) {
+func TestProductRepository_GetProductByID(t *testing.T) {
 	sharedPg.Truncate(t)
-	repo := repository.NewPgProductRepository(sharedPg.Pool)
+	repo := postgres.NewProductRepository(sharedPg.Pool)
 	ctx := context.Background()
 
 	seedProduct(t, "faction_she", "SHE Pack", apishop.ProductTypeFactionSet, 980, true)

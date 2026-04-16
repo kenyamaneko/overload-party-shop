@@ -1,4 +1,4 @@
-package repository
+package postgres
 
 import (
 	"context"
@@ -12,17 +12,17 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-var _ port.SubscriptionRepo = (*PgSubscriptionRepository)(nil)
+var _ port.SubscriptionRepo = (*SubscriptionRepository)(nil)
 
-// PgSubscriptionRepository は pgxpool 経由の PostgreSQL で SubscriptionRepo を実装する。
+// SubscriptionRepository は pgxpool 経由の PostgreSQL で SubscriptionRepo を実装する。
 // shop.subscriptions (純粋ドメイン) と shop.{apple,google}_subscription_tokens
 // (外部識別マッピング) の 2 系統を同一 tx で協調操作する。
-type PgSubscriptionRepository struct {
+type SubscriptionRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewPgSubscriptionRepository(pool *pgxpool.Pool) *PgSubscriptionRepository {
-	return &PgSubscriptionRepository{pool: pool}
+func NewSubscriptionRepository(pool *pgxpool.Pool) *SubscriptionRepository {
+	return &SubscriptionRepository{pool: pool}
 }
 
 func subscriptionTokenTableForPlatform(platform string) (string, error) {
@@ -37,7 +37,7 @@ func subscriptionTokenTableForPlatform(platform string) (string, error) {
 }
 
 // CreateSubscription は subscriptions + 対応 token 行をアトミックに挿入する。
-func (r *PgSubscriptionRepository) CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string) error {
+func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string) error {
 	tokenTable, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
 		return err
@@ -74,7 +74,7 @@ func (r *PgSubscriptionRepository) CreateSubscription(ctx context.Context, sub *
 
 // GetLatestSubscription は player の最新サブスクリプション 1 行を返す。
 // 純粋ドメインなので token テーブルは引かない (status / 期間判定のみが必要なため)。
-func (r *PgSubscriptionRepository) GetLatestSubscription(ctx context.Context, playerID string) (*apishop.Subscription, error) {
+func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, playerID string) (*apishop.Subscription, error) {
 	row := r.pool.QueryRow(ctx,
 		`SELECT subscription_id, player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at
 		   FROM shop.subscriptions
@@ -94,7 +94,7 @@ func (r *PgSubscriptionRepository) GetLatestSubscription(ctx context.Context, pl
 }
 
 // FindSubscriptionByToken は platform に応じた token テーブル → subscriptions の JOIN で引く。
-func (r *PgSubscriptionRepository) FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*apishop.Subscription, error) {
+func (r *SubscriptionRepository) FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*apishop.Subscription, error) {
 	table, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func scanSubscription(row pgx.Row) (*apishop.Subscription, error) {
 }
 
 // UpdateSubscription はサブスクリプションの状態・期間を更新する。
-func (r *PgSubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error {
+func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error {
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE shop.subscriptions SET
 			status = $1,

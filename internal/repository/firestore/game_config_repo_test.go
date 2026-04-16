@@ -1,4 +1,4 @@
-package repository_test
+package firestore_test
 
 import (
 	"context"
@@ -14,13 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository"
+	shopfirestore "github.com/kenyamaneko/overload-party-shop/internal/repository/firestore"
 )
 
 // Firestore emulator を前提とする integration test。
 // FIRESTORE_EMULATOR_HOST が未設定の場合はスキップ。
 // CI では .github/workflows/ci.yaml がエミュレーターを起動する。
-func TestFirestoreGameConfigRepository(t *testing.T) {
+func TestGameConfigRepository(t *testing.T) {
 	host := os.Getenv("FIRESTORE_EMULATOR_HOST")
 	if host == "" {
 		t.Skip("FIRESTORE_EMULATOR_HOST not set; skipping Firestore integration test")
@@ -38,7 +38,7 @@ func TestFirestoreGameConfigRepository(t *testing.T) {
 	_, err = client.Collection("game_config").Doc("exp_win").Set(ctx, map[string]any{"value": int64(40)})
 	require.NoError(t, err)
 
-	repo := repository.NewFirestoreGameConfigRepository(client)
+	repo := shopfirestore.NewGameConfigRepository(client)
 
 	t.Run("Get existing key", func(t *testing.T) {
 		got, err := repo.GetInt64(ctx, "exp_win")

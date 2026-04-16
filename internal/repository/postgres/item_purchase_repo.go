@@ -1,4 +1,4 @@
-package repository
+package postgres
 
 import (
 	"context"
@@ -10,20 +10,20 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-var _ port.ItemPurchaseRepo = (*PgItemPurchaseRepository)(nil)
+var _ port.ItemPurchaseRepo = (*ItemPurchaseRepository)(nil)
 
-// PgItemPurchaseRepository は cosmetic 購入 aggregate を扱う。
+// ItemPurchaseRepository は cosmetic 購入 aggregate を扱う。
 // 書き込みは shop.one_time_purchases + shop.{apple,google}_purchase_tokens +
 // shop.player_items の 3 テーブルを同一 tx で更新する。
-type PgItemPurchaseRepository struct {
+type ItemPurchaseRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewPgItemPurchaseRepository(pool *pgxpool.Pool) *PgItemPurchaseRepository {
-	return &PgItemPurchaseRepository{pool: pool}
+func NewItemPurchaseRepository(pool *pgxpool.Pool) *ItemPurchaseRepository {
+	return &ItemPurchaseRepository{pool: pool}
 }
 
-func (r *PgItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string) (created bool, err error) {
+func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string) (created bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin tx: %w", err)
@@ -55,7 +55,7 @@ func (r *PgItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase 
 	return true, nil
 }
 
-func (r *PgItemPurchaseRepository) HasPlayerItem(ctx context.Context, playerID, itemType string, itemNo int64) (bool, error) {
+func (r *ItemPurchaseRepository) HasPlayerItem(ctx context.Context, playerID, itemType string, itemNo int64) (bool, error) {
 	var exists bool
 	err := r.pool.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM shop.player_items
@@ -67,7 +67,7 @@ func (r *PgItemPurchaseRepository) HasPlayerItem(ctx context.Context, playerID, 
 	return exists, nil
 }
 
-func (r *PgItemPurchaseRepository) ListPlayerItems(ctx context.Context, playerID string) ([]*apishop.PlayerItem, error) {
+func (r *ItemPurchaseRepository) ListPlayerItems(ctx context.Context, playerID string) ([]*apishop.PlayerItem, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT player_id, item_type, item_no, acquired_at
 		   FROM shop.player_items
