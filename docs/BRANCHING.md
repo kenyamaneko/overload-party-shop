@@ -43,7 +43,7 @@ GitFlow をベースに、環境とブランチを対応付けた運用を採用
 - ブランチ名に候補バージョンを含める(例: `release/v1.2.0`)
 - `develop` から切る。切った時点で feature の取り込みは停止する
 - release 中に feature を追加で取り込みたい場合は、原則として次の release に回す
-- バグ修正やリリース準備(CHANGELOG 更新等)のコミットは release に直接入れていい
+- バグ修正やリリース準備(CHANGELOG 更新等)のコミットは PR 経由で release に入れる
 - release に入れた修正は、main マージ後に develop にも back-merge する(後述)
 
 ### feature/xxx
@@ -75,7 +75,7 @@ GitFlow をベースに、環境とブランチを対応付けた運用を採用
 
 3. stg 環境で検証
    └─ 実機 IAP 検証、Apple/Google webhook 疎通確認など
-   └─ バグ発見時は release ブランチに修正を push
+   └─ バグ発見時は PR 経由で release ブランチに修正を入れる
 
 4. main にマージ
    └─ release/v1.2.0 → main (PR)
@@ -145,19 +145,41 @@ GitHub Rulesets で以下を設定する。
 - PR マージのみ許可(linear history)
 - force push 禁止、削除禁止
 - 履歴書き換え禁止
-- 必須ステータスチェック: CI lint / test / build-and-push が green
+- 必須ステータスチェック: CI / lint, CI / test が green
 - required reviews: 1(self-approve 不可)
 - マージ元ブランチ制限: `release/*` と `hotfix/*` のみ
 
 ### release/*
 
-- 直 push 許可(release 準備コミットを直接入れるため)
+- 直 push 禁止。PR 経由のマージのみ
 - force push 禁止、削除は手動で可
-- 必須ステータスチェック: CI lint / test が green
+- 必須ステータスチェック: CI / lint, CI / test が green
 
 ### develop
 
 - 直 push 禁止
 - PR マージのみ許可
-- 必須ステータスチェック: CI lint / test が green
+- 必須ステータスチェック: CI / lint, CI / test が green
 - required reviews: 不要(一人開発での速度優先)
+
+## CI/CD パイプライン
+
+| ワークフロー | トリガー | 役割 |
+|---|---|---|
+| `ci.yaml` | push / PR: main, develop, release/* | lint + test の品質ゲート |
+| `deploy.yaml` | push: main, develop, release/* | Docker イメージのビルド・スキャン・push |
+| `release-tag.yaml` | PR close (→ main) | release/hotfix ブランチから SemVer タグを自動生成 |
+| `publish.yaml` | push: main (api-shop パス変更時) | api-shop Go モジュールの公開 |
+| `validate.yaml` | PR: main, develop, release/* | コード生成のドリフト検出 |
+
+### CI と CD の連携
+
+CI (lint/test) の成功は、各ブランチの保護ルール (required status check) で担保する。
+deploy.yaml は CI と独立して push 時に発火するが、保護ブランチへの push は
+CI が通った PR のマージ経由でしか行えないため、CI を経由しないデプロイは発生しない。
+
+### feature / hotfix ブランチの CI
+
+feature/* や hotfix/* ブランチへの push では CI は走らない。
+これらのブランチで CI を実行するには、対象ブランチ (develop / main) 宛の PR を作成する。
+PR 更新時 (追加 push) にも CI が再実行される。

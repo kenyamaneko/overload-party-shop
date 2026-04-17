@@ -1,0 +1,100 @@
+name: Deploy
+
+# ブランチごとに対応環境の Artifact Registry へイメージを build & push する。
+#   main     → prod
+#   release/ → stg
+#   develop  → dev
+# CI (ci.yaml) の成功はブランチ保護の required status check で担保する。
+on:
+  push:
+    branches: [main, develop, "release/**"]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: asia-northeast1-docker.pkg.dev
+  PROJECT_ID: keyandnotes-platform
+  REPOSITORY: overload-party
+  IMAGE_NAME: shop
+
+jobs:
+  resolve-env:
+    runs-on: ubuntu-latest
+    outputs:
+      env_name: ${{ steps.resolve.outputs.env_name }}
+    steps:
+      - id: resolve
+        run: |
+          case "${GITHUB_REF}" in
+            refs/heads/main)
+              echo "env_name=prod" >> "$GITHUB_OUTPUT"
+              ;;
+            refs/heads/release/*)
+              echo "env_name=stg" >> "$GITHUB_OUTPUT"
+              ;;
+            refs/heads/develop)
+              echo "env_name=dev" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::Unsupported branch: ${GITHUB_REF}"
+              exit 1
+              ;;
+          esac
+
+  build-scan-push:
+    needs: [resolve-env]
+    runs-on: ubuntu-latest
+    # environment を宣言すると GitHub Environments の保護ルール (approvers 等) が効く。
+    environment: ${{ needs.resolve-env.outputs.env_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.CI_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Set image tags
+        id: tags
+        env:
+          ENV_NAME: ${{ needs.resolve-env.outputs.env_name }}
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${ENV_NAME}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${ENV_NAME}-latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        env:
+          DOCKER_BUILDKIT: "1"
+          COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
+        run: |
+          docker build \
+            --secret id=COMMON_GO_MODULES_FETCH,env=COMMON_GO_MODULES_FETCH \
+            -t "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}" \
+            -t "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.latest_tag }}" \
+            .
+
+      # push 前にスキャンし、CRITICAL/HIGH の脆弱性があればデプロイを止める
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+
+      - name: Push image
+        run: |
+          docker push "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}"
+          docker push "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.latest_tag }}"

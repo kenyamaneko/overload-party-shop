@@ -2,7 +2,7 @@ name: Validate codegen
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop, "release/**"]
 
 permissions:
   contents: read
