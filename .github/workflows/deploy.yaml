@@ -58,8 +58,8 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
-          service_account: ${{ vars.CI_SERVICE_ACCOUNT }}
+          workload_identity_provider: projects/248288258659/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: github-ci@keyandnotes-platform.iam.gserviceaccount.com
 
       - uses: google-github-actions/setup-gcloud@v2
 
