@@ -93,7 +93,6 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]apishop.P
 		case apishop.ProductTypeFactionSet:
 			var content apishop.FactionSetContent
 			if err := json.Unmarshal(p.Content, &content); err != nil {
-				slog.Error("failed to parse product content", "product_id", p.ProductID, "error", err)
 				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
 			}
 			owned = slices.Contains(ownedFactions, content.Faction)
@@ -102,7 +101,6 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]apishop.P
 		case apishop.ProductTypeCosmetic:
 			var content apishop.CosmeticContent
 			if err := json.Unmarshal(p.Content, &content); err != nil {
-				slog.Error("failed to parse product content", "product_id", p.ProductID, "error", err)
 				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
 			}
 			owned = slices.ContainsFunc(ownedItems, func(it *apishop.PlayerItem) bool {
@@ -139,6 +137,7 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 		return fmt.Errorf("check existing purchase: %w", err)
 	}
 	if existing != nil {
+		slog.Info("purchase idempotent skip", "player_id", playerID, "product_id", productID, "platform", pf)
 		return nil
 	}
 
@@ -237,6 +236,7 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purcha
 		return nil, fmt.Errorf("check existing subscription: %w", err)
 	}
 	if existing != nil {
+		slog.Info("subscribe idempotent skip", "player_id", playerID, "product_id", productID, "platform", pf)
 		return &existing.CurrentPeriodEnd, nil
 	}
 

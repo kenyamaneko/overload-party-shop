@@ -41,12 +41,12 @@ func main() {
 func setupLogger(mode config.IAPMode) error {
 	switch mode {
 	case config.IAPModeProduction:
-		slog.SetDefault(slog.New(newCloudLoggingHandler()))
+		slog.SetDefault(slog.New(newCloudLoggingHandler()).With("service", "shop"))
 	case config.IAPModeLocal:
 		h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		})
-		slog.SetDefault(slog.New(h))
+		slog.SetDefault(slog.New(h).With("service", "shop"))
 	default:
 		return fmt.Errorf("unexpected IAP_MODE: %s", mode)
 	}

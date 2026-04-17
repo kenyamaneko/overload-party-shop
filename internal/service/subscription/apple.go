@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
@@ -112,7 +113,14 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 			if err := writeNoEvent(ctx, n.subRepo, sub); err != nil {
 				return err
 			}
+		} else {
+			slog.Warn("apple unhandled DID_CHANGE_RENEWAL_STATUS subtype",
+				"subtype", notif.Subtype, "original_transaction_id", txnInfo.OriginalTransactionID)
 		}
+
+	default:
+		slog.Warn("apple unhandled notification type",
+			"notification_type", notif.NotificationType, "original_transaction_id", txnInfo.OriginalTransactionID)
 	}
 
 	return nil

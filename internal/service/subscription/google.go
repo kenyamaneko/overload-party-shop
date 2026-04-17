@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
@@ -70,6 +71,7 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 	}
 
 	if rtdn.SubscriptionNotification == nil {
+		slog.Info("google RTDN skipped: no subscriptionNotification")
 		return nil
 	}
 
@@ -120,6 +122,10 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 		if err := writeNoEvent(ctx, n.subRepo, sub); err != nil {
 			return err
 		}
+
+	default:
+		slog.Warn("google RTDN unhandled notification type",
+			"notification_type", notif.NotificationType, "purchase_token", notif.PurchaseToken)
 	}
 
 	return nil
