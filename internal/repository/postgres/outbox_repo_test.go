@@ -104,6 +104,10 @@ func insertInFlight(ago time.Duration) func(t *testing.T, testIdx, seedIdx int, 
 // defaultVisibility はケース指定がない時の visibility timeout (30s)。
 const defaultVisibility = 30 * time.Second
 
+// defaultFailureThreshold はケース指定がない時の failure threshold。
+// 既存テストは閾値超過行を扱わないため、十分大きい値を設定。
+const defaultFailureThreshold = 100
+
 func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 	repo := postgres.NewOutboxRepository(sharedPg.Pool)
 	ctx := context.Background()
@@ -170,7 +174,7 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 				s.insert(t, i, j, s.payload)
 			}
 
-			claimed, err := repo.ClaimUnpublished(ctx, tt.limit, tt.visibilityTimeout)
+			claimed, err := repo.ClaimUnpublished(ctx, tt.limit, tt.visibilityTimeout, defaultFailureThreshold)
 			require.NoError(t, err)
 
 			got := make([]string, len(claimed))
@@ -195,7 +199,7 @@ func TestOutboxRepository_ClaimUnpublished_RespectsLimit(t *testing.T) {
 		insertUnpublished(t, 0, j, fmt.Sprintf(`{"k":"%d"}`, j))
 	}
 
-	claimed, err := repo.ClaimUnpublished(ctx, limit, defaultVisibility)
+	claimed, err := repo.ClaimUnpublished(ctx, limit, defaultVisibility, defaultFailureThreshold)
 	require.NoError(t, err)
 	assert.Len(t, claimed, limit, "limit で claim 件数が制限される")
 
@@ -216,7 +220,7 @@ func TestOutboxRepository_ClaimUnpublished_UpdatesLastAttemptedAt(t *testing.T) 
 
 	id := insertOutboxRow(t, 0, 0, []byte(`{"k":"v"}`))
 
-	_, err := repo.ClaimUnpublished(ctx, 10, defaultVisibility)
+	_, err := repo.ClaimUnpublished(ctx, 10, defaultVisibility, defaultFailureThreshold)
 	require.NoError(t, err)
 
 	var lastAttemptedNotNull bool

@@ -22,9 +22,10 @@ type fakeOutboxStore struct {
 	markErr          error
 	failures         []failureCall
 	failErr          error
-	claimCalls       int
-	lastVisibilityTO time.Duration
-	lastLimit        int
+	claimCalls            int
+	lastVisibilityTO      time.Duration
+	lastLimit             int
+	lastFailureThreshold  int
 }
 
 type failureCall struct {
@@ -32,10 +33,11 @@ type failureCall struct {
 	errMsg  string
 }
 
-func (f *fakeOutboxStore) ClaimUnpublished(_ context.Context, limit int, visibilityTimeout time.Duration) ([]port.ClaimedOutboxEvent, error) {
+func (f *fakeOutboxStore) ClaimUnpublished(_ context.Context, limit int, visibilityTimeout time.Duration, failureThreshold int) ([]port.ClaimedOutboxEvent, error) {
 	f.claimCalls++
 	f.lastLimit = limit
 	f.lastVisibilityTO = visibilityTimeout
+	f.lastFailureThreshold = failureThreshold
 	if f.claimErr != nil {
 		return nil, f.claimErr
 	}
@@ -222,4 +224,5 @@ func TestPublisher_RunOnce_PassesConfigToStore(t *testing.T) {
 	require.NoError(t, s.RunOnce(context.Background()))
 	assert.Equal(t, 42, store.lastLimit)
 	assert.Equal(t, 17*time.Second, store.lastVisibilityTO)
+	assert.Equal(t, 5, store.lastFailureThreshold)
 }

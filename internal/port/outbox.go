@@ -50,7 +50,7 @@ type ClaimedOutboxEvent struct {
 // (claim 時に last_attempted_at を更新し、以降 visibilityTimeout の間は他 worker の
 // claim から除外される)。
 type OutboxStore interface {
-	ClaimUnpublished(ctx context.Context, limit int, visibilityTimeout time.Duration) ([]ClaimedOutboxEvent, error)
+	ClaimUnpublished(ctx context.Context, limit int, visibilityTimeout time.Duration, failureThreshold int) ([]ClaimedOutboxEvent, error)
 	MarkPublished(ctx context.Context, eventID uuid.UUID) error
 	RecordFailure(ctx context.Context, eventID uuid.UUID, errMsg string) error
 }

@@ -20,7 +20,7 @@ const (
 	SubscriptionStatusActive = "active"
 	SubscriptionStatusExpired = "expired"
 	SubscriptionStatusCancelled = "cancelled"
-	SubscriptionStatusGrace = "grace_period"
+	SubscriptionStatusGracePeriod = "grace_period"
 	SubscriptionStatusRevoked = "revoked"
 )
 

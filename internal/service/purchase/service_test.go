@@ -15,14 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type fakeCardLister struct {
-	cards []*apishop.CardView
-}
-
-func (f *fakeCardLister) ListAllCards(_ context.Context) ([]*apishop.CardView, error) {
-	return f.cards, nil
-}
-
 // fakeFactionBuilder は BuildFactionSelected 呼び出しを記録するテスト用ダブル。
 // 既存テストが期待する .calls スライスのインタフェースを維持するため、
 // OutboxEventBuilder の「faction-selected 側」を担当する小さな型として切り分けている。
@@ -148,13 +140,7 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	builder := newFakeEventBuilder(deps.factionPubErr, deps.premiumPubErr)
 
-	cards := []*apishop.CardView{
-		{CardID: "SH-0001", CardName: "SHE Compute", Faction: "SHE", CardType: "Compute", Restriction: "unlimited", IsActive: true},
-		{CardID: "TK-0001", CardName: "Tenki VM", Faction: "Tenki", CardType: "Compute", Restriction: "unlimited", IsActive: true},
-	}
-	cardLister := &fakeCardLister{cards: cards}
-
-	svc := New(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, cardLister, deps.appleVerifier, deps.googleVerifier, builder)
+	svc := New(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, deps.appleVerifier, deps.googleVerifier, builder)
 
 	return &testShopEnv{
 		svc:                 svc,
@@ -575,7 +561,7 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 		},
 		{
 			name:        "grace_period かつ期間内",
-			status:      apishop.SubscriptionStatusGrace,
+			status:      apishop.SubscriptionStatusGracePeriod,
 			periodEnd:   future,
 			wantIsOwned: true,
 		},

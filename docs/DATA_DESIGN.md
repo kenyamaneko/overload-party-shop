@@ -47,12 +47,10 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 <!-- BEGIN GENERATED: subscriptions -->
 | カラム名 | 型 | Nullable | 説明 |
 |---|---|---|---|
-| `player_id` | UUID | No | 所有プレイヤー (cross-schema reference to account.players; app-level integrity, not enforced by FK) |
 | `subscription_id` | BIGINT (IDENTITY) | No | 自動採番 |
+| `player_id` | UUID | No | 所有プレイヤー (cross-schema reference to account.players; app-level integrity, not enforced by FK) |
 | `product_id` | VARCHAR(50) | No | 商品ID |
-| `platform` | VARCHAR(10) | No | apple / google |
-| `purchase_token` | VARCHAR(256) | No | 購入トークン（Apple: originalTransactionId / Google: purchaseToken） |
-| `status` | VARCHAR(20) | No | active / grace_period / expired / refunded |
+| `status` | VARCHAR(20) | No | active / cancelled / grace_period / expired / revoked |
 | `current_period_start` | TIMESTAMPTZ | No | 課金期間開始日時 |
 | `current_period_end` | TIMESTAMPTZ | No | 課金期間終了日時 |
 | `created_at` | TIMESTAMPTZ | No | 初回購入日時 |
@@ -72,11 +70,9 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 <!-- BEGIN GENERATED: one_time_purchases -->
 | カラム名 | 型 | Nullable | 説明 |
 |---|---|---|---|
-| `player_id` | UUID | No | 所有プレイヤー (cross-schema reference to account.players; app-level integrity, not enforced by FK) |
 | `purchase_id` | BIGINT (IDENTITY) | No | 自動採番 |
+| `player_id` | UUID | No | 所有プレイヤー (cross-schema reference to account.players; app-level integrity, not enforced by FK) |
 | `product_id` | VARCHAR(50) | No | 商品ID |
-| `platform` | VARCHAR(10) | No | apple / google |
-| `purchase_token` | VARCHAR(256) | No | 購入トークン（Apple: originalTransactionId / Google: purchaseToken） |
 | `purchased_at` | TIMESTAMPTZ | No | 購入日時 |
 <!-- END GENERATED: one_time_purchases -->
 

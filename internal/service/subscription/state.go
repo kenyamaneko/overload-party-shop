@@ -19,7 +19,7 @@ func IsEntitled(sub *apishop.Subscription, now time.Time) bool {
 	switch sub.Status {
 	case apishop.SubscriptionStatusActive,
 		apishop.SubscriptionStatusCancelled,
-		apishop.SubscriptionStatusGrace:
+		apishop.SubscriptionStatusGracePeriod:
 		return sub.CurrentPeriodEnd.After(now)
 	}
 	return false

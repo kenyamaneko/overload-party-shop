@@ -41,7 +41,7 @@ files:
           - {name: SubscriptionStatusActive, value: "active"}
           - {name: SubscriptionStatusExpired, value: "expired"}
           - {name: SubscriptionStatusCancelled, value: "cancelled"}
-          - {name: SubscriptionStatusGrace, value: "grace_period"}
+          - {name: SubscriptionStatusGracePeriod, value: "grace_period"}
           - {name: SubscriptionStatusRevoked, value: "revoked"}
     types:
       - name: Product

@@ -14,12 +14,6 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
 )
 
-// CardLister は shop が faction-set カード列挙に必要とする card サービスの狭い
-// スライス。商品カタログメタデータ層でのみ使用。カード付与には使用しない。
-type CardLister interface {
-	ListAllCards(ctx context.Context) ([]*apishop.CardView, error)
-}
-
 // Service は shop ローカルの購入フローを管理する。shop は `shop` スキーマ
 // のみを直接変更し、faction + premium 状態更新は Transactional Outbox 経由で
 // account / card / gateway subscriber が処理する。IsOwned チェックは shop ローカル
@@ -33,7 +27,6 @@ type Service struct {
 	itemPurchaseRepo    port.ItemPurchaseRepo
 	purchaseLookup      port.PurchaseLookupRepo
 	subRepo             port.SubscriptionRepo
-	cardLister          CardLister
 	appleVerifier       port.ReceiptVerifier
 	googleVerifier      port.ReceiptVerifier
 	eventBuilder        port.OutboxEventBuilder
@@ -45,7 +38,6 @@ func New(
 	itemPurchaseRepo port.ItemPurchaseRepo,
 	purchaseLookup port.PurchaseLookupRepo,
 	subRepo port.SubscriptionRepo,
-	cardLister CardLister,
 	appleVerifier port.ReceiptVerifier,
 	googleVerifier port.ReceiptVerifier,
 	eventBuilder port.OutboxEventBuilder,
@@ -56,7 +48,6 @@ func New(
 		itemPurchaseRepo:    itemPurchaseRepo,
 		purchaseLookup:      purchaseLookup,
 		subRepo:             subRepo,
-		cardLister:          cardLister,
 		appleVerifier:       appleVerifier,
 		googleVerifier:      googleVerifier,
 		eventBuilder:        eventBuilder,

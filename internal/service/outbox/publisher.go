@@ -70,7 +70,7 @@ func New(store port.OutboxStore, pub port.RawEventPublisher, cfg Config) (*Publi
 // 各行の publish 失敗は RecordFailure で記録し、RunOnce 自体はエラーにしない
 // (visibility timeout 経過後に自動再試行される契約)。
 func (s *Publisher) RunOnce(ctx context.Context) error {
-	claimed, err := s.store.ClaimUnpublished(ctx, s.batchSize, s.visibilityTimeout)
+	claimed, err := s.store.ClaimUnpublished(ctx, s.batchSize, s.visibilityTimeout, s.failureThreshold)
 	if err != nil {
 		return fmt.Errorf("claim unpublished: %w", err)
 	}

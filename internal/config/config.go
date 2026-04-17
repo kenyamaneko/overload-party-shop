@@ -210,8 +210,8 @@ func loadOutboxConfig(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("config: OUTBOX_VISIBILITY_TIMEOUT %q: %w", rawVis, err)
 	}
-	if v <= 0 {
-		return fmt.Errorf("config: OUTBOX_VISIBILITY_TIMEOUT must be positive, got %q", rawVis)
+	if v < time.Millisecond {
+		return fmt.Errorf("config: OUTBOX_VISIBILITY_TIMEOUT must be >= 1ms, got %q", rawVis)
 	}
 	cfg.OutboxVisibilityTimeout = v
 	return nil

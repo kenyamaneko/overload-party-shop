@@ -15,7 +15,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/config"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	shopadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
 	googleadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/google"
 	shoppubsub "github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
@@ -79,14 +78,6 @@ func newCloudLoggingHandler() slog.Handler {
 			return a
 		},
 	})
-}
-
-// nilCardLister は CardLister interface を空結果で満たす no-op 実装。
-// shop はカード付与を行わないが、interface 充足のため保持。
-type nilCardLister struct{}
-
-func (nilCardLister) ListAllCards(_ context.Context) ([]*apishop.CardView, error) {
-	return nil, nil
 }
 
 // verifiers は IAP_MODE=production のときだけ初期化される verifier をまとめる。
@@ -205,7 +196,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.
 
 	shopSvc := purchase.New(
 		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup,
-		subRepo, nilCardLister{},
+		subRepo,
 		vfs.apple, vfs.google,
 		eventBuilder,
 	)

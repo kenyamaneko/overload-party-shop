@@ -45,12 +45,12 @@ func TestIsEntitled(t *testing.T) {
 		},
 		{
 			name: "grace_period かつ期間内（支払い失敗中の猶予）",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusGrace, CurrentPeriodEnd: future},
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusGracePeriod, CurrentPeriodEnd: future},
 			want: true,
 		},
 		{
 			name: "grace_period で期限切れ",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusGrace, CurrentPeriodEnd: past},
+			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusGracePeriod, CurrentPeriodEnd: past},
 			want: false,
 		},
 		{

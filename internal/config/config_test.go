@@ -258,7 +258,12 @@ func TestFromEnv_Errors(t *testing.T) {
 		{
 			name:    "OUTBOX_VISIBILITY_TIMEOUT が 0 以下ならエラー",
 			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "0s"}),
-			wantErr: "OUTBOX_VISIBILITY_TIMEOUT must be positive",
+			wantErr: "OUTBOX_VISIBILITY_TIMEOUT must be >= 1ms",
+		},
+		{
+			name:    "OUTBOX_VISIBILITY_TIMEOUT が 1ms 未満ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "500us"}),
+			wantErr: "OUTBOX_VISIBILITY_TIMEOUT must be >= 1ms",
 		},
 	}
 	for _, tt := range tests {

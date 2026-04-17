@@ -47,25 +47,28 @@ func NewOutboxRepository(pool *pgxpool.Pool) *OutboxRepository {
 //
 // 戻り行は last_attempted_at が now() に更新済み。以降 visibilityTimeout の間、
 // 他 worker の ClaimUnpublished はこの行を除外する。
-func (r *OutboxRepository) ClaimUnpublished(ctx context.Context, limit int, visibilityTimeout time.Duration) ([]port.ClaimedOutboxEvent, error) {
+func (r *OutboxRepository) ClaimUnpublished(ctx context.Context, limit int, visibilityTimeout time.Duration, failureThreshold int) ([]port.ClaimedOutboxEvent, error) {
 	// Postgres interval に渡せる text 表現。time.Duration.String() は "30s" 等だが
 	// Postgres は "30 seconds" 形式しか受け付けないため、ms 単位で明示的に組み立てる。
 	visibilityInterval := fmt.Sprintf("%d milliseconds", visibilityTimeout.Milliseconds())
 
 	rows, err := r.pool.Query(ctx,
-		`UPDATE shop.outbox_events
-		    SET last_attempted_at = now()
-		  WHERE event_id IN (
+		`WITH claimed AS (
 		    SELECT event_id
 		      FROM shop.outbox_events
 		     WHERE published_at IS NULL
+		       AND failure_count < $3
 		       AND (last_attempted_at IS NULL OR last_attempted_at < now() - $2::interval)
 		     ORDER BY created_at
 		     LIMIT $1
 		     FOR UPDATE SKIP LOCKED
-		  )
-		  RETURNING event_id, topic, payload, failure_count`,
-		limit, visibilityInterval,
+		)
+		UPDATE shop.outbox_events o
+		   SET last_attempted_at = now()
+		  FROM claimed c
+		 WHERE o.event_id = c.event_id
+		 RETURNING o.event_id, o.topic, o.payload, o.failure_count`,
+		limit, visibilityInterval, failureThreshold,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("claim unpublished: %w", err)
