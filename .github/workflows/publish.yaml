@@ -57,10 +57,10 @@ jobs:
         id: tag
         env:
           BUMP: ${{ github.event.inputs.bump || 'patch' }}
-        run: .github/scripts/next-tag.sh
+        run: .github/scripts/publish/next-tag.sh
 
       - name: Tag and push
         env:
           TAG: ${{ steps.tag.outputs.tag }}
-        run: .github/scripts/tag-and-push.sh
+        run: .github/scripts/publish/tag-and-push.sh
 
