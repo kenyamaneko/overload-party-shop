@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
@@ -86,19 +86,19 @@ func (s *Publisher) processOne(ctx context.Context, ev port.ClaimedOutboxEvent) 
 	pubErr := s.pub.Publish(ctx, ev.Topic, ev.Payload)
 	if pubErr == nil {
 		if err := s.store.MarkPublished(ctx, ev.EventID); err != nil {
-			log.Printf("ERROR: mark published failed (event_id=%s): %v", ev.EventID, err)
+			slog.Error("mark published failed", "event_id", ev.EventID, "error", err)
 		}
 		return
 	}
 	attempts := ev.FailureCount + 1
 	if attempts >= s.failureThreshold {
-		log.Printf("ERROR: outbox event stuck (event_id=%s topic=%s attempts=%d): %v",
-			ev.EventID, ev.Topic, attempts, pubErr)
+		slog.Error("outbox event stuck",
+			"event_id", ev.EventID, "topic", ev.Topic, "attempts", attempts, "error", pubErr)
 	} else {
-		log.Printf("outbox publish failed (event_id=%s topic=%s attempts=%d): %v",
-			ev.EventID, ev.Topic, attempts, pubErr)
+		slog.Warn("outbox publish failed",
+			"event_id", ev.EventID, "topic", ev.Topic, "attempts", attempts, "error", pubErr)
 	}
 	if err := s.store.RecordFailure(ctx, ev.EventID, pubErr.Error()); err != nil {
-		log.Printf("ERROR: record failure (event_id=%s): %v", ev.EventID, err)
+		slog.Error("record failure failed", "event_id", ev.EventID, "error", err)
 	}
 }

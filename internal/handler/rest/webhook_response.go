@@ -1,7 +1,7 @@
 package rest
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -19,7 +19,7 @@ func respondWebhook(c *gin.Context, source string, err error) {
 		return
 	}
 	if isDeterministic(err) {
-		log.Printf("webhook %s deterministic failure (acked): %v", source, err)
+		slog.Warn("webhook deterministic failure", "source", source, "error", err)
 		c.Status(http.StatusOK)
 		return
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -93,7 +93,7 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]apishop.P
 		case apishop.ProductTypeFactionSet:
 			var content apishop.FactionSetContent
 			if err := json.Unmarshal(p.Content, &content); err != nil {
-				log.Printf("failed to parse product content for %s: %v", p.ProductID, err)
+				slog.Error("failed to parse product content", "product_id", p.ProductID, "error", err)
 				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
 			}
 			owned = slices.Contains(ownedFactions, content.Faction)
@@ -102,7 +102,7 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]apishop.P
 		case apishop.ProductTypeCosmetic:
 			var content apishop.CosmeticContent
 			if err := json.Unmarshal(p.Content, &content); err != nil {
-				log.Printf("failed to parse product content for %s: %v", p.ProductID, err)
+				slog.Error("failed to parse product content", "product_id", p.ProductID, "error", err)
 				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
 			}
 			owned = slices.ContainsFunc(ownedItems, func(it *apishop.PlayerItem) bool {

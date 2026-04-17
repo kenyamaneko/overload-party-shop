@@ -7,7 +7,7 @@ package worker
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 )
 
@@ -42,16 +42,16 @@ func (t *OutboxTicker) Run(ctx context.Context) error {
 	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
 
-	log.Printf("shop: outbox ticker started (interval=%s)", t.interval)
+	slog.Info("outbox ticker started", "interval", t.interval)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("shop: outbox ticker stopping")
+			slog.Info("outbox ticker stopping")
 			return nil
 		case <-ticker.C:
 			if err := t.runner.RunOnce(ctx); err != nil {
-				log.Printf("ERROR: outbox tick failed: %v", err)
+				slog.Error("outbox tick failed", "error", err)
 			}
 		}
 	}

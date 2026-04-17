@@ -3,8 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -31,8 +32,53 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalf("shop: %v", err)
+		slog.Error("shop fatal", "error", err)
+		os.Exit(1)
 	}
+}
+
+// setupLogger は IAP_MODE に応じてグローバル slog ロガーを初期化する。
+func setupLogger(mode config.IAPMode) error {
+	switch mode {
+	case config.IAPModeProduction:
+		slog.SetDefault(slog.New(newCloudLoggingHandler()))
+	case config.IAPModeLocal:
+		h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})
+		slog.SetDefault(slog.New(h))
+	default:
+		return fmt.Errorf("unexpected IAP_MODE: %s", mode)
+	}
+	return nil
+}
+
+// newCloudLoggingHandler は Cloud Logging 互換の JSON ハンドラを返す。
+// slog のデフォルトフィールド名・値では Cloud Logging が認識しないため変換する。
+func newCloudLoggingHandler() slog.Handler {
+	return slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.LevelKey {
+				a.Key = "severity"
+				if level, ok := a.Value.Any().(slog.Level); ok {
+					switch {
+					case level >= slog.LevelError:
+						a.Value = slog.StringValue("ERROR")
+					case level >= slog.LevelWarn:
+						a.Value = slog.StringValue("WARNING")
+					case level >= slog.LevelInfo:
+						a.Value = slog.StringValue("INFO")
+					default:
+						a.Value = slog.StringValue("DEBUG")
+					}
+				}
+			}
+			if a.Key == slog.MessageKey {
+				a.Key = "message"
+			}
+			return a
+		},
+	})
 }
 
 // nilCardLister は CardLister interface を空結果で満たす no-op 実装。
@@ -55,6 +101,10 @@ type verifiers struct {
 func run() error {
 	cfg, err := config.FromEnv()
 	if err != nil {
+		return err
+	}
+
+	if err := setupLogger(cfg.IAPMode); err != nil {
 		return err
 	}
 
@@ -82,7 +132,7 @@ func run() error {
 	}
 	defer func() {
 		if cerr := pub.Close(); cerr != nil {
-			log.Printf("shop: publisher close failed: %v", cerr)
+			slog.Error("publisher close failed", "error", cerr)
 		}
 	}()
 
@@ -108,8 +158,12 @@ func run() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	log.Printf("shop: listening on %s (gcp project=%s faction-topic=%s premium-topic=%s)",
-		srv.Addr, cfg.GoogleCloudProject, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
+	slog.Info("listening",
+		"addr", srv.Addr,
+		"gcp_project", cfg.GoogleCloudProject,
+		"faction_topic", cfg.FactionSelectedTopic,
+		"premium_topic", cfg.PremiumUpdatedTopic,
+	)
 
 	return runHTTPAndWorker(ctx, srv, outboxTicker)
 }
@@ -118,7 +172,7 @@ func run() error {
 // local モードでは全 verifier を nil のまま返し、webhook ルートも未登録となる。
 func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) {
 	if cfg.IAPMode != config.IAPModeProduction {
-		log.Printf("shop: IAP_MODE=local — skipping Apple/Google verifier init and webhook route registration")
+		slog.Info("skipping verifier init and webhook route registration", "iap_mode", "local")
 		return verifiers{}, nil
 	}
 	av, err := shopadapter.NewVerifierFromPEM(
@@ -206,7 +260,7 @@ func runHTTPAndWorker(ctx context.Context, srv *http.Server, outboxTicker *worke
 
 	g.Go(func() error {
 		<-gCtx.Done()
-		log.Printf("shop: shutdown requested")
+		slog.Info("shutdown requested")
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
