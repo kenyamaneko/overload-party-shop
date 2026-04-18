@@ -100,14 +100,14 @@ func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*p
 	if err != nil {
 		return nil, fmt.Errorf("request to Apple: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return &port.VerifyResult{IsValid: false}, fmt.Errorf("Apple API returned %d (body read failed: %v)", resp.StatusCode, err)
+			return &port.VerifyResult{IsValid: false}, fmt.Errorf("apple API returned %d (body read failed: %v)", resp.StatusCode, err)
 		}
-		return &port.VerifyResult{IsValid: false}, fmt.Errorf("Apple API returned %d: %s", resp.StatusCode, string(body))
+		return &port.VerifyResult{IsValid: false}, fmt.Errorf("apple API returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	var apiResp struct {
@@ -148,14 +148,14 @@ func (v *Verifier) VerifySubscription(ctx context.Context, purchaseToken string)
 	if err != nil {
 		return nil, fmt.Errorf("request to Apple: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("Apple API returned %d (body read failed: %v)", resp.StatusCode, err)
+			return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("apple API returned %d (body read failed: %v)", resp.StatusCode, err)
 		}
-		return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("Apple API returned %d: %s", resp.StatusCode, string(body))
+		return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("apple API returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	var apiResp struct {

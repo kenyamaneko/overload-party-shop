@@ -131,7 +131,7 @@ func loadProductionIAP(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("config: secret manager client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	cfg.AppleKeyID, err = accessSecret(ctx, client, cfg.GoogleCloudProject, "shop-apple-key-id")
 	if err != nil {

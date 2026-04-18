@@ -2,6 +2,7 @@ FROM golang:1.25-alpine AS builder
 RUN apk add --no-cache git
 WORKDIR /app
 COPY go.mod go.sum ./
+COPY packages/api-shop/go.mod packages/api-shop/
 RUN --mount=type=secret,id=COMMON_GO_MODULES_FETCH \
     git config --global url."https://x-access-token:$(cat /run/secrets/COMMON_GO_MODULES_FETCH)@github.com/kenyamaneko/overload-party-common".insteadOf "https://github.com/kenyamaneko/overload-party-common" && \
     GOPRIVATE=github.com/kenyamaneko/* go mod download

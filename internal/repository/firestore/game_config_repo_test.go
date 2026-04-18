@@ -60,7 +60,7 @@ func resetEmulator(t *testing.T, host, projectID string) {
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("firestore emulator reset failed: status=%d body=%s", resp.StatusCode, string(body))

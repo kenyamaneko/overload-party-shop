@@ -94,7 +94,9 @@ func StartEmulator(ctx context.Context, projectID string) (*Emulator, error) {
 	// production コードの gpubsub.NewClient(projectID) を何も変えずに emulator へ
 	// 向けるため global に設定する。TestMain scope なので他テストへの漏れは
 	// 実質起きない (パッケージ横断では各 TestMain が自分の emulator を起動する)。
-	os.Setenv("PUBSUB_EMULATOR_HOST", endpoint)
+	if err := os.Setenv("PUBSUB_EMULATOR_HOST", endpoint); err != nil {
+		return nil, fmt.Errorf("setenv PUBSUB_EMULATOR_HOST: %w", err)
+	}
 
 	client, err := newEmulatorClient(ctx, projectID, endpoint)
 	if err != nil {
@@ -135,7 +137,9 @@ func (e *Emulator) Close(ctx context.Context) error {
 	if err := e.container.Terminate(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("terminate container: %w", err))
 	}
-	os.Unsetenv("PUBSUB_EMULATOR_HOST")
+	if err := os.Unsetenv("PUBSUB_EMULATOR_HOST"); err != nil {
+		errs = append(errs, fmt.Errorf("unsetenv PUBSUB_EMULATOR_HOST: %w", err))
+	}
 	return errors.Join(errs...)
 }
 
