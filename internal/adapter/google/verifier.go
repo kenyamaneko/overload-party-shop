@@ -44,7 +44,7 @@ func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*p
 
 	result, err := v.service.Purchases.Products.Get(v.packageName, productID, token).Context(ctx).Do()
 	if err != nil {
-		return &port.VerifyResult{IsValid: false}, fmt.Errorf("Google Play API: %w", err)
+		return &port.VerifyResult{IsValid: false}, fmt.Errorf("google Play API: %w", err)
 	}
 
 	// PurchaseState: 0=購入済み, 1=キャンセル, 2=保留中
@@ -72,7 +72,7 @@ func (v *Verifier) VerifySubscription(ctx context.Context, purchaseToken string)
 
 	result, err := v.service.Purchases.Subscriptions.Get(v.packageName, subscriptionID, token).Context(ctx).Do()
 	if err != nil {
-		return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("Google Play API: %w", err)
+		return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("google Play API: %w", err)
 	}
 
 	expiresAt := time.UnixMilli(result.ExpiryTimeMillis)
@@ -123,7 +123,7 @@ func (v *SubVerifier) GetSubscriptionExpiry(ctx context.Context, purchaseToken s
 
 	result, err := v.service.Purchases.Subscriptions.Get(v.packageName, subscriptionID, token).Context(ctx).Do()
 	if err != nil {
-		return time.Time{}, fmt.Errorf("Google Play API get subscription: %w", err)
+		return time.Time{}, fmt.Errorf("google Play API get subscription: %w", err)
 	}
 
 	return time.UnixMilli(result.ExpiryTimeMillis), nil

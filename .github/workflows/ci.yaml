@@ -95,7 +95,7 @@ jobs:
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
         run: docker build --secret id=COMMON_GO_MODULES_FETCH,env=COMMON_GO_MODULES_FETCH -t shop:ci-scan .
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: shop:ci-scan
           exit-code: "1"
