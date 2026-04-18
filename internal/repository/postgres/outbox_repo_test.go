@@ -101,6 +101,23 @@ func insertInFlight(ago time.Duration) func(t *testing.T, testIdx, seedIdx int, 
 	}
 }
 
+// setFailureCount は seed 後に failure_count を直接指定値に更新する。
+func setFailureCount(t *testing.T, id uuid.UUID, count int) {
+	t.Helper()
+	_, err := sharedPg.Pool.Exec(context.Background(),
+		`UPDATE shop.outbox_events SET failure_count = $2 WHERE event_id = $1`, id, count)
+	require.NoError(t, err)
+}
+
+// insertExhausted は failure_count が閾値に到達した行を作る seed 関数。
+func insertExhausted(threshold int) func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
+	return func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
+		id := insertOutboxRow(t, testIdx, seedIdx, []byte(payload))
+		setFailureCount(t, id, threshold)
+		return id
+	}
+}
+
 // defaultVisibility はケース指定がない時の visibility timeout (30s)。
 const defaultVisibility = 30 * time.Second
 
@@ -112,11 +129,14 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 	repo := postgres.NewOutboxRepository(sharedPg.Pool)
 	ctx := context.Background()
 
+	const failureThreshold = 3
+
 	tests := []struct {
 		name              string
 		seeds             []seed
 		limit             int
 		visibilityTimeout time.Duration
+		failureThreshold  int
 		wantPayloads      []string // order-insensitive. 空スライスは「何も claim されない」を表す。
 	}{
 		{
@@ -127,6 +147,7 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 			},
 			limit:             10,
 			visibilityTimeout: defaultVisibility,
+			failureThreshold:  defaultFailureThreshold,
 			wantPayloads:      []string{`{"k":"a"}`, `{"k":"b"}`},
 		},
 		{
@@ -137,6 +158,7 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 			},
 			limit:             10,
 			visibilityTimeout: defaultVisibility,
+			failureThreshold:  defaultFailureThreshold,
 			wantPayloads:      []string{`{"k":"new"}`},
 		},
 		{
@@ -147,6 +169,7 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 			},
 			limit:             10,
 			visibilityTimeout: defaultVisibility,
+			failureThreshold:  defaultFailureThreshold,
 			wantPayloads:      []string{`{"k":"available"}`},
 		},
 		{
@@ -156,6 +179,7 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 			},
 			limit:             10,
 			visibilityTimeout: defaultVisibility,
+			failureThreshold:  defaultFailureThreshold,
 			wantPayloads:      []string{`{"k":"recovered"}`},
 		},
 		{
@@ -163,7 +187,19 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 			seeds:             nil,
 			limit:             10,
 			visibilityTimeout: defaultVisibility,
+			failureThreshold:  defaultFailureThreshold,
 			wantPayloads:      []string{},
+		},
+		{
+			name: "failure_count が閾値に達した行はスキップ",
+			seeds: []seed{
+				{payload: `{"k":"exhausted"}`, insert: insertExhausted(failureThreshold)},
+				{payload: `{"k":"healthy"}`, insert: insertUnpublished},
+			},
+			limit:             10,
+			visibilityTimeout: defaultVisibility,
+			failureThreshold:  failureThreshold,
+			wantPayloads:      []string{`{"k":"healthy"}`},
 		},
 	}
 
@@ -174,7 +210,7 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 				s.insert(t, i, j, s.payload)
 			}
 
-			claimed, err := repo.ClaimUnpublished(ctx, tt.limit, tt.visibilityTimeout, defaultFailureThreshold)
+			claimed, err := repo.ClaimUnpublished(ctx, tt.limit, tt.visibilityTimeout, tt.failureThreshold)
 			require.NoError(t, err)
 
 			got := make([]string, len(claimed))
