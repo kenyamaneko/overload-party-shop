@@ -148,9 +148,9 @@ GitHub Rulesets で以下を設定する。
 - PR マージのみ許可(linear history)
 - force push 禁止、削除禁止
 - 履歴書き換え禁止
-- 必須ステータスチェック: CI / lint, CI / test が green
+- 必須ステータスチェック: CI / lint, CI / test, branch-policy / check-source-branch が green
 - required reviews: 1(self-approve 不可)
-- マージ元ブランチ制限: `release/*` と `hotfix/*` のみ
+- マージ元ブランチ制限: `release/*` と `hotfix/*` のみ (branch-policy.yaml で機械的に強制)
 
 ### release/*
 
@@ -170,6 +170,7 @@ GitHub Rulesets で以下を設定する。
 | ワークフロー | トリガー | 役割 |
 |---|---|---|
 | `ci.yaml` | PR: main, develop, release/* | lint + test + 脆弱性スキャン + コード生成ドリフト検出 |
+| `branch-policy.yaml` | PR: main | マージ元ブランチを `release/vX.Y.Z` / `hotfix/*` に制限 |
 | `deploy.yaml` | push: main, develop, release/* | Docker イメージのビルド・push |
 | `release-tag.yaml` | PR close (→ main) | release/hotfix ブランチから SemVer タグを自動生成 |
 | `publish.yaml` | workflow_dispatch (手動) | api-shop Go モジュールのタグ付け・公開 |

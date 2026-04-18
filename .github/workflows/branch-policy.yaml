@@ -1,0 +1,19 @@
+name: branch-policy
+
+# main へのマージ元ブランチを release/* と hotfix/* のみに制限する。
+# GitHub Rulesets にはソースブランチ制限のネイティブ機能がないため required status check で強制する。
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-source-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate source branch
+        run: .github/scripts/branch-policy/check-source-branch.sh "${{ github.head_ref }}"
