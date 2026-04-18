@@ -76,32 +76,32 @@ func TestHandleAppleNotification_PublishesEvent(t *testing.T) {
 	}{
 		{
 			name:            "更新",
-			notifType:       "DID_RENEW",
+			notifType:       appleNotifDIDRenew,
 			initialStatus:   apishop.SubscriptionStatusActive,
 			expectedStatus:  apishop.SubscriptionStatusActive,
 			expectedPremium: true,
 		},
 		{
 			name:           "期限切れ",
-			notifType:      "EXPIRED",
+			notifType:      appleNotifExpired,
 			initialStatus:  apishop.SubscriptionStatusActive,
 			expectedStatus: apishop.SubscriptionStatusExpired,
 		},
 		{
 			name:           "猶予期間終了",
-			notifType:      "GRACE_PERIOD_EXPIRED",
+			notifType:      appleNotifGracePeriodExpired,
 			initialStatus:  apishop.SubscriptionStatusActive,
 			expectedStatus: apishop.SubscriptionStatusExpired,
 		},
 		{
 			name:           "返金取消",
-			notifType:      "REVOKE",
+			notifType:      appleNotifRevoke,
 			initialStatus:  apishop.SubscriptionStatusActive,
 			expectedStatus: apishop.SubscriptionStatusRevoked,
 		},
 		{
 			name:           "既に期限切れ状態での EXPIRED 通知",
-			notifType:      "EXPIRED",
+			notifType:      appleNotifExpired,
 			initialStatus:  apishop.SubscriptionStatusExpired,
 			expectedStatus: apishop.SubscriptionStatusExpired,
 		},
@@ -147,15 +147,15 @@ func TestHandleAppleNotification_NoPublish(t *testing.T) {
 		},
 		{
 			name:           "自動更新オン（status 変化なし）",
-			notifType:      "DID_CHANGE_RENEWAL_STATUS",
-			subtype:        "AUTO_RENEW_ENABLED",
+			notifType:      appleNotifDIDChangeRenewStatus,
+			subtype:        appleSubtypeAutoRenewEnabled,
 			initialStatus:  apishop.SubscriptionStatusActive,
 			expectedStatus: apishop.SubscriptionStatusActive,
 		},
 		{
 			name:           "自動更新オフ（cancelled 遷移）",
-			notifType:      "DID_CHANGE_RENEWAL_STATUS",
-			subtype:        "AUTO_RENEW_DISABLED",
+			notifType:      appleNotifDIDChangeRenewStatus,
+			subtype:        appleSubtypeAutoRenewDisabled,
 			initialStatus:  apishop.SubscriptionStatusActive,
 			expectedStatus: apishop.SubscriptionStatusCancelled,
 		},
@@ -183,7 +183,7 @@ func TestHandleAppleNotification_NoPublish(t *testing.T) {
 func TestHandleAppleNotification_SubscriptionNotFound(t *testing.T) {
 	env := newAppleTestEnv(t)
 
-	notifPayload := buildAppleNotificationJWS("EXPIRED", "", "nonexistent-token", time.Now().UnixMilli())
+	notifPayload := buildAppleNotificationJWS(appleNotifExpired, "", "nonexistent-token", time.Now().UnixMilli())
 	err := env.notifier.HandleNotification(context.Background(), notifPayload)
 	assert.ErrorIs(t, err, ErrSubscriptionNotFound)
 	assert.Empty(t, env.premiumPub.calls, "副作用無しの契約")
@@ -206,7 +206,7 @@ func TestHandleAppleNotification_InvalidTransactionInfoJWS(t *testing.T) {
 
 	brokenInnerJWS := "h." + base64.RawURLEncoding.EncodeToString([]byte("not json {{{")) + ".s"
 	notifPayload := buildAppleJWS(map[string]interface{}{
-		"notificationType": "EXPIRED",
+		"notificationType": appleNotifExpired,
 		"data": map[string]interface{}{
 			"signedTransactionInfo": brokenInnerJWS,
 		},
