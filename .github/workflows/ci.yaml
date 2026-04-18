@@ -1,11 +1,7 @@
 name: CI
 
-# lint + test の品質ゲート。
-# ビルド・デプロイは deploy.yaml 側で環境ごとに分岐する。
+# PR の品質ゲート。ブランチ保護の required status check として使う。
 on:
-  # これらのブランチは直接 push 禁止だが、保護設定ミスや管理者権限での push に備えて CI を走らせる
-  push:
-    branches: [main, develop, "release/**"]
   pull_request:
     branches: [main, develop, "release/**"]
 
@@ -104,3 +100,24 @@ jobs:
           image-ref: shop:ci-scan
           exit-code: "1"
           severity: "CRITICAL,HIGH"
+
+  codegen-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install pyyaml "overload-party-doc-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/doc-tools"
+      - name: Run codegen
+        run: python3 scripts/generate_types.py
+      - name: Run schema-doc codegen
+        run: python3 scripts/generate_schema_doc.py
+      - name: Run api-doc codegen
+        run: python3 scripts/generate_api_docs.py
+      # 生成スクリプト実行後の差分があればドリフトとして失敗させる
+      - name: Check for drift
+        run: .github/scripts/validate/check-codegen-drift.sh

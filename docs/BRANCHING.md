@@ -169,11 +169,10 @@ GitHub Rulesets で以下を設定する。
 
 | ワークフロー | トリガー | 役割 |
 |---|---|---|
-| `ci.yaml` | push / PR: main, develop, release/* | lint + test + 脆弱性スキャンの品質ゲート |
+| `ci.yaml` | PR: main, develop, release/* | lint + test + 脆弱性スキャン + コード生成ドリフト検出 |
 | `deploy.yaml` | push: main, develop, release/* | Docker イメージのビルド・push |
 | `release-tag.yaml` | PR close (→ main) | release/hotfix ブランチから SemVer タグを自動生成 |
 | `publish.yaml` | workflow_dispatch (手動) | api-shop Go モジュールのタグ付け・公開 |
-| `validate.yaml` | PR: main, develop, release/* | コード生成のドリフト検出 |
 
 ### CI と CD の連携
 

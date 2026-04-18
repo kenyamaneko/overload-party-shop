@@ -1,4 +1,4 @@
-name: publish
+name: Publish
 
 # api-shop Go モジュールを手動でタグ付け・公開する。
 # バージョンを上げるタイミングは人が判断して workflow_dispatch で実行する。
@@ -38,7 +38,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: packages/api-shop/go.mod
 
       - name: Vet api-shop
         run: go vet ./...
