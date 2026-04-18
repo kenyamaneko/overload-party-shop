@@ -37,9 +37,6 @@ func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase
 		return false, err
 	}
 	if !created {
-		if err := tx.Commit(ctx); err != nil {
-			return false, fmt.Errorf("commit tx: %w", err)
-		}
 		return false, nil
 	}
 
