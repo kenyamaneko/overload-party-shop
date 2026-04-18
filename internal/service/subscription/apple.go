@@ -18,6 +18,7 @@ const (
 	appleNotifGracePeriodExpired   = "GRACE_PERIOD_EXPIRED"
 	appleNotifRevoke               = "REVOKE"
 	appleNotifDIDChangeRenewStatus = "DID_CHANGE_RENEWAL_STATUS"
+	appleSubtypeAutoRenewEnabled   = "AUTO_RENEW_ENABLED"
 	appleSubtypeAutoRenewDisabled  = "AUTO_RENEW_DISABLED"
 )
 
