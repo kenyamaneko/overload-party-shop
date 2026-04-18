@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # start-firestore-emulator.sh — Firestore emulator をバックグラウンドで起動し
-# ヘルスチェックが通るまで最大 30 秒待つ。
+# ヘルスチェックが通るまで待つ。
 set -euo pipefail
 
-gcloud emulators firestore start --host-port=localhost:9041 >/tmp/firestore.log 2>&1 &
-for i in {1..30}; do
-  if curl -sf http://localhost:9041 >/dev/null; then exit 0; fi
+EMULATOR_PORT=9041
+HEALTH_CHECK_TIMEOUT_SEC=30
+
+gcloud emulators firestore start --host-port="localhost:${EMULATOR_PORT}" >/tmp/firestore.log 2>&1 &
+for i in $(seq 1 "${HEALTH_CHECK_TIMEOUT_SEC}"); do
+  if curl -sf "http://localhost:${EMULATOR_PORT}" >/dev/null; then exit 0; fi
   sleep 1
 done
 echo "Firestore emulator failed to start"; cat /tmp/firestore.log; exit 1

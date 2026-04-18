@@ -5,12 +5,14 @@ name: Deploy
 #   release/ → stg
 #   develop  → dev
 # CI (ci.yaml) の成功はブランチ保護の required status check で担保する。
+# 脆弱性スキャンは CI 側の image-scan ジョブで実施済み。
 on:
   push:
     branches: [main, develop, "release/**"]
 
 permissions:
   contents: read
+  # Workload Identity Federation で GCP に認証するために OIDC トークンの発行権限が必要
   id-token: write
 
 concurrency:
@@ -18,8 +20,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY: asia-northeast1-docker.pkg.dev
+  PROJECT_NUMBER: "248288258659"
   PROJECT_ID: keyandnotes-platform
+  REGISTRY: asia-northeast1-docker.pkg.dev
   REPOSITORY: overload-party
   IMAGE_NAME: shop
 
@@ -29,72 +32,55 @@ jobs:
     outputs:
       env_name: ${{ steps.resolve.outputs.env_name }}
     steps:
-      - id: resolve
-        run: |
-          case "${GITHUB_REF}" in
-            refs/heads/main)
-              echo "env_name=prod" >> "$GITHUB_OUTPUT"
-              ;;
-            refs/heads/release/*)
-              echo "env_name=stg" >> "$GITHUB_OUTPUT"
-              ;;
-            refs/heads/develop)
-              echo "env_name=dev" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "::error::Unsupported branch: ${GITHUB_REF}"
-              exit 1
-              ;;
-          esac
+      # スクリプトだけ必要なので sparse-checkout でチェックアウトを高速化する
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Resolve environment from branch
+        id: resolve
+        run: .github/scripts/deploy/resolve-env.sh
 
-  build-scan-push:
+  push-image:
     needs: [resolve-env]
     runs-on: ubuntu-latest
-    # environment を宣言すると GitHub Environments の保護ルール (approvers 等) が効く。
+    # GitHub Environments の保護ルール (approvers 等) を適用するために environment を宣言する
     environment: ${{ needs.resolve-env.outputs.env_name }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - id: auth
+      - name: Authenticate to Google Cloud
+        id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/248288258659/locations/global/workloadIdentityPools/github-actions/providers/github
+          workload_identity_provider: projects/${{ env.PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-actions/providers/github
           service_account: github-ci@keyandnotes-platform.iam.gserviceaccount.com
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
 
-      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
       - name: Set image tags
         id: tags
         env:
           ENV_NAME: ${{ needs.resolve-env.outputs.env_name }}
-        run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}"
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "sha_tag=${ENV_NAME}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "latest_tag=${ENV_NAME}-latest" >> "$GITHUB_OUTPUT"
+        run: .github/scripts/deploy/set-image-tags.sh
 
       - name: Build image
         env:
           DOCKER_BUILDKIT: "1"
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
-        run: |
-          docker build \
-            --secret id=COMMON_GO_MODULES_FETCH,env=COMMON_GO_MODULES_FETCH \
-            -t "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}" \
-            -t "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.latest_tag }}" \
-            .
-
-      # push 前にスキャンし、CRITICAL/HIGH の脆弱性があればデプロイを止める
-      - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}"
-          exit-code: "1"
-          severity: "CRITICAL,HIGH"
+          IMAGE: ${{ steps.tags.outputs.image }}
+          SHA_TAG: ${{ steps.tags.outputs.sha_tag }}
+          LATEST_TAG: ${{ steps.tags.outputs.latest_tag }}
+        run: .github/scripts/deploy/build-image.sh
 
       - name: Push image
-        run: |
-          docker push "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}"
-          docker push "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.latest_tag }}"
+        env:
+          IMAGE: ${{ steps.tags.outputs.image }}
+          SHA_TAG: ${{ steps.tags.outputs.sha_tag }}
+          LATEST_TAG: ${{ steps.tags.outputs.latest_tag }}
+        run: .github/scripts/deploy/push-image.sh

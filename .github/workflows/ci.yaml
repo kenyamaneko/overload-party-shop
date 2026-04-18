@@ -3,6 +3,7 @@ name: CI
 # lint + test の品質ゲート。
 # ビルド・デプロイは deploy.yaml 側で環境ごとに分岐する。
 on:
+  # これらのブランチは直接 push 禁止だが、保護設定ミスや管理者権限での push に備えて CI を走らせる
   push:
     branches: [main, develop, "release/**"]
   pull_request:
@@ -15,28 +16,41 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # overload-party-common の共有パッケージを取得するためにプライベートモジュールの認証を設定する
       - name: Configure Go private modules
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.COMMON_GO_MODULES_FETCH }}@github.com/kenyamaneko/overload-party-common".insteadOf "https://github.com/kenyamaneko/overload-party-common"
         env:
-          GOPRIVATE: github.com/kenyamaneko/*
-          GONOSUMDB: github.com/kenyamaneko/*
+          COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
+          GOPRIVATE: github.com/kenyamaneko/overload-party-common
+          GONOSUMDB: github.com/kenyamaneko/overload-party-common
+        run: .github/scripts/ci/configure-go-private-modules.sh
       # golangci-lint-action のビルド済みバイナリは Go 1.25 未対応のため
       # go install でソースからビルドして使う
-      - run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.1.6
-      - run: golangci-lint run --timeout 5m ./...
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.1.6
+      - name: Run lint
+        run: golangci-lint run --timeout 5m ./...
         env:
-          GOPRIVATE: github.com/kenyamaneko/*
+          GOPRIVATE: github.com/kenyamaneko/overload-party-common
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Run govulncheck
+        run: govulncheck ./...
+        env:
+          GOPRIVATE: github.com/kenyamaneko/overload-party-common
 
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - name: Set up Java (Firestore emulator runtime)
@@ -50,19 +64,43 @@ jobs:
         run: gcloud components install cloud-firestore-emulator beta --quiet
       - name: Start Firestore emulator
         run: .github/scripts/ci/start-firestore-emulator.sh
-      # リポジトリ層テストは Testcontainers で postgres:16-alpine を起動する。
-      # 事前 pull で test step の初回コンテナ起動時間を短縮する。
+      # Testcontainers はテスト中に自動 pull するが、時間がかかりタイムアウトの原因になるため事前に取得する
       - name: Pre-pull postgres image (Testcontainers)
         run: docker pull postgres:16-alpine
+      # overload-party-common の共有パッケージを取得するためにプライベートモジュールの認証を設定する
       - name: Configure Go private modules
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.COMMON_GO_MODULES_FETCH }}@github.com/kenyamaneko/overload-party-common".insteadOf "https://github.com/kenyamaneko/overload-party-common"
         env:
-          GOPRIVATE: github.com/kenyamaneko/*
-          GONOSUMDB: github.com/kenyamaneko/*
+          COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
+          GOPRIVATE: github.com/kenyamaneko/overload-party-common
+          GONOSUMDB: github.com/kenyamaneko/overload-party-common
+        run: .github/scripts/ci/configure-go-private-modules.sh
       - name: Run unit tests
         run: go test -race -count=1 ./...
         env:
-          GOPRIVATE: github.com/kenyamaneko/*
+          GOPRIVATE: github.com/kenyamaneko/overload-party-common
           FIRESTORE_EMULATOR_HOST: localhost:9041
           FIRESTORE_PROJECT_ID: overload-party-test
+
+  image-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # overload-party-common の共有パッケージを取得するためにプライベートモジュールの認証を設定する
+      - name: Configure Go private modules
+        env:
+          COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
+          GOPRIVATE: github.com/kenyamaneko/overload-party-common
+          GONOSUMDB: github.com/kenyamaneko/overload-party-common
+        run: .github/scripts/ci/configure-go-private-modules.sh
+      - name: Build image
+        env:
+          DOCKER_BUILDKIT: "1"
+          COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
+        run: docker build --secret id=COMMON_GO_MODULES_FETCH,env=COMMON_GO_MODULES_FETCH -t shop:ci-scan .
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: shop:ci-scan
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"

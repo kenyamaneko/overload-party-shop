@@ -126,10 +126,13 @@ Semantic Versioning (SemVer) を採用する。
 - **MINOR**: 後方互換のある機能追加
 - **PATCH**: バグ修正、ドキュメント修正、内部リファクタ
 
-タグ付けは CI が自動で行う。既存の `.github/workflows/publish.yaml` に従う。
+サービス本体のタグは `release-tag.yaml` が自動で打つ。
 
-- release マージ時のタグ bump は `workflow_dispatch` で `patch/minor/major` を選択
-- hotfix マージ時は `patch` を自動選択
+- release マージ時: ブランチ名からバージョンを取得（`release/v1.2.0` → `v1.2.0`）
+- hotfix マージ時: 最新タグから patch を自動 bump（`v1.2.0` → `v1.2.1`）
+
+`packages/api-shop` のタグは `publish.yaml` で手動発行する（`workflow_dispatch`）。
+バージョンを上げるタイミングは人が判断する。
 
 ### バージョンと Go module の関係
 
@@ -166,10 +169,10 @@ GitHub Rulesets で以下を設定する。
 
 | ワークフロー | トリガー | 役割 |
 |---|---|---|
-| `ci.yaml` | push / PR: main, develop, release/* | lint + test の品質ゲート |
-| `deploy.yaml` | push: main, develop, release/* | Docker イメージのビルド・スキャン・push |
+| `ci.yaml` | push / PR: main, develop, release/* | lint + test + 脆弱性スキャンの品質ゲート |
+| `deploy.yaml` | push: main, develop, release/* | Docker イメージのビルド・push |
 | `release-tag.yaml` | PR close (→ main) | release/hotfix ブランチから SemVer タグを自動生成 |
-| `publish.yaml` | push: main (api-shop パス変更時) | api-shop Go モジュールの公開 |
+| `publish.yaml` | workflow_dispatch (手動) | api-shop Go モジュールのタグ付け・公開 |
 | `validate.yaml` | PR: main, develop, release/* | コード生成のドリフト検出 |
 
 ### CI と CD の連携

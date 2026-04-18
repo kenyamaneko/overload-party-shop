@@ -1,17 +1,10 @@
 name: publish
 
-# Tags and publishes the api-shop Go module on push to main. Manual
-# dispatch supports minor/major bumps; default is patch. NEVER tag
-# manually — this workflow is the single writer of module tags.
+# api-shop Go モジュールを手動でタグ付け・公開する。
+# バージョンを上げるタイミングは人が判断して workflow_dispatch で実行する。
+# タグの手動打ちは禁止 — このワークフローがモジュールタグの唯一の発行元。
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "packages/api-shop/**"
-      - "data/models.yaml"
-      - "scripts/generate_types.py"
-      - ".github/workflows/publish.yaml"
   workflow_dispatch:
     inputs:
       bump:
@@ -26,13 +19,15 @@ on:
 
 concurrency:
   group: publish-${{ github.ref }}
+  # タグの採番が競合しないように、先行ジョブの完了を待つ
   cancel-in-progress: false
 
 permissions:
+  # タグを push するために write 権限が必要
   contents: write
 
 jobs:
-  publish-api-shop:
+  publish-package:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -56,7 +51,7 @@ jobs:
       - name: Determine next tag
         id: tag
         env:
-          BUMP: ${{ github.event.inputs.bump || 'patch' }}
+          BUMP: ${{ inputs.bump }}
         run: .github/scripts/publish/next-tag.sh
 
       - name: Tag and push
