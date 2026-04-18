@@ -1,6 +1,6 @@
 module github.com/kenyamaneko/overload-party-shop
 
-go 1.25.1
+go 1.25.9
 
 require (
 	cloud.google.com/go/firestore v1.21.0
