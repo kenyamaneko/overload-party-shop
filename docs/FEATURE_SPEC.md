@@ -107,7 +107,7 @@ ownership ガード（`ErrAlreadyOwned`）は **異なる token で同じ商品�
 
 ### 5.2 Entitlement 判定
 
-`isEntitled(sub, now)` は以下を満たす場合に `true`:
+`status` がサブスクリプション自体の状態を表すのに対し、Entitlement はプレミアム利用権の有無を表す。`isEntitled(sub, now)` は以下を満たす場合に `true`:
 
 | Status | Entitled? | 意味 |
 |---|---|---|
@@ -185,10 +185,6 @@ Google RTDN は `expiresAt` をペイロードに含まないため、`active` �
 - `ErrReceiptVerificationFailed`: verifier は応答したがストアが「無効」と判定 → 402
 
 webhook は `IsDeterministic` で「リトライしても結果が変わらないか」を判定し、変わらないものは 2xx で確定 ACK する。これによりストアからの無限リトライを防ぐ。
-
-### 7.3 握りつぶし禁止
-
-レシート検証失敗・DB エラー・publish 失敗をログのみで握りつぶしてはならない。すべて呼び出し元に返す（CLAUDE.md「設計思想」参照）。
 
 ---
 
