@@ -1,7 +1,6 @@
 // Package apishopfake は api-shop の送信側サービス (shop) が consumer 側
-// サービスに提供するテスト用 fake。ADR-024 のサービス間結合テスト戦略に
-// 基づき、送信側パッケージがテストダブルを同梱することで、consumer 側の
-// 手書き fake が契約と乖離するのを防ぐ。
+// サービスに提供するテスト用 fake。送信側パッケージがテストダブルを同梱する
+// ことで、consumer 側の手書き fake が契約と乖離するのを防ぐ。
 //
 // 基本構成: Broker + Publisher + Subscriber + typed helpers。
 //   - Broker: topic 名をキーとした in-memory pub/sub 基盤 (低レベル API)
