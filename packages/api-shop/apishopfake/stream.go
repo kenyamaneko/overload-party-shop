@@ -36,12 +36,20 @@ func NewStream(sub *Subscriber, topic string) *Stream {
 	return &Stream{
 		ch: sub.Messages(topic),
 		// topic は ExpectHandled が timeout 時に診断ログを出すためだけに保持。
-		topic: topic,
-		// handled buffer は 1 テストあたりの publish 件数上限に耐える必要がある。
-		// 現状のテストは 1 ケースあたり最大数件のため 16 で十分。
-		handled: make(chan error, 16),
+		topic:   topic,
+		handled: make(chan error, handledBufferSize),
 	}
 }
+
+// handledBufferSize は handled channel の buffer サイズ。buffer を非ゼロに
+// することで、Consume ループが handler 結果を送出するときに ExpectHandled
+// の回収を待たずブロックせず進める。
+//
+// 1 Stream が保持する「未回収 handler 結果」の最大数でもあるため、ExpectHandled
+// を呼ばずに連続 publish すると超過してブロックする。この上限を意図的に
+// 越えたいシナリオ (一度に大量 publish した後に後でまとめて検証、等) は、
+// 本パッケージの想定用法外として別の fake を用意する想定。
+const handledBufferSize = 16
 
 // Consume は ctx がキャンセルされるまで subscribe 済み topic のメッセージを
 // handler に渡し続ける。handler の戻り値 (ack/nack 相当の error) は handled
