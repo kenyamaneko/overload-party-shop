@@ -117,7 +117,7 @@ func run() error {
 	// クライアント到達性は起動時に検証するため、repo を生成だけしておく。
 	_ = shopfirestore.NewGameConfigRepository(fsClient)
 
-	pub, err := shoppubsub.New(ctx, cfg.GoogleCloudProject, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
+	pub, err := shoppubsub.New(ctx, cfg.GoogleCloudProject, cfg.FactionPurchasedTopic, cfg.PremiumUpdatedTopic)
 	if err != nil {
 		return fmt.Errorf("shop publisher: %w", err)
 	}
@@ -127,7 +127,7 @@ func run() error {
 		}
 	}()
 
-	eventBuilder, err := shoppubsub.NewEventBuilder(cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
+	eventBuilder, err := shoppubsub.NewEventBuilder(cfg.FactionPurchasedTopic, cfg.PremiumUpdatedTopic)
 	if err != nil {
 		return fmt.Errorf("shop event builder: %w", err)
 	}
@@ -152,7 +152,7 @@ func run() error {
 	slog.Info("listening",
 		"addr", srv.Addr,
 		"gcp_project", cfg.GoogleCloudProject,
-		"faction_topic", cfg.FactionSelectedTopic,
+		"faction_topic", cfg.FactionPurchasedTopic,
 		"premium_topic", cfg.PremiumUpdatedTopic,
 	)
 

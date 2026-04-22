@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeFactionBuilder は BuildFactionSelected 呼び出しを記録するテスト用ダブル。
+// fakeFactionBuilder は BuildFactionPurchased 呼び出しを記録するテスト用ダブル。
 // 既存テストが期待する .calls スライスのインタフェースを維持するため、
-// OutboxEventBuilder の「faction-selected 側」を担当する小さな型として切り分けている。
+// OutboxEventBuilder の「faction-purchased 側」を担当する小さな型として切り分けている。
 type fakeFactionBuilder struct {
 	calls []fakeFactionPubCall
 	err   error
@@ -33,7 +33,7 @@ func (f *fakeFactionBuilder) Build(playerID, faction string) (port.OutboxEvent, 
 	if f.err != nil {
 		return port.OutboxEvent{}, f.err
 	}
-	return port.OutboxEvent{EventID: uuid.New(), Topic: "faction-selected", Payload: []byte(`{}`)}, nil
+	return port.OutboxEvent{EventID: uuid.New(), Topic: apishop.TopicFactionPurchased, Payload: []byte(`{}`)}, nil
 }
 
 // fakePremiumBuilder は BuildPremiumUpdated 呼び出しを記録するテスト用ダブル。
@@ -53,7 +53,7 @@ func (f *fakePremiumBuilder) Build(playerID string, isPremium bool, expiresAt *t
 	if f.err != nil {
 		return port.OutboxEvent{}, f.err
 	}
-	return port.OutboxEvent{EventID: uuid.New(), Topic: "premium-updated", Payload: []byte(`{}`)}, nil
+	return port.OutboxEvent{EventID: uuid.New(), Topic: apishop.TopicPremiumUpdated, Payload: []byte(`{}`)}, nil
 }
 
 // fakeEventBuilder は OutboxEventBuilder を満たし、内部に faction/premium の
@@ -71,7 +71,7 @@ func newFakeEventBuilder(factionErr, premiumErr error) *fakeEventBuilder {
 	}
 }
 
-func (f *fakeEventBuilder) BuildFactionSelected(playerID, faction string) (port.OutboxEvent, error) {
+func (f *fakeEventBuilder) BuildFactionPurchased(playerID, faction string) (port.OutboxEvent, error) {
 	return f.factionPub.Build(playerID, faction)
 }
 
@@ -184,7 +184,7 @@ func TestPurchase_FactionSet_Success(t *testing.T) {
 	err := env.svc.Purchase(context.Background(), "11111111-1111-1111-1111-111111111111", "faction_tenki", "ios", "receipt-token-1")
 	require.NoError(t, err)
 
-	t.Run("publishes faction-selected event", func(t *testing.T) {
+	t.Run("publishes faction-purchased event", func(t *testing.T) {
 		require.Len(t, env.factionPub.calls, 1)
 		assert.Equal(t, "11111111-1111-1111-1111-111111111111", env.factionPub.calls[0].PlayerID)
 		assert.Equal(t, "Tenki", env.factionPub.calls[0].Faction)
@@ -773,7 +773,7 @@ func TestPurchase_FactionPublisherPaths(t *testing.T) {
 			name:          "event builder がエラーを返す（購入行も残らない）",
 			opts:          []shopEnvOption{withFactionPubErr(fmt.Errorf("build failed"))},
 			wantErr:       true,
-			wantErrSubs:   "build faction-selected",
+			wantErrSubs:   "build faction-purchased",
 			wantCalls:     1,
 			wantFactionDB: false,
 		},

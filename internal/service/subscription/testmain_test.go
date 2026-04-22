@@ -41,7 +41,7 @@ func (f *fakePremiumBuilder) Build(playerID string, isPremium bool, expiresAt *t
 	if f.err != nil {
 		return port.OutboxEvent{}, f.err
 	}
-	return port.OutboxEvent{EventID: uuid.New(), Topic: "premium-updated", Payload: []byte(`{}`)}, nil
+	return port.OutboxEvent{EventID: uuid.New(), Topic: apishop.TopicPremiumUpdated, Payload: []byte(`{}`)}, nil
 }
 
 // fakeEventBuilder は port.OutboxEventBuilder を満たす。subscription テストでは
@@ -56,7 +56,7 @@ func newFakeEventBuilder(premiumErr error) *fakeEventBuilder {
 	}
 }
 
-func (f *fakeEventBuilder) BuildFactionSelected(_, _ string) (port.OutboxEvent, error) {
+func (f *fakeEventBuilder) BuildFactionPurchased(_, _ string) (port.OutboxEvent, error) {
 	return port.OutboxEvent{}, nil
 }
 

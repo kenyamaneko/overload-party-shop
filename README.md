@@ -11,7 +11,7 @@ Gateway
   └─ Shop (:9006)
        ├─ PostgreSQL (shop スキーマ)
        └─ Pub/Sub
-            ├─ faction-selected  → account / card / gateway
+            ├─ faction-purchased → account / card / gateway
             └─ premium-updated   → account / gateway
 
 外部 (Gateway を経由しない)

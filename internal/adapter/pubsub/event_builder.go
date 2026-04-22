@@ -8,36 +8,36 @@ import (
 
 	"github.com/google/uuid"
 
-	pubsubevents "github.com/kenyamaneko/overload-party-common/packages/pubsub-events"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
 // EventBuilder はドメインデータから outbox 行用の OutboxEvent を構築する。
-// event struct のスキーマ (pubsubevents.*) を知っているのは pubsub adapter のみに
+// event struct のスキーマ (apishop.*) を知っているのは pubsub adapter のみに
 // 閉じ込め、postgres adapter は payload を不透明な []byte として扱う。
 //
 // topic 名は Publisher と共通の設定値から渡す (enqueue 時と publish 時で不一致が
 // 起きないようにするため)。
 type EventBuilder struct {
-	factionSelectedTopic string
-	premiumUpdatedTopic  string
+	factionPurchasedTopic string
+	premiumUpdatedTopic   string
 }
 
 // NewEventBuilder は各イベントの送信先 topic 名を持つ EventBuilder を構築する。
-func NewEventBuilder(factionSelectedTopic, premiumUpdatedTopic string) (*EventBuilder, error) {
-	if factionSelectedTopic == "" || premiumUpdatedTopic == "" {
+func NewEventBuilder(factionPurchasedTopic, premiumUpdatedTopic string) (*EventBuilder, error) {
+	if factionPurchasedTopic == "" || premiumUpdatedTopic == "" {
 		return nil, errors.New("pubsub: both topic names are required")
 	}
 	return &EventBuilder{
-		factionSelectedTopic: factionSelectedTopic,
-		premiumUpdatedTopic:  premiumUpdatedTopic,
+		factionPurchasedTopic: factionPurchasedTopic,
+		premiumUpdatedTopic:   premiumUpdatedTopic,
 	}, nil
 }
 
-// BuildFactionSelected は shop 購入起因の faction-selected イベントを構築する。
-// Source は常に FactionSourceShopPurchase (scenario 起因の initial-selection は
-// 別 publisher が発行する)。
-func (b *EventBuilder) BuildFactionSelected(playerID, faction string) (port.OutboxEvent, error) {
+// BuildFactionPurchased は shop 購入起因の faction-purchased イベントを構築する。
+// onboarding 由来の初期 faction 付与は scenario が別イベント (player-onboarded) で
+// 発行するため、このイベントは常に「購入による追加所有」を意味する (ADR-022)。
+func (b *EventBuilder) BuildFactionPurchased(playerID, faction string) (port.OutboxEvent, error) {
 	if playerID == "" {
 		return port.OutboxEvent{}, errors.New("pubsub: playerID is empty")
 	}
@@ -45,21 +45,20 @@ func (b *EventBuilder) BuildFactionSelected(playerID, faction string) (port.Outb
 		return port.OutboxEvent{}, errors.New("pubsub: faction is empty")
 	}
 	eventID := uuid.New()
-	ev := pubsubevents.FactionSelectedEvent{
-		EventType: pubsubevents.EventTypeFactionSelected,
+	ev := apishop.FactionPurchasedEvent{
+		EventType: apishop.EventTypeFactionPurchased,
 		EventID:   eventID.String(),
 		Timestamp: time.Now().UTC(),
 		PlayerID:  playerID,
 		Faction:   faction,
-		Source:    pubsubevents.FactionSourceShopPurchase,
 	}
 	payload, err := json.Marshal(ev)
 	if err != nil {
-		return port.OutboxEvent{}, fmt.Errorf("marshal faction-selected: %w", err)
+		return port.OutboxEvent{}, fmt.Errorf("marshal faction-purchased: %w", err)
 	}
 	return port.OutboxEvent{
 		EventID: eventID,
-		Topic:   b.factionSelectedTopic,
+		Topic:   b.factionPurchasedTopic,
 		Payload: payload,
 	}, nil
 }
@@ -71,14 +70,14 @@ func (b *EventBuilder) BuildPremiumUpdated(playerID string, isPremium bool, expi
 		return port.OutboxEvent{}, errors.New("pubsub: playerID is empty")
 	}
 	eventID := uuid.New()
-	ev := pubsubevents.PremiumUpdatedEvent{
-		EventType:        pubsubevents.EventTypePremiumUpdated,
+	ev := apishop.PremiumUpdatedEvent{
+		EventType:        apishop.EventTypePremiumUpdated,
 		EventID:          eventID.String(),
 		Timestamp:        time.Now().UTC(),
 		PlayerID:         playerID,
 		IsPremium:        isPremium,
 		PremiumExpiresAt: expiresAt,
-		Source:           pubsubevents.PremiumUpdatedSourceShop,
+		Source:           apishop.PremiumUpdatedSourceShop,
 	}
 	payload, err := json.Marshal(ev)
 	if err != nil {

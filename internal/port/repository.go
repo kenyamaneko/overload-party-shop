@@ -14,7 +14,7 @@ type ProductRepo interface {
 
 // FactionPurchaseRepo は faction_set 購入 aggregate を扱う。
 // shop.one_time_purchases + shop.{apple,google}_purchase_tokens + shop.player_owned_factions
-// + shop.outbox_events (faction-selected) を単一トランザクションで操作する。
+// + shop.outbox_events (faction-purchased) を単一トランザクションで操作する。
 type FactionPurchaseRepo interface {
 	// CreatePurchase は purchase + token + owned_faction + outbox event を単一 tx で挿入する。
 	// 既存 token があれば created=false で既存 purchase_id を purchase.PurchaseID に埋めて

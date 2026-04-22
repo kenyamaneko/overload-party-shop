@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	pubsubevents "github.com/kenyamaneko/overload-party-common/packages/pubsub-events"
 	"github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub/pubsubtest"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
 var sharedEmulator *pubsubtest.Emulator
@@ -43,8 +43,8 @@ func TestMain(m *testing.M) {
 // payload 構築を担う。Integration test は両者を直結して end-to-end の shape を検証する。
 func setupPublisher(t *testing.T) (*Publisher, *EventBuilder, string, string) {
 	t.Helper()
-	factionTopic := sharedEmulator.CreateTopic(t, "faction-selected")
-	premiumTopic := sharedEmulator.CreateTopic(t, "premium-updated")
+	factionTopic := sharedEmulator.CreateTopic(t, apishop.TopicFactionPurchased)
+	premiumTopic := sharedEmulator.CreateTopic(t, apishop.TopicPremiumUpdated)
 
 	ctx := context.Background()
 	pub, err := New(ctx, sharedEmulator.ProjectID(), factionTopic, premiumTopic)
@@ -57,29 +57,28 @@ func setupPublisher(t *testing.T) (*Publisher, *EventBuilder, string, string) {
 	return pub, builder, factionTopic, premiumTopic
 }
 
-// EventBuilder が構築する faction-selected payload が Publisher で送信できる
+// EventBuilder が構築する faction-purchased payload が Publisher で送信できる
 // shape であることを固定する (outbox 行を worker が送出する経路の近似)。
-func TestIntegration_PublishFactionSelected(t *testing.T) {
+func TestIntegration_PublishFactionPurchased(t *testing.T) {
 	pub, builder, factionTopic, _ := setupPublisher(t)
 	sub := sharedEmulator.Subscribe(t, factionTopic)
 
 	ctx := context.Background()
-	ev, err := builder.BuildFactionSelected("player-123", "Tenki")
+	ev, err := builder.BuildFactionPurchased("player-123", "Tenki")
 	require.NoError(t, err)
 	require.NoError(t, pub.Publish(ctx, ev.Topic, ev.Payload))
 
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)
 
-	var decoded pubsubevents.FactionSelectedEvent
+	var decoded apishop.FactionPurchasedEvent
 	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, pubsubevents.EventTypeFactionSelected, decoded.EventType)
+	assert.Equal(t, apishop.EventTypeFactionPurchased, decoded.EventType)
 	assert.Equal(t, ev.EventID.String(), decoded.EventID, "payload の eventId は outbox 行の PK と一致する")
 	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
 	assert.Equal(t, "player-123", decoded.PlayerID)
 	assert.Equal(t, "Tenki", decoded.Faction)
-	assert.Equal(t, pubsubevents.FactionSourceShopPurchase, decoded.Source)
 }
 
 // premium 付与 (expires_at あり) の送信 shape を固定。
@@ -96,15 +95,15 @@ func TestIntegration_PublishPremiumUpdated_Granted(t *testing.T) {
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)
 
-	var decoded pubsubevents.PremiumUpdatedEvent
+	var decoded apishop.PremiumUpdatedEvent
 	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, pubsubevents.EventTypePremiumUpdated, decoded.EventType)
+	assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
 	assert.Equal(t, ev.EventID.String(), decoded.EventID)
 	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
 	assert.Equal(t, "player-premium", decoded.PlayerID)
 	assert.True(t, decoded.IsPremium)
-	assert.Equal(t, pubsubevents.PremiumUpdatedSourceShop, decoded.Source)
+	assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
 	require.NotNil(t, decoded.PremiumExpiresAt)
 	assert.WithinDuration(t, expiresAt, *decoded.PremiumExpiresAt, time.Second)
 }
@@ -122,15 +121,15 @@ func TestIntegration_PublishPremiumUpdated_Revoked(t *testing.T) {
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)
 
-	var decoded pubsubevents.PremiumUpdatedEvent
+	var decoded apishop.PremiumUpdatedEvent
 	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, pubsubevents.EventTypePremiumUpdated, decoded.EventType)
+	assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
 	assert.Equal(t, ev.EventID.String(), decoded.EventID)
 	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
 	assert.Equal(t, "player-not-premium", decoded.PlayerID)
 	assert.False(t, decoded.IsPremium)
-	assert.Equal(t, pubsubevents.PremiumUpdatedSourceShop, decoded.Source)
+	assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
 	assert.Nil(t, decoded.PremiumExpiresAt)
 }
 

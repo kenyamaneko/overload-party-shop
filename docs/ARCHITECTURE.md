@@ -15,9 +15,9 @@ Shop は **IAP 取引そのもの** の single source of truth だが、**プレ
 | ファクション所有権 | `account.player_factions` (account) | `shop.player_owned_factions` は shop ローカルの read model |
 | コスメティクス所有権 | `shop.player_items` (shop) | ドメインとして shop 配下 |
 
-`shop.player_owned_factions` は **cross-schema 読み込みを禁じた制約下で GetProducts の IsOwned を判定するための shop ローカル射影**。authoritative なのは account 側で、イベント駆動で最終的整合する。faction 購入時の書き込みは両サービスで独立に起きる (shop は自 read model を書き、account は faction-selected イベントで書く)。
+`shop.player_owned_factions` は **cross-schema 読み込みを禁じた制約下で GetProducts の IsOwned を判定するための shop ローカル射影**。authoritative なのは account 側で、イベント駆動で最終的整合する。faction 購入時の書き込みは両サービスで独立に起きる (shop は自 read model を書き、account は faction-purchased イベントで書く)。
 
-subscriber (account / card / gateway) は `faction-selected` / `premium-updated` イベントを消費して各自の read model を構築する。shop は他サービスを直接呼ばない。
+subscriber (account / card / gateway) は `faction-purchased` / `premium-updated` イベントを消費して各自の read model を構築する。shop は他サービスを直接呼ばない。
 
 ## イベント配信モデル (Transactional Outbox)
 
@@ -126,7 +126,7 @@ webhook の deterministic error (decode 失敗 / unknown subscription 等) は *
 
 | トピック | 発行契機 | subscriber |
 |---|---|---|
-| `faction-selected` | `faction_set` 購入の DB commit 後 (worker が outbox 消費) | account, card, gateway |
+| `faction-purchased` | `faction_set` 購入の DB commit 後 (worker が outbox 消費) | account, card, gateway |
 | `premium-updated` | サブスクリプション状態変化時 (解約時は除く、上述の契約) | account, gateway |
 
 subscriber 列はこのリポジトリからは導けないので、変更時は各サービスの購読状況も確認すること。

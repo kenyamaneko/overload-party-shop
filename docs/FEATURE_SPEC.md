@@ -73,7 +73,7 @@ shop は **shop スキーマの DB 行を唯一の真実とし**、他サービ�
    - インフラ失敗（ネットワーク等）: `ErrVerifyReceipt`
    - ストアが拒否: `ErrReceiptVerificationFailed`
 6. **DB 書き込み**: 購入レコードと所有権レコードを **同一トランザクション** で挿入
-7. **イベント発行**: `faction_set` 購入が新規成立した場合のみ `faction-selected` を publish
+7. **イベント発行**: `faction_set` 購入が新規成立した場合のみ `faction-purchased` を publish
 
 ### 4.2 冪等性契約
 
@@ -192,9 +192,7 @@ webhook は `IsDeterministic` で「リトライしても結果が変わらな�
 
 | トピック | ペイロード | 発行契機 |
 |---|---|---|
-| `faction-selected` | `{player_id, faction, source}` | `faction_set` 単発購入が新規成立した COMMIT 後 |
-| `premium-updated` | `{player_id, is_premium, expires_at?}` | サブスクリプション開始時、および webhook で premium 状態が変化した時 |
-
-`faction-selected` は購入由来の場合 `source = shop_purchase` をセットする。
+| `faction-purchased` | `{player_id, faction}` | `faction_set` 単発購入が新規成立した COMMIT 後 |
+| `premium-updated` | `{player_id, is_premium, expires_at?, source}` | サブスクリプション開始時、および webhook で premium 状態が変化した時 |
 
 publish タイミング・冪等性の詳細は [ARCHITECTURE.md#pubsub-publisher](ARCHITECTURE.md#pubsub-publisher) を参照。
