@@ -18,9 +18,21 @@ func TestBroker_DeliversPayloadToSubscriber(t *testing.T) {
 		topic   string
 		payload string
 	}{
-		{name: "空ペイロード", topic: "t", payload: ""},
-		{name: "json ペイロード", topic: "a", payload: `{"k":"v"}`},
-		{name: "topic 名に hyphen を含む", topic: "faction-purchased", payload: `{"x":1}`},
+		{
+			name:    "空ペイロード",
+			topic:   "t",
+			payload: "",
+		},
+		{
+			name:    "json ペイロード",
+			topic:   "a",
+			payload: `{"k":"v"}`,
+		},
+		{
+			name:    "topic 名に hyphen を含む",
+			topic:   "faction-purchased",
+			payload: `{"x":1}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

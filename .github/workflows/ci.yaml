@@ -49,7 +49,6 @@ jobs:
         env:
           GOPRIVATE: github.com/kenyamaneko/overload-party-common
 
-  # ADR-024: 単体テスト。外部インフラ依存なしで `go test ./...` (タグなし) を走らせる
   test-unit:
     runs-on: ubuntu-latest
     steps:
@@ -59,7 +58,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      # overload-party-common の共有パッケージを取得するためにプライベートモジュールの認証を設定する
       - name: Configure Go private modules
         env:
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
@@ -71,8 +69,6 @@ jobs:
         env:
           GOPRIVATE: github.com/kenyamaneko/overload-party-common
 
-  # ADR-024: アダプターテスト。Testcontainers (postgres) と Firestore emulator を使い
-  # `//go:build integration` タグ付きテストを走らせる
   test-integration:
     runs-on: ubuntu-latest
     steps:
@@ -96,7 +92,6 @@ jobs:
       # Testcontainers はテスト中に自動 pull するが、時間がかかりタイムアウトの原因になるため事前に取得する
       - name: Pre-pull postgres image (Testcontainers)
         run: docker pull postgres:16-alpine
-      # overload-party-common の共有パッケージを取得するためにプライベートモジュールの認証を設定する
       - name: Configure Go private modules
         env:
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}

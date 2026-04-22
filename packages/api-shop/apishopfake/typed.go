@@ -9,14 +9,6 @@ import (
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
-// 本ファイルは shop が publish する topic (ADR-022 で定義) に対する type-safe
-// wrapper を提供する。低レベル API (Broker / Publisher / Subscriber) の上に薄く
-// 被せ、consumer 側テストが json encode / decode / event_type / event_id /
-// timestamp の定型を書かずに済むようにする。
-//
-// 新しい topic が api-shop に追加された時は本ファイルに wrapper を追加する
-// (publish ヘルパ + Expecter の 2 つセット)。
-
 // PublishFactionPurchased は shop publisher の role を演じて
 // TopicFactionPurchased へ FactionPurchasedEvent を 1 件発行する。
 // EventID / Timestamp が未設定なら UUIDv4 / 現在時刻を自動付与し、EventType は

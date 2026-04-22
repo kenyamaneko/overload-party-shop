@@ -71,8 +71,7 @@ func TestFactionPurchased_WaitTimesOutWhenPublishedBeforeExpect(t *testing.T) {
 
 	exp := apishopfake.ExpectFactionPurchased(sub)
 	_, err := exp.Wait(50 * time.Millisecond)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
+	require.ErrorContains(t, err, "timeout")
 }
 
 // PremiumUpdated 側も round-trip + defaults + Source 補完が効くことを確認する。
