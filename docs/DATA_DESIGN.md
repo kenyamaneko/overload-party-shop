@@ -4,7 +4,7 @@
 
 ## 設計概要
 
-shop スキーマは商品マスター・購入履歴・コスメティクスアイテム・ファクション所有の read model を管理する。Apple / Google の IAP webhook を受け取り、購入結果を `faction-selected` / `premium-updated` Pub/Sub イベントとして publish する。
+shop スキーマは商品マスター・購入履歴・コスメティクスアイテム・ファクション所有の read model を管理する。Apple / Google の IAP webhook を受け取り、購入結果を `faction-purchased` / `premium-updated` Pub/Sub イベントとして publish する。
 
 ---
 
@@ -136,7 +136,7 @@ shop 購入経由で付与されたファクション所有状況の shop ロー
 
 **設計判断:**
 - authoritative な所有状況は `account.player_factions` が持つが、shop は cross-schema 読み込みを許されないため、GetProducts の IsOwned 判定用に shop 内で独立した read model を保持する
-- Purchase 成功時に INSERT し、その後 `faction-selected` イベントを publish する
+- Purchase 成功時に INSERT し、その後 `faction-purchased` イベントを publish する
 
 ---
 

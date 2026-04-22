@@ -36,8 +36,8 @@ type Config struct {
 	// （Pub/Sub topic / Firestore / Secret Manager）の project ID。
 	GoogleCloudProject string
 
-	FactionSelectedTopic string
-	PremiumUpdatedTopic  string
+	FactionPurchasedTopic string
+	PremiumUpdatedTopic   string
 
 	// IAPMode は IAP verifier 設定を必須とするかを制御する。
 	// IAP_MODE=local にすると IAP 設定なしで起動でき、webhook ルートは登録されない。
@@ -69,12 +69,12 @@ type Config struct {
 // 全 env は必須。未設定や未定義値は起動時に fail する（デフォルトへのフォールバック禁止）。
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		DatabaseConn:         os.Getenv("DATABASE_CONN"),
-		GoogleCloudProject:   os.Getenv("GOOGLE_CLOUD_PROJECT"),
-		FactionSelectedTopic: os.Getenv("FACTION_SELECTED_TOPIC"),
-		PremiumUpdatedTopic:  os.Getenv("PREMIUM_UPDATED_TOPIC"),
-		IAPMode:              IAPMode(os.Getenv("IAP_MODE")),
-		AppleEnvironment:     os.Getenv("APPLE_ENVIRONMENT"),
+		DatabaseConn:          os.Getenv("DATABASE_CONN"),
+		GoogleCloudProject:    os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		FactionPurchasedTopic: os.Getenv("FACTION_PURCHASED_TOPIC"),
+		PremiumUpdatedTopic:   os.Getenv("PREMIUM_UPDATED_TOPIC"),
+		IAPMode:               IAPMode(os.Getenv("IAP_MODE")),
+		AppleEnvironment:      os.Getenv("APPLE_ENVIRONMENT"),
 	}
 
 	rawPort := os.Getenv("PORT")
@@ -93,8 +93,8 @@ func FromEnv() (*Config, error) {
 	if cfg.GoogleCloudProject == "" {
 		return nil, fmt.Errorf("config: GOOGLE_CLOUD_PROJECT is required")
 	}
-	if cfg.FactionSelectedTopic == "" {
-		return nil, fmt.Errorf("config: FACTION_SELECTED_TOPIC is required")
+	if cfg.FactionPurchasedTopic == "" {
+		return nil, fmt.Errorf("config: FACTION_PURCHASED_TOPIC is required")
 	}
 	if cfg.PremiumUpdatedTopic == "" {
 		return nil, fmt.Errorf("config: PREMIUM_UPDATED_TOPIC is required")

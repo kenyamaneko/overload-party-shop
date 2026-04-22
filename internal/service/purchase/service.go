@@ -114,7 +114,7 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]apishop.P
 }
 
 // Purchase は単発購入フローを実行する。レシート検証・べき等チェック・
-// 購入記録・faction-selected イベントの outbox enqueue を行う。
+// 購入記録・faction-purchased イベントの outbox enqueue を行う。
 // 購入行 + 所有権行 + outbox 行は repo 層の単一 tx で atomic に commit される。
 // publish は worker が outbox を消費して別途実行する。
 func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error {
@@ -191,9 +191,9 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 
 	switch product.Type {
 	case apishop.ProductTypeFactionSet:
-		event, err := s.eventBuilder.BuildFactionSelected(playerID, factionContent.Faction)
+		event, err := s.eventBuilder.BuildFactionPurchased(playerID, factionContent.Faction)
 		if err != nil {
-			return fmt.Errorf("build faction-selected: %w", err)
+			return fmt.Errorf("build faction-purchased: %w", err)
 		}
 		if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken, event); err != nil {
 			return fmt.Errorf("create faction purchase: %w", err)

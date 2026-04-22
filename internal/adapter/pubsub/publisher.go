@@ -2,7 +2,7 @@
 //
 // shop は 2 種のサービス横断イベントを発行する:
 //
-//   - `faction-selected` — faction_set 購入 commit 時。account / card / gateway が
+//   - `faction-purchased` — faction_set 購入 commit 時。account / card / gateway が
 //     それぞれ subscribe して自スキーマを更新する。
 //   - `premium-updated` — subscription 状態変更で is_premium が変わったとき。
 //     account / gateway が subscribe する。
@@ -29,11 +29,11 @@ type Publisher struct {
 
 // New は指定 project + topic 名に紐づく Publisher を構築する。
 // 両 topic は Terraform（modules/pubsub）で事前作成されている前提。
-func New(ctx context.Context, projectID, factionSelectedTopic, premiumUpdatedTopic string) (*Publisher, error) {
+func New(ctx context.Context, projectID, factionPurchasedTopic, premiumUpdatedTopic string) (*Publisher, error) {
 	if projectID == "" {
 		return nil, errors.New("pubsub: projectID is empty")
 	}
-	if factionSelectedTopic == "" || premiumUpdatedTopic == "" {
+	if factionPurchasedTopic == "" || premiumUpdatedTopic == "" {
 		return nil, errors.New("pubsub: both topic names are required")
 	}
 	client, err := gpubsub.NewClient(ctx, projectID)
@@ -43,8 +43,8 @@ func New(ctx context.Context, projectID, factionSelectedTopic, premiumUpdatedTop
 	return &Publisher{
 		client: client,
 		byTopic: map[string]*gpubsub.Publisher{
-			factionSelectedTopic: client.Publisher(factionSelectedTopic),
-			premiumUpdatedTopic:  client.Publisher(premiumUpdatedTopic),
+			factionPurchasedTopic: client.Publisher(factionPurchasedTopic),
+			premiumUpdatedTopic:   client.Publisher(premiumUpdatedTopic),
 		},
 	}, nil
 }

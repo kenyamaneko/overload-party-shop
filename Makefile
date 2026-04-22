@@ -34,7 +34,7 @@ run: db-up ## Run shop server locally against compose Postgres (local env 込み
 	PORT=9006 \
 	DATABASE_CONN="host=localhost port=5432 dbname=shop user=shop password=shop sslmode=disable" \
 	GOOGLE_CLOUD_PROJECT=shop-local \
-	FACTION_SELECTED_TOPIC=faction-selected \
+	FACTION_PURCHASED_TOPIC=faction-purchased \
 	PREMIUM_UPDATED_TOPIC=premium-updated \
 	IAP_MODE=local \
 	OUTBOX_POLL_INTERVAL=1s \
