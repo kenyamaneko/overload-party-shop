@@ -49,7 +49,27 @@ jobs:
         env:
           GOPRIVATE: github.com/kenyamaneko/overload-party-common
 
-  test:
+  test-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Configure Go private modules
+        env:
+          COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
+          GOPRIVATE: github.com/kenyamaneko/overload-party-common
+          GONOSUMDB: github.com/kenyamaneko/overload-party-common
+        run: .github/scripts/ci/configure-go-private-modules.sh
+      - name: Run unit tests
+        run: go test -race -count=1 ./...
+        env:
+          GOPRIVATE: github.com/kenyamaneko/overload-party-common
+
+  test-integration:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -72,15 +92,14 @@ jobs:
       # Testcontainers はテスト中に自動 pull するが、時間がかかりタイムアウトの原因になるため事前に取得する
       - name: Pre-pull postgres image (Testcontainers)
         run: docker pull postgres:16-alpine
-      # overload-party-common の共有パッケージを取得するためにプライベートモジュールの認証を設定する
       - name: Configure Go private modules
         env:
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
           GOPRIVATE: github.com/kenyamaneko/overload-party-common
           GONOSUMDB: github.com/kenyamaneko/overload-party-common
         run: .github/scripts/ci/configure-go-private-modules.sh
-      - name: Run unit tests
-        run: go test -race -count=1 ./...
+      - name: Run integration tests
+        run: go test -race -count=1 -tags=integration ./...
         env:
           GOPRIVATE: github.com/kenyamaneko/overload-party-common
           FIRESTORE_EMULATOR_HOST: localhost:9041
