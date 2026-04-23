@@ -3,7 +3,6 @@ package apishopserverfake_test
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -21,34 +20,35 @@ func TestServer_DefaultResponses(t *testing.T) {
 		name       string
 		method     string
 		path       string
-		reqBody    string
+		reqBody    []byte
 		wantStatus int
 	}{
 		{
 			name:       "SelectFaction 既定は 200 + 空 Response",
 			method:     http.MethodPost,
 			path:       "/internal/v1/players/p-1/select-faction",
-			reqBody:    `{"faction":"Tenki"}`,
+			reqBody:    []byte(`{"faction":"Tenki"}`),
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "GetProducts 既定は 200 + 空配列",
 			method:     http.MethodGet,
 			path:       "/internal/v1/players/p-1/products",
+			reqBody:    nil,
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "Purchase 既定は 204 No Content",
 			method:     http.MethodPost,
 			path:       "/internal/v1/players/p-1/purchase",
-			reqBody:    `{}`,
+			reqBody:    []byte(`{}`),
 			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "Subscribe 既定は 200 + 空 Response",
 			method:     http.MethodPost,
 			path:       "/internal/v1/players/p-1/subscribe",
-			reqBody:    `{}`,
+			reqBody:    []byte(`{}`),
 			wantStatus: http.StatusOK,
 		},
 	}
@@ -58,11 +58,7 @@ func TestServer_DefaultResponses(t *testing.T) {
 			srv := apishopserverfake.NewServer()
 			defer srv.Close()
 
-			var body io.Reader
-			if tt.reqBody != "" {
-				body = bytes.NewReader([]byte(tt.reqBody))
-			}
-			req, _ := http.NewRequest(tt.method, srv.URL()+tt.path, body)
+			req, _ := http.NewRequest(tt.method, srv.URL()+tt.path, bytes.NewReader(tt.reqBody))
 			req.Header.Set("Content-Type", "application/json")
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
