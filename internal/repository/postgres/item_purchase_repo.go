@@ -23,7 +23,7 @@ func NewItemPurchaseRepository(pool *pgxpool.Pool) *ItemPurchaseRepository {
 	return &ItemPurchaseRepository{pool: pool}
 }
 
-func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string, eventOnCreate port.OutboxEvent) (created bool, err error) {
+func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string) (created bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin tx: %w", err)
@@ -44,12 +44,6 @@ func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *a
 		item.PlayerID, item.ItemType, item.ItemNo, item.AcquiredAt,
 	); err != nil {
 		return false, fmt.Errorf("insert player item: %w", err)
-	}
-
-	if eventOnCreate.EventType != "" {
-		if err := writeOutboxEvent(ctx, tx, eventOnCreate); err != nil {
-			return false, err
-		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

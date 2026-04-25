@@ -205,7 +205,7 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 			ItemNo:     cosmeticContent.ItemNo,
 			AcquiredAt: time.Now(),
 		}
-		if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, pf, purchaseToken, port.OutboxEvent{}); err != nil {
+		if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, pf, purchaseToken); err != nil {
 			return fmt.Errorf("create item purchase: %w", err)
 		}
 	}

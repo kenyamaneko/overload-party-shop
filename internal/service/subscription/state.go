@@ -42,7 +42,7 @@ func writeWithEvent(
 	if err != nil {
 		return fmt.Errorf("build premium-updated: %w", err)
 	}
-	if err := subRepo.UpdateSubscription(ctx, sub, ev); err != nil {
+	if err := subRepo.UpdateSubscriptionWithEvent(ctx, sub, ev); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
 	}
 	return nil
@@ -79,7 +79,7 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 // writeNoEvent は premium-updated を発行しない状態遷移 (解約時の cancelled 遷移など、
 // エンタイトルメント維持契約により publish しないケース) で使う。
 func writeNoEvent(ctx context.Context, subRepo port.SubscriptionRepo, sub *apishop.Subscription) error {
-	if err := subRepo.UpdateSubscription(ctx, sub, port.OutboxEvent{}); err != nil {
+	if err := subRepo.UpdateSubscription(ctx, sub); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
 	}
 	return nil

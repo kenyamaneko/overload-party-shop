@@ -21,9 +21,10 @@ import (
 // pubsub adapter が内部で行うため、service / outbox / worker は EventType しか
 // 触らない (Pub/Sub 固有概念は adapter に閉じ込める)。
 //
-// ゼロ値 (EventType == "") は「イベントを書かない」を意味し、repo 層はこの値を
-// 受け取ったとき outbox への INSERT をスキップする (解約遷移など publish
-// しない状態遷移で使う)。
+// EventType / Payload は repo に渡す時点で必ず非空でなければならない。
+// 「イベントを発行しない状態遷移」 (解約による cancelled 遷移など) は OutboxEvent
+// ゼロ値で表現するのではなく、専用のメソッド (UpdateSubscriptionWithoutEvent 等)
+// を使うことで意図を call site で明示する。
 type OutboxEvent struct {
 	EventID   uuid.UUID
 	EventType string

@@ -119,11 +119,11 @@ func TestItemPurchaseRepository_CreatePurchase(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			sharedPg.Truncate(t)
 			for _, s := range tt.seeds {
-				_, err := repo.CreatePurchase(ctx, newPurchase(s.playerID), newItem(s.playerID, s.itemNo), s.platform, s.token, port.OutboxEvent{})
+				_, err := repo.CreatePurchase(ctx, newPurchase(s.playerID), newItem(s.playerID, s.itemNo), s.platform, s.token)
 				require.NoError(t, err)
 			}
 
-			created, err := repo.CreatePurchase(ctx, newPurchase(tt.playerID), newItem(tt.playerID, tt.itemNo), tt.platform, tt.token, port.OutboxEvent{})
+			created, err := repo.CreatePurchase(ctx, newPurchase(tt.playerID), newItem(tt.playerID, tt.itemNo), tt.platform, tt.token)
 
 			if tt.wantErrIs != nil {
 				assert.ErrorIs(t, err, tt.wantErrIs)
@@ -158,7 +158,7 @@ func TestItemPurchaseRepository_CreatePurchase_AtomicRollback_PlayerItem(t *test
 	created, err := repo.CreatePurchase(ctx,
 		&apishop.OneTimePurchase{PlayerID: playerID, ProductID: "playmat_01", PurchasedAt: time.Now().UTC()},
 		&apishop.PlayerItem{PlayerID: playerID, ItemType: apishop.ItemTypePlaymat, ItemNo: 1, AcquiredAt: time.Now().UTC()},
-		apishop.PlatformIOS, "atomic-rollback-token", port.OutboxEvent{})
+		apishop.PlatformIOS, "atomic-rollback-token")
 	require.Error(t, err, "player_items PK違反で失敗するはず")
 	require.Contains(t, err.Error(), "insert player item",
 		"player_item INSERTで落ちている (purchase/token INSERT後の失敗)")
@@ -188,7 +188,7 @@ func TestItemPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *testing.T
 	created, err := repo.CreatePurchase(ctx,
 		&apishop.OneTimePurchase{PlayerID: playerID, ProductID: "sleeve_01", PurchasedAt: time.Now().UTC()},
 		&apishop.PlayerItem{PlayerID: playerID, ItemType: apishop.ItemTypeSleeve, ItemNo: 1, AcquiredAt: time.Now().UTC()},
-		apishop.PlatformIOS, tooLongToken, port.OutboxEvent{})
+		apishop.PlatformIOS, tooLongToken)
 	require.Error(t, err, "VARCHAR(256)超えでtoken INSERTが失敗するはず")
 	require.Contains(t, err.Error(), "insert purchase token")
 	assert.False(t, created)

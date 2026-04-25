@@ -37,7 +37,7 @@ func subscriptionTokenTableForPlatform(platform string) (string, error) {
 }
 
 // CreateSubscription は subscriptions + 対応 token 行 + outbox event をアトミックに挿入する。
-// event.EventType が空のときは outbox 書き込みをスキップする。
+// 新規 Subscribe は常に premium-updated イベントを発行するため event は必須。
 func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
 	tokenTable, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
@@ -67,10 +67,8 @@ func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *ap
 		return fmt.Errorf("insert subscription token: %w", err)
 	}
 
-	if event.EventType != "" {
-		if err := writeOutboxEvent(ctx, tx, event); err != nil {
-			return err
-		}
+	if err := writeOutboxEvent(ctx, tx, event); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -137,18 +135,50 @@ func scanSubscription(row pgx.Row) (*apishop.Subscription, error) {
 	return &s, nil
 }
 
-// UpdateSubscription はサブスクリプションの状態・期間を更新しつつ、
-// event.EventType が空でなければ同一 tx で outbox に書き込む。
-// webhook 駆動の状態遷移 (renew/expire/revoke) で DB 更新と publish を atomic に
-// 揃えるためのもの。解約 (cancelled) 等の「イベントを出さない遷移」では
-// event.EventType を空にして呼ぶ。
-func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription, event port.OutboxEvent) error {
+// UpdateSubscription はサブスクリプション行のみを更新する。outbox には書かない。
+// 解約 (cancelled) 遷移など「premium-updated を発行しない」業務判断が確定して
+// いる呼び出し側でのみ使う。
+func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := updateSubscriptionRow(ctx, tx, sub); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// UpdateSubscriptionWithEvent はサブスクリプション行の更新と outbox 行 INSERT を
+// 同一 tx で行う。webhook 駆動の状態遷移 (renew/expire/revoke) で DB 更新と
+// publish を atomic に揃えるためのもの。event は必須。
+func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context, sub *apishop.Subscription, event port.OutboxEvent) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := updateSubscriptionRow(ctx, tx, sub); err != nil {
+		return err
+	}
+	if err := writeOutboxEvent(ctx, tx, event); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+func updateSubscriptionRow(ctx context.Context, tx pgx.Tx, sub *apishop.Subscription) error {
 	if _, err := tx.Exec(ctx,
 		`UPDATE shop.subscriptions SET
 			status = $1,
@@ -162,16 +192,6 @@ func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *ap
 		sub.SubscriptionID,
 	); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
-	}
-
-	if event.EventType != "" {
-		if err := writeOutboxEvent(ctx, tx, event); err != nil {
-			return err
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
