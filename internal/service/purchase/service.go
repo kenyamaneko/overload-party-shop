@@ -70,7 +70,10 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]apishop.P
 	if err != nil {
 		return nil, fmt.Errorf("get subscription: %w", err)
 	}
-	subEntitled := subscription.IsEntitled(latestSub, time.Now())
+	subEntitled, err := subscription.IsEntitled(latestSub, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("check subscription entitlement: %w", err)
+	}
 
 	ownedItems, err := s.itemPurchaseRepo.ListPlayerItems(ctx, playerID)
 	if err != nil {

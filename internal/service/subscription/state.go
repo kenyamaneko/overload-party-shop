@@ -16,17 +16,22 @@ import (
 // IsEntitled はサブスクリプションが指定時刻に特典有効かを返す。
 // active / cancelled (auto-renew off だが期間内) / grace_period (支払い失敗中だが猶予内)
 // が期間内である限り特典は有効。expired / revoked は無効。
-func IsEntitled(sub *apishop.Subscription, now time.Time) bool {
+// 未知の status は上流の不整合なのでエラーで返す。
+func IsEntitled(sub *apishop.Subscription, now time.Time) (bool, error) {
 	if sub == nil {
-		return false
+		return false, nil
 	}
 	switch sub.Status {
 	case apishop.SubscriptionStatusActive,
 		apishop.SubscriptionStatusCancelled,
 		apishop.SubscriptionStatusGracePeriod:
-		return sub.CurrentPeriodEnd.After(now)
+		return sub.CurrentPeriodEnd.After(now), nil
+	case apishop.SubscriptionStatusExpired,
+		apishop.SubscriptionStatusRevoked:
+		return false, nil
+	default:
+		return false, fmt.Errorf("subscription: unknown status %q", sub.Status)
 	}
-	return false
 }
 
 // writeWithEvent / writeNoEvent は dual-write 問題を避けるため subscription 行

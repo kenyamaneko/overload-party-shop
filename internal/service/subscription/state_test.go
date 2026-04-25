@@ -14,59 +14,77 @@ func TestIsEntitled(t *testing.T) {
 	past := now.Add(-24 * time.Hour)
 
 	tests := []struct {
-		name string
-		sub  *apishop.Subscription
-		want bool
+		name    string
+		sub     *apishop.Subscription
+		want    bool
+		wantErr bool
 	}{
 		{
-			name: "サブスク行なし",
-			sub:  nil,
-			want: false,
+			name:    "サブスク行なし",
+			sub:     nil,
+			want:    false,
+			wantErr: false,
 		},
 		{
-			name: "active かつ期間内",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusActive, CurrentPeriodEnd: future},
-			want: true,
+			name:    "active かつ期間内",
+			sub:     &apishop.Subscription{Status: apishop.SubscriptionStatusActive, CurrentPeriodEnd: future},
+			want:    true,
+			wantErr: false,
 		},
 		{
-			name: "active だが期限切れ",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusActive, CurrentPeriodEnd: past},
-			want: false,
+			name:    "active だが期限切れ",
+			sub:     &apishop.Subscription{Status: apishop.SubscriptionStatusActive, CurrentPeriodEnd: past},
+			want:    false,
+			wantErr: false,
 		},
 		{
-			name: "cancelled だが期間内（自動更新オフ後の残存期間）",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusCancelled, CurrentPeriodEnd: future},
-			want: true,
+			name:    "cancelled だが期間内（自動更新オフ後の残存期間）",
+			sub:     &apishop.Subscription{Status: apishop.SubscriptionStatusCancelled, CurrentPeriodEnd: future},
+			want:    true,
+			wantErr: false,
 		},
 		{
-			name: "cancelled で期限切れ",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusCancelled, CurrentPeriodEnd: past},
-			want: false,
+			name:    "cancelled で期限切れ",
+			sub:     &apishop.Subscription{Status: apishop.SubscriptionStatusCancelled, CurrentPeriodEnd: past},
+			want:    false,
+			wantErr: false,
 		},
 		{
-			name: "grace_period かつ期間内（支払い失敗中の猶予）",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusGracePeriod, CurrentPeriodEnd: future},
-			want: true,
+			name:    "grace_period かつ期間内（支払い失敗中の猶予）",
+			sub:     &apishop.Subscription{Status: apishop.SubscriptionStatusGracePeriod, CurrentPeriodEnd: future},
+			want:    true,
+			wantErr: false,
 		},
 		{
-			name: "grace_period で期限切れ",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusGracePeriod, CurrentPeriodEnd: past},
-			want: false,
+			name:    "grace_period で期限切れ",
+			sub:     &apishop.Subscription{Status: apishop.SubscriptionStatusGracePeriod, CurrentPeriodEnd: past},
+			want:    false,
+			wantErr: false,
 		},
 		{
-			name: "expired は期間内でも無効",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusExpired, CurrentPeriodEnd: future},
-			want: false,
+			name:    "expired は期間内でも無効",
+			sub:     &apishop.Subscription{Status: apishop.SubscriptionStatusExpired, CurrentPeriodEnd: future},
+			want:    false,
+			wantErr: false,
 		},
 		{
-			name: "revoked は期間内でも無効",
-			sub:  &apishop.Subscription{Status: apishop.SubscriptionStatusRevoked, CurrentPeriodEnd: future},
-			want: false,
+			name:    "revoked は期間内でも無効",
+			sub:     &apishop.Subscription{Status: apishop.SubscriptionStatusRevoked, CurrentPeriodEnd: future},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:    "未知の status はエラー",
+			sub:     &apishop.Subscription{Status: "bogus", CurrentPeriodEnd: future},
+			want:    false,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, IsEntitled(tt.sub, now))
+			got, err := IsEntitled(tt.sub, now)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantErr, err != nil)
 		})
 	}
 }
