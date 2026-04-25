@@ -125,7 +125,7 @@ func TestNew_Validation(t *testing.T) {
 
 // RunOnce の各ケースを claim 返却 + publish 結果指定 + 期待する mark/fail 呼び出し
 // で表現する。各ケースは自己完結 (runner に if を入れない)。
-func TestPublisher_RunOnce(t *testing.T) {
+func TestRelay_RunOnce(t *testing.T) {
 	okID := uuid.New()
 	ngID := uuid.New()
 
@@ -196,7 +196,7 @@ func TestPublisher_RunOnce(t *testing.T) {
 
 // RunOnce は store が返したエラーだけを上位に伝播する (ticker 側で ERROR ログ化されるため)。
 // publish 単独の失敗は RunOnce の戻り値に影響しない。
-func TestPublisher_RunOnce_ClaimErrorSurfaces(t *testing.T) {
+func TestRelay_RunOnce_ClaimErrorSurfaces(t *testing.T) {
 	store := &fakeOutboxStore{claimErr: errors.New("db down")}
 	pub := &fakeRawPublisher{}
 	s, err := New(store, pub, Config{
@@ -214,7 +214,7 @@ func TestPublisher_RunOnce_ClaimErrorSurfaces(t *testing.T) {
 
 // Config の BatchSize / VisibilityTimeout は store.ClaimUnpublished にそのまま渡される
 // (env 可変設定の到達検証)。
-func TestPublisher_RunOnce_PassesConfigToStore(t *testing.T) {
+func TestRelay_RunOnce_PassesConfigToStore(t *testing.T) {
 	store := &fakeOutboxStore{}
 	pub := &fakeRawPublisher{}
 	s, err := New(store, pub, Config{
