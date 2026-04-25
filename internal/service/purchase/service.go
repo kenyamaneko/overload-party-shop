@@ -11,6 +11,7 @@ import (
 	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/event"
 	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
 )
 
@@ -22,14 +23,15 @@ import (
 // ビジネス行の INSERT と outbox 行の INSERT は repo 層の単一トランザクションで
 // 同時に commit される。publish は別プロセスの worker が outbox を消費して行う。
 type Service struct {
-	productRepo         port.ProductRepo
-	factionPurchaseRepo port.FactionPurchaseRepo
-	itemPurchaseRepo    port.ItemPurchaseRepo
-	purchaseLookup      port.PurchaseLookupRepo
-	subRepo             port.SubscriptionRepo
-	appleVerifier       port.ReceiptVerifier
-	googleVerifier      port.ReceiptVerifier
-	eventBuilder        port.OutboxEventBuilder
+	productRepo           port.ProductRepo
+	factionPurchaseRepo   port.FactionPurchaseRepo
+	itemPurchaseRepo      port.ItemPurchaseRepo
+	purchaseLookup        port.PurchaseLookupRepo
+	subRepo               port.SubscriptionRepo
+	appleVerifier         port.ReceiptVerifier
+	googleVerifier        port.ReceiptVerifier
+	factionPurchasedTopic string
+	premiumUpdatedTopic   string
 }
 
 func New(
@@ -40,17 +42,19 @@ func New(
 	subRepo port.SubscriptionRepo,
 	appleVerifier port.ReceiptVerifier,
 	googleVerifier port.ReceiptVerifier,
-	eventBuilder port.OutboxEventBuilder,
+	factionPurchasedTopic string,
+	premiumUpdatedTopic string,
 ) *Service {
 	return &Service{
-		productRepo:         productRepo,
-		factionPurchaseRepo: factionPurchaseRepo,
-		itemPurchaseRepo:    itemPurchaseRepo,
-		purchaseLookup:      purchaseLookup,
-		subRepo:             subRepo,
-		appleVerifier:       appleVerifier,
-		googleVerifier:      googleVerifier,
-		eventBuilder:        eventBuilder,
+		productRepo:           productRepo,
+		factionPurchaseRepo:   factionPurchaseRepo,
+		itemPurchaseRepo:      itemPurchaseRepo,
+		purchaseLookup:        purchaseLookup,
+		subRepo:               subRepo,
+		appleVerifier:         appleVerifier,
+		googleVerifier:        googleVerifier,
+		factionPurchasedTopic: factionPurchasedTopic,
+		premiumUpdatedTopic:   premiumUpdatedTopic,
 	}
 }
 
@@ -191,11 +195,11 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 
 	switch product.Type {
 	case apishop.ProductTypeFactionSet:
-		event, err := s.eventBuilder.BuildFactionPurchased(playerID, factionContent.Faction)
+		ev, err := event.BuildFactionPurchased(s.factionPurchasedTopic, playerID, factionContent.Faction)
 		if err != nil {
 			return fmt.Errorf("build faction-purchased: %w", err)
 		}
-		if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken, event); err != nil {
+		if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken, ev); err != nil {
 			return fmt.Errorf("create faction purchase: %w", err)
 		}
 	case apishop.ProductTypeCosmetic:
@@ -257,11 +261,11 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purcha
 		UpdatedAt:          time.Now(),
 	}
 
-	event, err := s.eventBuilder.BuildPremiumUpdated(playerID, true, &info.ExpiresAt)
+	ev, err := event.BuildPremiumUpdated(s.premiumUpdatedTopic, playerID, true, &info.ExpiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("build premium-updated: %w", err)
 	}
-	if err := s.subRepo.CreateSubscription(ctx, sub, pf, purchaseToken, event); err != nil {
+	if err := s.subRepo.CreateSubscription(ctx, sub, pf, purchaseToken, ev); err != nil {
 		return nil, fmt.Errorf("create subscription: %w", err)
 	}
 

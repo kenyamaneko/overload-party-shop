@@ -14,7 +14,7 @@ import (
 // event_id または複合 PK を冪等性キーとして使える (at-least-once)。
 //
 // Payload は apishop スキーマの struct を JSON Marshal した生バイトで、
-// adapter/pubsub/event_builder が構築する。postgres adapter は payload の
+// service/event の build 関数が構築する。postgres adapter は payload の
 // スキーマを知らず、単に bytes として書き込む。
 //
 // ゼロ値 (Topic == "") は「イベントを書かない」を意味し、repo 層はこの値を
@@ -24,14 +24,6 @@ type OutboxEvent struct {
 	EventID uuid.UUID
 	Topic   string
 	Payload []byte
-}
-
-// OutboxEventBuilder は service 層が発行したいビジネスイベントを OutboxEvent に
-// シリアライズする。apishop スキーマの詳細は adapter/pubsub 側に閉じ込め、
-// service 層は「何を発行したいか」だけを述語で伝える。
-type OutboxEventBuilder interface {
-	BuildFactionPurchased(playerID, faction string) (OutboxEvent, error)
-	BuildPremiumUpdated(playerID string, isPremium bool, expiresAt *time.Time) (OutboxEvent, error)
 }
 
 // ClaimedOutboxEvent は OutboxStore.ClaimUnpublished が返す 1 行分の情報。

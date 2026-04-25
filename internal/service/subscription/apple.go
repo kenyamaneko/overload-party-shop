@@ -43,21 +43,21 @@ type appleNotificationTxn struct {
 // AppleNotifier は Apple App Store Server Notifications V2 の webhook を処理する。
 // signed JWS の検証は jwsVerifier port に委譲する。Google 側の依存は持たない。
 type AppleNotifier struct {
-	subRepo      port.SubscriptionRepo
-	eventBuilder port.OutboxEventBuilder
-	jwsVerifier  port.AppleJWSVerifier
+	subRepo             port.SubscriptionRepo
+	premiumUpdatedTopic string
+	jwsVerifier         port.AppleJWSVerifier
 }
 
 // NewAppleNotifier は依存を受け取り AppleNotifier を構築する。
 func NewAppleNotifier(
 	subRepo port.SubscriptionRepo,
-	eventBuilder port.OutboxEventBuilder,
+	premiumUpdatedTopic string,
 	jwsVerifier port.AppleJWSVerifier,
 ) *AppleNotifier {
 	return &AppleNotifier{
-		subRepo:      subRepo,
-		eventBuilder: eventBuilder,
-		jwsVerifier:  jwsVerifier,
+		subRepo:             subRepo,
+		premiumUpdatedTopic: premiumUpdatedTopic,
+		jwsVerifier:         jwsVerifier,
 	}
 }
 
@@ -87,21 +87,21 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 		sub.CurrentPeriodEnd = expiresAt
 		sub.Status = apishop.SubscriptionStatusActive
 		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, n.eventBuilder, sub, true, &expiresAt); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, n.premiumUpdatedTopic, sub, true, &expiresAt); err != nil {
 			return err
 		}
 
 	case appleNotifExpired, appleNotifGracePeriodExpired:
 		sub.Status = apishop.SubscriptionStatusExpired
 		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, n.eventBuilder, sub, false, nil); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, n.premiumUpdatedTopic, sub, false, nil); err != nil {
 			return err
 		}
 
 	case appleNotifRevoke:
 		sub.Status = apishop.SubscriptionStatusRevoked
 		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, n.eventBuilder, sub, false, nil); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, n.premiumUpdatedTopic, sub, false, nil); err != nil {
 			return err
 		}
 

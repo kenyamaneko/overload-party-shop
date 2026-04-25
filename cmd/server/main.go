@@ -127,11 +127,6 @@ func run() error {
 		}
 	}()
 
-	eventBuilder, err := shoppubsub.NewEventBuilder(cfg.FactionPurchasedTopic, cfg.PremiumUpdatedTopic)
-	if err != nil {
-		return fmt.Errorf("shop event builder: %w", err)
-	}
-
 	vfs, err := setupVerifiers(ctx, cfg)
 	if err != nil {
 		return err
@@ -142,7 +137,7 @@ func run() error {
 		return err
 	}
 
-	handler := buildHTTPHandler(cfg, pool, eventBuilder, vfs)
+	handler := buildHTTPHandler(cfg, pool, vfs)
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           handler,
@@ -187,7 +182,7 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 
 // buildHTTPHandler は repo / service / handler の配線を一箇所にまとめる。
 // run() の肥大を避けるための分割であり、起動順には依存していない。
-func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.OutboxEventBuilder, vfs verifiers) http.Handler {
+func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) http.Handler {
 	productRepo := postgres.NewProductRepository(pool)
 	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(pool)
 	itemPurchaseRepo := postgres.NewItemPurchaseRepository(pool)
@@ -198,7 +193,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.
 		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup,
 		subRepo,
 		vfs.apple, vfs.google,
-		eventBuilder,
+		cfg.FactionPurchasedTopic, cfg.PremiumUpdatedTopic,
 	)
 	shopH := rest.NewShopHandler(shopSvc)
 	var (
@@ -207,10 +202,10 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.
 	)
 	if cfg.IAPMode == config.IAPModeProduction {
 		appleWH = rest.NewAppleWebhookHandler(
-			subscription.NewAppleNotifier(subRepo, eventBuilder, vfs.appleJWS),
+			subscription.NewAppleNotifier(subRepo, cfg.PremiumUpdatedTopic, vfs.appleJWS),
 		)
 		googleWH = rest.NewGoogleWebhookHandler(
-			subscription.NewGoogleNotifier(subRepo, eventBuilder, vfs.googleSub),
+			subscription.NewGoogleNotifier(subRepo, cfg.PremiumUpdatedTopic, vfs.googleSub),
 		)
 	}
 	return router.New(shopH, appleWH, googleWH)

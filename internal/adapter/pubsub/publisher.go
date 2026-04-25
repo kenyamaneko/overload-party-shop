@@ -8,7 +8,8 @@
 //     account / gateway が subscribe する。
 //
 // Publisher は worker (outbox) から topic + payload 指定で呼ばれる低レベル送信層。
-// ビジネス要件に応じたイベント struct の構築は EventBuilder が担う。
+// イベント struct の構築は service/event の build 関数が担い、ここでは単に
+// 渡された payload を Pub/Sub に流す。
 package pubsub
 
 import (

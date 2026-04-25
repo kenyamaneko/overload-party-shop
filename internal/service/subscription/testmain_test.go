@@ -4,11 +4,11 @@ package subscription
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
@@ -25,45 +25,26 @@ func TestMain(m *testing.M) {
 	))
 }
 
-// fakePremiumBuilder は BuildPremiumUpdated 呼び出しを記録するテスト用ダブル。
-// AppleNotifier / GoogleNotifier 共通で premium-updated イベントの enqueue を観測する。
-type fakePremiumBuilder struct {
-	calls []fakePremiumPubCall
-	err   error
-}
-
-type fakePremiumPubCall struct {
-	PlayerID  string
-	IsPremium bool
-	ExpiresAt *time.Time
-}
-
-func (f *fakePremiumBuilder) Build(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
-	f.calls = append(f.calls, fakePremiumPubCall{PlayerID: playerID, IsPremium: isPremium, ExpiresAt: expiresAt})
-	if f.err != nil {
-		return port.OutboxEvent{}, f.err
+// selectPremiumUpdatedEvents は shop.outbox_events から premium-updated の payload
+// を取り出して apishop.PremiumUpdatedEvent としてデコードする。subscription
+// notifier が outbox に enqueue した事実を直接検証するためのヘルパ。
+func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
+	t.Helper()
+	rows, err := sharedPg.Pool.Query(context.Background(),
+		`SELECT payload FROM shop.outbox_events WHERE topic = $1 ORDER BY created_at`,
+		apishop.TopicPremiumUpdated)
+	require.NoError(t, err)
+	defer rows.Close()
+	var events []apishop.PremiumUpdatedEvent
+	for rows.Next() {
+		var payload []byte
+		require.NoError(t, rows.Scan(&payload))
+		var ev apishop.PremiumUpdatedEvent
+		require.NoError(t, json.Unmarshal(payload, &ev))
+		events = append(events, ev)
 	}
-	return port.OutboxEvent{EventID: uuid.New(), Topic: apishop.TopicPremiumUpdated, Payload: []byte(`{}`)}, nil
-}
-
-// fakeEventBuilder は port.OutboxEventBuilder を満たす。subscription テストでは
-// faction 側は呼ばれないので no-op。
-type fakeEventBuilder struct {
-	premiumPub *fakePremiumBuilder
-}
-
-func newFakeEventBuilder(premiumErr error) *fakeEventBuilder {
-	return &fakeEventBuilder{
-		premiumPub: &fakePremiumBuilder{err: premiumErr},
-	}
-}
-
-func (f *fakeEventBuilder) BuildFactionPurchased(_, _ string) (port.OutboxEvent, error) {
-	return port.OutboxEvent{}, nil
-}
-
-func (f *fakeEventBuilder) BuildPremiumUpdated(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
-	return f.premiumPub.Build(playerID, isPremium, expiresAt)
+	require.NoError(t, rows.Err())
+	return events
 }
 
 // createTestSubscription はテスト用に指定の初期状態でサブスク行を作成する。

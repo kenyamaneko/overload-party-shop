@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub/pubsubtest"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/event"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
@@ -38,10 +39,11 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// Publisher + EventBuilder を emulator に向けて構築するヘルパ。両 topic を事前作成。
-// Outbox 導入後、Publisher は topic + payload を取る低レベル送信層、EventBuilder は
-// payload 構築を担う。Integration test は両者を直結して end-to-end の shape を検証する。
-func setupPublisher(t *testing.T) (*Publisher, *EventBuilder, string, string) {
+// Publisher を emulator に向けて構築するヘルパ。両 topic を事前作成。
+// Outbox 導入後、Publisher は topic + payload を取る低レベル送信層、payload 構築は
+// service/event の build 関数が担う。Integration test は両者を直結して end-to-end
+// の shape を検証する。
+func setupPublisher(t *testing.T) (*Publisher, string, string) {
 	t.Helper()
 	factionTopic := sharedEmulator.CreateTopic(t, apishop.TopicFactionPurchased)
 	premiumTopic := sharedEmulator.CreateTopic(t, apishop.TopicPremiumUpdated)
@@ -51,20 +53,17 @@ func setupPublisher(t *testing.T) (*Publisher, *EventBuilder, string, string) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pub.Close() })
 
-	builder, err := NewEventBuilder(factionTopic, premiumTopic)
-	require.NoError(t, err)
-
-	return pub, builder, factionTopic, premiumTopic
+	return pub, factionTopic, premiumTopic
 }
 
-// EventBuilder が構築する faction-purchased payload が Publisher で送信できる
+// event.BuildFactionPurchased が構築する payload が Publisher で送信できる
 // shape であることを固定する (outbox 行を worker が送出する経路の近似)。
 func TestIntegration_PublishFactionPurchased(t *testing.T) {
-	pub, builder, factionTopic, _ := setupPublisher(t)
+	pub, factionTopic, _ := setupPublisher(t)
 	sub := sharedEmulator.Subscribe(t, factionTopic)
 
 	ctx := context.Background()
-	ev, err := builder.BuildFactionPurchased("player-123", "Tenki")
+	ev, err := event.BuildFactionPurchased(factionTopic, "player-123", "Tenki")
 	require.NoError(t, err)
 	require.NoError(t, pub.Publish(ctx, ev.Topic, ev.Payload))
 
@@ -83,12 +82,12 @@ func TestIntegration_PublishFactionPurchased(t *testing.T) {
 
 // premium 付与 (expires_at あり) の送信 shape を固定。
 func TestIntegration_PublishPremiumUpdated_Granted(t *testing.T) {
-	pub, builder, _, premiumTopic := setupPublisher(t)
+	pub, _, premiumTopic := setupPublisher(t)
 	sub := sharedEmulator.Subscribe(t, premiumTopic)
 
 	ctx := context.Background()
 	expiresAt := time.Now().Add(30 * 24 * time.Hour).UTC()
-	ev, err := builder.BuildPremiumUpdated("player-premium", true, &expiresAt)
+	ev, err := event.BuildPremiumUpdated(premiumTopic, "player-premium", true, &expiresAt)
 	require.NoError(t, err)
 	require.NoError(t, pub.Publish(ctx, ev.Topic, ev.Payload))
 
@@ -110,11 +109,11 @@ func TestIntegration_PublishPremiumUpdated_Granted(t *testing.T) {
 
 // premium 解除 (expires_at=nil) の送信 shape を固定。
 func TestIntegration_PublishPremiumUpdated_Revoked(t *testing.T) {
-	pub, builder, _, premiumTopic := setupPublisher(t)
+	pub, _, premiumTopic := setupPublisher(t)
 	sub := sharedEmulator.Subscribe(t, premiumTopic)
 
 	ctx := context.Background()
-	ev, err := builder.BuildPremiumUpdated("player-not-premium", false, nil)
+	ev, err := event.BuildPremiumUpdated(premiumTopic, "player-not-premium", false, nil)
 	require.NoError(t, err)
 	require.NoError(t, pub.Publish(ctx, ev.Topic, ev.Payload))
 
@@ -135,7 +134,7 @@ func TestIntegration_PublishPremiumUpdated_Revoked(t *testing.T) {
 
 // negative path: publish が呼ばれなければ subscriber は timeout する。
 func TestIntegration_NoPublish_SubscriberTimesOut(t *testing.T) {
-	_, _, factionTopic, _ := setupPublisher(t)
+	_, factionTopic, _ := setupPublisher(t)
 	sub := sharedEmulator.Subscribe(t, factionTopic)
 
 	_, err := sub.WaitForMessage(context.Background(), 500*time.Millisecond)

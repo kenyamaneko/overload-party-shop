@@ -7,6 +7,7 @@ import (
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	"github.com/kenyamaneko/overload-party-shop/internal/service/event"
 )
 
 // IsEntitled はサブスクリプションが指定時刻に特典有効かを返す。
@@ -30,12 +31,12 @@ func IsEntitled(sub *apishop.Subscription, now time.Time) bool {
 func writeWithEvent(
 	ctx context.Context,
 	subRepo port.SubscriptionRepo,
-	eventBuilder port.OutboxEventBuilder,
+	premiumUpdatedTopic string,
 	sub *apishop.Subscription,
 	isPremium bool,
 	expiresAt *time.Time,
 ) error {
-	ev, err := eventBuilder.BuildPremiumUpdated(sub.PlayerID, isPremium, expiresAt)
+	ev, err := event.BuildPremiumUpdated(premiumUpdatedTopic, sub.PlayerID, isPremium, expiresAt)
 	if err != nil {
 		return fmt.Errorf("build premium-updated: %w", err)
 	}
