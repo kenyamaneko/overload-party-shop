@@ -17,7 +17,7 @@ const EventTypeFactionPurchased = "faction_purchased"
 //   - gateway: pushes a WS `faction_purchase_complete` message.
 //
 // Idempotency: subscribers MUST dedupe on EventID via their
-// processed_events table. See ADR-022 for the decomposition rationale.
+// processed_events table.
 type FactionPurchasedEvent struct {
 	// EventType is always EventTypeFactionPurchased.
 	EventType string `json:"event_type"`

@@ -35,8 +35,7 @@ func NewEventBuilder(factionPurchasedTopic, premiumUpdatedTopic string) (*EventB
 }
 
 // BuildFactionPurchased は shop 購入起因の faction-purchased イベントを構築する。
-// onboarding 由来の初期 faction 付与は scenario が別イベント (player-onboarded) で
-// 発行するため、このイベントは常に「購入による追加所有」を意味する (ADR-022)。
+// 常に「購入による追加所有」を意味し、onboarding 由来の初期 faction 付与は対象外。
 func (b *EventBuilder) BuildFactionPurchased(playerID, faction string) (port.OutboxEvent, error) {
 	if playerID == "" {
 		return port.OutboxEvent{}, errors.New("pubsub: playerID is empty")
