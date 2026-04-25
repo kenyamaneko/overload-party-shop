@@ -130,6 +130,33 @@ func insertProduct(t *testing.T, p *apishop.Product) {
 	require.NoError(t, err)
 }
 
+// insertSubscription は GetProducts 等のテストで「あらかじめ存在するサブスク」
+// 状態を作るための fixture helper。業務アクションの Subscribe (= premium-updated
+// 発行を伴う) を再現する目的ではないため、insertProduct と同じく raw SQL で
+// 業務行のみを直挿入する。
+func insertSubscription(t *testing.T, sub *apishop.Subscription, platform, purchaseToken string) {
+	t.Helper()
+	tokenTable := map[string]string{
+		apishop.PlatformIOS:     "shop.apple_subscription_tokens",
+		apishop.PlatformAndroid: "shop.google_subscription_tokens",
+	}[platform]
+	require.NotEmpty(t, tokenTable, "test seed: unsupported platform %q", platform)
+
+	ctx := context.Background()
+	require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+		`INSERT INTO shop.subscriptions (player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING subscription_id`,
+		sub.PlayerID, sub.ProductID, sub.Status,
+		sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
+		sub.CreatedAt, sub.UpdatedAt,
+	).Scan(&sub.SubscriptionID))
+	_, err := sharedPg.Pool.Exec(ctx,
+		fmt.Sprintf(`INSERT INTO %s (token, subscription_id) VALUES ($1, $2)`, tokenTable),
+		purchaseToken, sub.SubscriptionID,
+	)
+	require.NoError(t, err)
+}
+
 func TestPurchase_FactionSet_Success(t *testing.T) {
 	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
@@ -485,7 +512,7 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 
 	playerID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
 	now := time.Now()
-	require.NoError(t, env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
+	insertSubscription(t, &apishop.Subscription{
 		PlayerID:           playerID,
 		ProductID:          "premium_monthly",
 		Status:             apishop.SubscriptionStatusActive,
@@ -493,7 +520,7 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 		CurrentPeriodEnd:   now.Add(30 * 24 * time.Hour),
 		CreatedAt:          now,
 		UpdatedAt:          now,
-	}, apishop.PlatformIOS, "sub-token", port.OutboxEvent{}))
+	}, apishop.PlatformIOS, "sub-token")
 
 	products, err := env.svc.GetProducts(context.Background(), playerID)
 	require.NoError(t, err)
@@ -565,7 +592,7 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 				IsActive:  true,
 			})
 			playerID := fmt.Sprintf("dddddddd-%04d-dddd-dddd-dddddddddddd", i)
-			require.NoError(t, env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
+			insertSubscription(t, &apishop.Subscription{
 				PlayerID:           playerID,
 				ProductID:          "premium_monthly",
 				Status:             tt.status,
@@ -573,7 +600,7 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 				CurrentPeriodEnd:   tt.periodEnd,
 				CreatedAt:          now,
 				UpdatedAt:          now,
-			}, apishop.PlatformIOS, fmt.Sprintf("sub-token-%d", i), port.OutboxEvent{}))
+			}, apishop.PlatformIOS, fmt.Sprintf("sub-token-%d", i))
 			products, err := env.svc.GetProducts(context.Background(), playerID)
 			require.NoError(t, err)
 			require.Len(t, products, 1)

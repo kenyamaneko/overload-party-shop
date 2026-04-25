@@ -5,12 +5,12 @@ package subscription
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
-	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres/postgrestest"
 	"github.com/stretchr/testify/require"
@@ -47,13 +47,19 @@ func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
 	return events
 }
 
-// createTestSubscription はテスト用に指定の初期状態でサブスク行を作成する。
+// createTestSubscription はサブスク行と token 行を seed する fixture helper。
+// 業務アクションの Subscribe (= premium-updated 発行を伴う) を再現する目的では
+// なく、「あらかじめ存在するサブスク」状態を作るためのもの。repository パッケージ
+// の seedProduct / seedOwnedFaction 等と同じ raw SQL 直挿入の規約に揃える。
 // initialStatus は各ケースが明示して受け取る — テスト内で後から mutate せず、
 // Given が call 1 回で確定する形にするための必須引数。
-func createTestSubscription(t *testing.T, repo *postgres.SubscriptionRepository, platform, playerID, purchaseToken, initialStatus string) *apishop.Subscription {
+func createTestSubscription(t *testing.T, _ *postgres.SubscriptionRepository, platform, playerID, purchaseToken, initialStatus string) *apishop.Subscription {
 	t.Helper()
 	now := time.Now()
 	periodEnd := now.Add(30 * 24 * time.Hour)
+
+	tokenTable, err := subscriptionTokenTableForPlatform(platform)
+	require.NoError(t, err)
 
 	sub := &apishop.Subscription{
 		PlayerID:           playerID,
@@ -64,6 +70,31 @@ func createTestSubscription(t *testing.T, repo *postgres.SubscriptionRepository,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
-	require.NoError(t, repo.CreateSubscription(context.Background(), sub, platform, purchaseToken, port.OutboxEvent{}))
+	ctx := context.Background()
+	require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+		`INSERT INTO shop.subscriptions (player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING subscription_id`,
+		sub.PlayerID, sub.ProductID, sub.Status,
+		sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
+		sub.CreatedAt, sub.UpdatedAt,
+	).Scan(&sub.SubscriptionID))
+	_, err = sharedPg.Pool.Exec(ctx,
+		fmt.Sprintf(`INSERT INTO %s (token, subscription_id) VALUES ($1, $2)`, tokenTable),
+		purchaseToken, sub.SubscriptionID,
+	)
+	require.NoError(t, err)
 	return sub
+}
+
+// subscriptionTokenTableForPlatform は seed 用途で platform に対応する token
+// テーブル名を解決する。production 経路の同名関数とは独立に test 内で持つ。
+func subscriptionTokenTableForPlatform(platform string) (string, error) {
+	switch platform {
+	case apishop.PlatformIOS:
+		return "shop.apple_subscription_tokens", nil
+	case apishop.PlatformAndroid:
+		return "shop.google_subscription_tokens", nil
+	default:
+		return "", fmt.Errorf("test seed: unsupported platform %q", platform)
+	}
 }
