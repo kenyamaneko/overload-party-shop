@@ -41,8 +41,6 @@ func TestMain(m *testing.M) {
 }
 
 // Publisher を emulator に向けて構築するヘルパ。両 topic を事前作成。
-// emulator では topic 名を UUID-suffix 付きで隔離するため、構築時に物理 topic 名
-// を渡す。Publisher は内部で apishop.EventType* → 該当 topic の対応表を組む。
 func setupPublisher(t *testing.T) (*Publisher, string, string) {
 	t.Helper()
 	factionTopic := sharedEmulator.CreateTopic(t, apishop.TopicFactionPurchased)
@@ -56,9 +54,6 @@ func setupPublisher(t *testing.T) (*Publisher, string, string) {
 	return pub, factionTopic, premiumTopic
 }
 
-// buildFactionPurchasedOutbox / buildPremiumUpdatedOutbox はテスト内で
-// service 側 helper の同等物を用意する小ヘルパ。adapter テストから service
-// パッケージに逆依存しないため、構築ロジックは複製する。
 func buildFactionPurchasedOutbox(t *testing.T, playerID, faction string) port.OutboxEvent {
 	t.Helper()
 	id := uuid.New()

@@ -279,9 +279,6 @@ func (s *Service) getVerifier(pf string) (port.ReceiptVerifier, error) {
 	}
 }
 
-// buildFactionPurchasedEvent は domain 値から apishop.FactionPurchasedEvent を
-// 組み立て、JSON marshal して outbox 行用の OutboxEvent にする。purchase で
-// faction_set 購入が確定したときに呼ぶ。
 func buildFactionPurchasedEvent(playerID, faction string) (port.OutboxEvent, error) {
 	if playerID == "" {
 		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
@@ -308,9 +305,6 @@ func buildFactionPurchasedEvent(playerID, faction string) (port.OutboxEvent, err
 	}, nil
 }
 
-// buildPremiumUpdatedEvent は domain 値から apishop.PremiumUpdatedEvent を
-// 組み立てて OutboxEvent にする。Subscribe 完了時に呼ぶ。
-// expiresAt は任意 (is_premium=false のときは nil)。
 func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
 	if playerID == "" {
 		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")

@@ -29,8 +29,9 @@ func IsEntitled(sub *apishop.Subscription, now time.Time) bool {
 	return false
 }
 
-// writeWithEvent はサブスクリプション行の更新と premium-updated 行の outbox enqueue を
-// 同一 tx で行う (dual-write 問題を避ける契約)。AppleNotifier / GoogleNotifier 共通。
+// writeWithEvent / writeNoEvent は dual-write 問題を避けるため subscription 行
+// 更新と premium-updated 発行 (またはその不発行) を同一 tx に揃える共通経路。
+// AppleNotifier / GoogleNotifier 共通。
 func writeWithEvent(
 	ctx context.Context,
 	subRepo port.SubscriptionRepo,
@@ -48,9 +49,6 @@ func writeWithEvent(
 	return nil
 }
 
-// buildPremiumUpdatedEvent は domain 値から apishop.PremiumUpdatedEvent を
-// 組み立てて OutboxEvent にする。webhook 由来の状態遷移 (renew/expire/revoke)
-// で publish する。expiresAt は任意 (is_premium=false のときは nil)。
 func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
 	if playerID == "" {
 		return port.OutboxEvent{}, errors.New("subscription: playerID is empty")
@@ -76,8 +74,8 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 	}, nil
 }
 
-// writeNoEvent は premium-updated を発行しない状態遷移 (解約時の cancelled 遷移など、
-// エンタイトルメント維持契約により publish しないケース) で使う。
+// writeNoEvent は cancelled 遷移用 (エンタイトルメント維持契約 — 期限到来までは
+// is_premium=false を subscriber に伝えない)。
 func writeNoEvent(ctx context.Context, subRepo port.SubscriptionRepo, sub *apishop.Subscription) error {
 	if err := subRepo.UpdateSubscription(ctx, sub); err != nil {
 		return fmt.Errorf("update subscription: %w", err)

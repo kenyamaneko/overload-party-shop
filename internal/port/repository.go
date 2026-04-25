@@ -51,19 +51,14 @@ type PurchaseLookupRepo interface {
 // 同一トランザクションで挿入する。FindSubscriptionByToken は platform を見て対応 token
 // テーブルを引いてから subscriptions に JOIN する。
 type SubscriptionRepo interface {
-	// CreateSubscription は subscription + token + outbox event を単一 tx で挿入する。
-	// 新規 Subscribe は常に premium-updated を発行するため event は必須。
 	CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string, event OutboxEvent) error
 	// GetLatestSubscription は player の最新サブスクリプション 1 行を返す (platform 横断)。
 	GetLatestSubscription(ctx context.Context, playerID string) (*apishop.Subscription, error)
 	FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*apishop.Subscription, error)
-	// UpdateSubscription は subscription 行のみ更新する。outbox には書かない。
-	// 解約 (cancelled) 遷移など「premium-updated を発行しない」業務判断が確定している
-	// 呼び出し側でのみ使う。
+	// UpdateSubscription / UpdateSubscriptionWithEvent の使い分け: 解約 (cancelled)
+	// 遷移はエンタイトルメント維持契約により premium-updated を発行しない。それ以外
+	// の状態遷移 (renew/expire/revoke) は subscriber に状態を伝える必要がある。
 	UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error
-	// UpdateSubscriptionWithEvent は subscription 行 update と outbox 行 INSERT を
-	// 同一 tx で行う。webhook 駆動の状態遷移 (renew/expire/revoke) で publish を
-	// atomic に揃えるためのもの。
 	UpdateSubscriptionWithEvent(ctx context.Context, sub *apishop.Subscription, event OutboxEvent) error
 }
 

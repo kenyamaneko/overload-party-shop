@@ -9,22 +9,11 @@ import (
 
 // OutboxEvent は shop.outbox_events への 1 行分の書き込み表現。
 //
-// event_id は enqueue 時点で確定し、payload 内の eventId と一致する。再試行時も
-// 同じ event_id / payload を worker が Pub/Sub に送出するため、subscriber 側は
-// event_id または複合 PK を冪等性キーとして使える (at-least-once)。
+// EventID は payload 内 eventId と一致し、再試行でも変えない。subscriber は
+// この値を冪等性キーとして使える (at-least-once)。
 //
-// Payload は apishop スキーマの struct を JSON Marshal した生バイトで、
-// service/event の build 関数が構築する。postgres adapter は payload の
-// スキーマを知らず、単に bytes として書き込む。
-//
-// EventType は論理イベント種別 (apishop.EventType*)。物理 topic 名への解決は
-// pubsub adapter が内部で行うため、service / outbox / worker は EventType しか
-// 触らない (Pub/Sub 固有概念は adapter に閉じ込める)。
-//
-// EventType / Payload は repo に渡す時点で必ず非空でなければならない。
-// 「イベントを発行しない状態遷移」 (解約による cancelled 遷移など) は OutboxEvent
-// ゼロ値で表現するのではなく、専用のメソッド (UpdateSubscriptionWithoutEvent 等)
-// を使うことで意図を call site で明示する。
+// EventType は論理イベント種別 (apishop.EventType*)。物理 topic への解決は
+// pubsub adapter 内部で行う。
 type OutboxEvent struct {
 	EventID   uuid.UUID
 	EventType string

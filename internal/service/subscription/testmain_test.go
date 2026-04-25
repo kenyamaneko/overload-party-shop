@@ -25,9 +25,6 @@ func TestMain(m *testing.M) {
 	))
 }
 
-// selectPremiumUpdatedEvents は shop.outbox_events から premium-updated の payload
-// を取り出して apishop.PremiumUpdatedEvent としてデコードする。subscription
-// notifier が outbox に enqueue した事実を直接検証するためのヘルパ。
 func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
@@ -47,12 +44,9 @@ func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
 	return events
 }
 
-// createTestSubscription はサブスク行と token 行を seed する fixture helper。
-// 業務アクションの Subscribe (= premium-updated 発行を伴う) を再現する目的では
-// なく、「あらかじめ存在するサブスク」状態を作るためのもの。repository パッケージ
-// の seedProduct / seedOwnedFaction 等と同じ raw SQL 直挿入の規約に揃える。
-// initialStatus は各ケースが明示して受け取る — テスト内で後から mutate せず、
-// Given が call 1 回で確定する形にするための必須引数。
+// createTestSubscription は業務アクションを経由せず subscription 行と token 行
+// を seed する。initialStatus はケースごとに必須で渡し、後から mutate しない
+// (Given を 1 call で確定させるため)。
 func createTestSubscription(t *testing.T, _ *postgres.SubscriptionRepository, platform, playerID, purchaseToken, initialStatus string) *apishop.Subscription {
 	t.Helper()
 	now := time.Now()
@@ -86,8 +80,6 @@ func createTestSubscription(t *testing.T, _ *postgres.SubscriptionRepository, pl
 	return sub
 }
 
-// subscriptionTokenTableForPlatform は seed 用途で platform に対応する token
-// テーブル名を解決する。production 経路の同名関数とは独立に test 内で持つ。
 func subscriptionTokenTableForPlatform(platform string) (string, error) {
 	switch platform {
 	case apishop.PlatformIOS:

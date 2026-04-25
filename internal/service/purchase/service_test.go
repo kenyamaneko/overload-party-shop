@@ -76,10 +76,6 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	}
 }
 
-// selectFactionPurchasedEvents は shop.outbox_events から faction-purchased の
-// payload を取り出し apishop.FactionPurchasedEvent としてデコードして返す。
-// 旧 fake builder の calls スパイの代替で、「実際に enqueue された事実」を
-// outbox 行から検証する。
 func selectFactionPurchasedEvents(t *testing.T) []apishop.FactionPurchasedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
@@ -99,7 +95,6 @@ func selectFactionPurchasedEvents(t *testing.T) []apishop.FactionPurchasedEvent 
 	return events
 }
 
-// selectPremiumUpdatedEvents は同様に premium-updated payload を取り出す。
 func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
@@ -130,10 +125,7 @@ func insertProduct(t *testing.T, p *apishop.Product) {
 	require.NoError(t, err)
 }
 
-// insertSubscription は GetProducts 等のテストで「あらかじめ存在するサブスク」
-// 状態を作るための fixture helper。業務アクションの Subscribe (= premium-updated
-// 発行を伴う) を再現する目的ではないため、insertProduct と同じく raw SQL で
-// 業務行のみを直挿入する。
+// insertSubscription は業務アクションを経由せず subscription 行と token 行を seed する。
 func insertSubscription(t *testing.T, sub *apishop.Subscription, platform, purchaseToken string) {
 	t.Helper()
 	tokenTable := map[string]string{

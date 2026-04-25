@@ -36,8 +36,6 @@ func subscriptionTokenTableForPlatform(platform string) (string, error) {
 	}
 }
 
-// CreateSubscription は subscriptions + 対応 token 行 + outbox event をアトミックに挿入する。
-// 新規 Subscribe は常に premium-updated イベントを発行するため event は必須。
 func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
 	tokenTable, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
@@ -135,9 +133,9 @@ func scanSubscription(row pgx.Row) (*apishop.Subscription, error) {
 	return &s, nil
 }
 
-// UpdateSubscription はサブスクリプション行のみを更新する。outbox には書かない。
-// 解約 (cancelled) 遷移など「premium-updated を発行しない」業務判断が確定して
-// いる呼び出し側でのみ使う。
+// UpdateSubscription は解約 (cancelled) 遷移用。エンタイトルメント維持契約に
+// より subscriber に is_premium=false を伝えてはいけないため、premium-updated
+// は発行しない。
 func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -155,9 +153,8 @@ func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *ap
 	return nil
 }
 
-// UpdateSubscriptionWithEvent はサブスクリプション行の更新と outbox 行 INSERT を
-// 同一 tx で行う。webhook 駆動の状態遷移 (renew/expire/revoke) で DB 更新と
-// publish を atomic に揃えるためのもの。event は必須。
+// UpdateSubscriptionWithEvent は webhook 駆動の状態遷移 (renew/expire/revoke)
+// で DB 更新と publish を atomic に揃えるためのもの。
 func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context, sub *apishop.Subscription, event port.OutboxEvent) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

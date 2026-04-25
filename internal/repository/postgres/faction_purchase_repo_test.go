@@ -17,9 +17,6 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
-// newFactionEvent はテスト用の最小 faction-purchased OutboxEvent を作る。
-// repo 単体テストでは outbox 行の中身は本質ではなく、event_type / payload が
-// NOT NULL を満たせば十分。
 func newFactionEvent() port.OutboxEvent {
 	return port.OutboxEvent{
 		EventID:   uuid.New(),

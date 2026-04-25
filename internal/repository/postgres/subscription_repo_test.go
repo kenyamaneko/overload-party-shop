@@ -28,9 +28,6 @@ func newSub(playerID string, now time.Time) *apishop.Subscription {
 	}
 }
 
-// newPremiumEvent はテスト用の最小 premium-updated OutboxEvent を作る。
-// 中身は repo の I/O 検証目的では問わないので、event_type と payload が NOT NULL
-// 制約を満たせれば十分。
 func newPremiumEvent() port.OutboxEvent {
 	return port.OutboxEvent{
 		EventID:   uuid.New(),
