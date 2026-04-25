@@ -214,7 +214,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) htt
 // use case + handler/worker の ticker) を組み立てる。依存方向は worker → service → port。
 func buildOutboxTicker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *config.Config) (*worker.OutboxTicker, error) {
 	outboxRepo := postgres.NewOutboxRepository(pool)
-	publisher, err := outbox.New(outboxRepo, pub, outbox.Config{
+	relay, err := outbox.New(outboxRepo, pub, outbox.Config{
 		BatchSize:         cfg.OutboxBatchSize,
 		FailureThreshold:  cfg.OutboxFailureThreshold,
 		VisibilityTimeout: cfg.OutboxVisibilityTimeout,
@@ -222,7 +222,7 @@ func buildOutboxTicker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *conf
 	if err != nil {
 		return nil, err
 	}
-	return worker.NewOutboxTicker(publisher, cfg.OutboxPollInterval)
+	return worker.NewOutboxTicker(relay, cfg.OutboxPollInterval)
 }
 
 // runHTTPAndWorker は HTTP server と outbox ticker を並行起動し、
