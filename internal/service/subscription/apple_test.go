@@ -18,9 +18,8 @@ import (
 )
 
 type appleTestEnv struct {
-	notifier   *AppleNotifier
-	subRepo    *postgres.SubscriptionRepository
-	premiumPub *fakePremiumBuilder
+	notifier *AppleNotifier
+	subRepo  *postgres.SubscriptionRepository
 }
 
 func newAppleTestEnv(t *testing.T) *appleTestEnv {
@@ -28,15 +27,13 @@ func newAppleTestEnv(t *testing.T) *appleTestEnv {
 	sharedPg.Truncate(t)
 
 	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
-	builder := newFakeEventBuilder(nil)
 	// 既定の MockAppleJWSVerifier は 3-part JWS の payload を base64 デコードして
 	// 返すだけの no-verify 動作。証明書チェーン検証ロジックは adapter 側で
 	// 独立にテストする。
-	notifier := NewAppleNotifier(subRepo, builder, &port.MockAppleJWSVerifier{})
+	notifier := NewAppleNotifier(subRepo, &port.MockAppleJWSVerifier{})
 	return &appleTestEnv{
-		notifier:   notifier,
-		subRepo:    subRepo,
-		premiumPub: builder.premiumPub,
+		notifier: notifier,
+		subRepo:  subRepo,
 	}
 }
 
@@ -124,9 +121,10 @@ func TestHandleAppleNotification_PublishesEvent(t *testing.T) {
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
 
-			require.Len(t, env.premiumPub.calls, 1, "premium-updated を 1 回 enqueue")
-			assert.Equal(t, playerID, env.premiumPub.calls[0].PlayerID)
-			assert.Equal(t, tt.expectedPremium, env.premiumPub.calls[0].IsPremium)
+			events := selectPremiumUpdatedEvents(t)
+			require.Len(t, events, 1, "premium-updated を 1 回 enqueue")
+			assert.Equal(t, playerID, events[0].PlayerID)
+			assert.Equal(t, tt.expectedPremium, events[0].IsPremium)
 		})
 	}
 }
@@ -177,7 +175,7 @@ func TestHandleAppleNotification_NoPublish(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
-			assert.Empty(t, env.premiumPub.calls, "publish 無しの契約")
+			assert.Empty(t, selectPremiumUpdatedEvents(t), "publish 無しの契約")
 		})
 	}
 }
@@ -188,7 +186,7 @@ func TestHandleAppleNotification_SubscriptionNotFound(t *testing.T) {
 	notifPayload := buildAppleNotificationJWS(appleNotifExpired, "", "nonexistent-token", time.Now().UnixMilli())
 	err := env.notifier.HandleNotification(context.Background(), notifPayload)
 	assert.ErrorIs(t, err, ErrSubscriptionNotFound)
-	assert.Empty(t, env.premiumPub.calls, "副作用無しの契約")
+	assert.Empty(t, selectPremiumUpdatedEvents(t), "副作用無しの契約")
 }
 
 // 通知 body 自体が JWS として parse できないケース。

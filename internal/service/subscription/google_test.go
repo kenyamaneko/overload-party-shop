@@ -28,8 +28,6 @@ func (m *mockGoogleSubVerifier) GetSubscriptionExpiry(_ context.Context, _ strin
 type googleTestEnv struct {
 	notifier      *GoogleNotifier
 	subRepo       *postgres.SubscriptionRepository
-	premiumPub    *fakePremiumBuilder
-	builder       *fakeEventBuilder
 	expiryFetcher *mockGoogleSubVerifier
 }
 
@@ -38,14 +36,11 @@ func newGoogleTestEnv(t *testing.T) *googleTestEnv {
 	sharedPg.Truncate(t)
 
 	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
-	builder := newFakeEventBuilder(nil)
 	gv := &mockGoogleSubVerifier{expiry: time.Now().Add(30 * 24 * time.Hour)}
-	notifier := NewGoogleNotifier(subRepo, builder, gv)
+	notifier := NewGoogleNotifier(subRepo, gv)
 	return &googleTestEnv{
 		notifier:      notifier,
 		subRepo:       subRepo,
-		premiumPub:    builder.premiumPub,
-		builder:       builder,
 		expiryFetcher: gv,
 	}
 }
@@ -120,9 +115,10 @@ func TestHandleGoogleNotification_PublishesEvent(t *testing.T) {
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
 
-			require.Len(t, env.premiumPub.calls, 1, "premium-updated を 1 回 enqueue")
-			assert.Equal(t, playerID, env.premiumPub.calls[0].PlayerID)
-			assert.Equal(t, tt.expectedPremium, env.premiumPub.calls[0].IsPremium)
+			events := selectPremiumUpdatedEvents(t)
+			require.Len(t, events, 1, "premium-updated を 1 回 enqueue")
+			assert.Equal(t, playerID, events[0].PlayerID)
+			assert.Equal(t, tt.expectedPremium, events[0].IsPremium)
 		})
 	}
 }
@@ -171,7 +167,7 @@ func TestHandleGoogleNotification_NoPublish(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
-			assert.Empty(t, env.premiumPub.calls, "publish 無しの契約")
+			assert.Empty(t, selectPremiumUpdatedEvents(t), "publish 無しの契約")
 		})
 	}
 }
@@ -213,7 +209,7 @@ func TestHandleGoogleNotification_EarlyReturn(t *testing.T) {
 
 			err := env.notifier.HandleNotification(context.Background(), msg)
 			assert.ErrorIs(t, err, tt.wantErr)
-			assert.Empty(t, env.premiumPub.calls, "副作用無しの契約")
+			assert.Empty(t, selectPremiumUpdatedEvents(t), "副作用無しの契約")
 		})
 	}
 }
@@ -223,7 +219,7 @@ func TestHandleGoogleNotification_EarlyReturn(t *testing.T) {
 // case 固有の env 差し替えは configure で受ける — if 分岐をテスト内に入れない。
 func TestHandleGoogleNotification_VerifierPaths(t *testing.T) {
 	withNilVerifier := func(env *googleTestEnv) {
-		env.notifier = NewGoogleNotifier(env.subRepo, env.builder, nil)
+		env.notifier = NewGoogleNotifier(env.subRepo, nil)
 	}
 	withVerifierError := func(env *googleTestEnv) {
 		env.expiryFetcher.err = fmt.Errorf("google API 500")
@@ -284,7 +280,7 @@ func TestHandleGoogleNotification_VerifierPaths(t *testing.T) {
 			err := env.notifier.HandleNotification(context.Background(), msg)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantSubs)
-			assert.Empty(t, env.premiumPub.calls, "no publish on verifier failure")
+			assert.Empty(t, selectPremiumUpdatedEvents(t), "no publish on verifier failure")
 		})
 	}
 }

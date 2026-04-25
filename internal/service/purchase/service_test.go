@@ -9,77 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// fakeFactionBuilder は BuildFactionPurchased 呼び出しを記録するテスト用ダブル。
-// 既存テストが期待する .calls スライスのインタフェースを維持するため、
-// OutboxEventBuilder の「faction-purchased 側」を担当する小さな型として切り分けている。
-type fakeFactionBuilder struct {
-	calls []fakeFactionPubCall
-	err   error
-}
-
-type fakeFactionPubCall struct {
-	PlayerID string
-	Faction  string
-}
-
-func (f *fakeFactionBuilder) Build(playerID, faction string) (port.OutboxEvent, error) {
-	f.calls = append(f.calls, fakeFactionPubCall{PlayerID: playerID, Faction: faction})
-	if f.err != nil {
-		return port.OutboxEvent{}, f.err
-	}
-	return port.OutboxEvent{EventID: uuid.New(), Topic: apishop.TopicFactionPurchased, Payload: []byte(`{}`)}, nil
-}
-
-// fakePremiumBuilder は BuildPremiumUpdated 呼び出しを記録するテスト用ダブル。
-type fakePremiumBuilder struct {
-	calls []fakePremiumPubCall
-	err   error
-}
-
-type fakePremiumPubCall struct {
-	PlayerID  string
-	IsPremium bool
-	ExpiresAt *time.Time
-}
-
-func (f *fakePremiumBuilder) Build(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
-	f.calls = append(f.calls, fakePremiumPubCall{PlayerID: playerID, IsPremium: isPremium, ExpiresAt: expiresAt})
-	if f.err != nil {
-		return port.OutboxEvent{}, f.err
-	}
-	return port.OutboxEvent{EventID: uuid.New(), Topic: apishop.TopicPremiumUpdated, Payload: []byte(`{}`)}, nil
-}
-
-// fakeEventBuilder は OutboxEventBuilder を満たし、内部に faction/premium の
-// サブビルダーを保持する。テストは env.factionPub.calls / env.premiumPub.calls で
-// 旧来の publisher テストと同じ観点の観察を行える。
-type fakeEventBuilder struct {
-	factionPub *fakeFactionBuilder
-	premiumPub *fakePremiumBuilder
-}
-
-func newFakeEventBuilder(factionErr, premiumErr error) *fakeEventBuilder {
-	return &fakeEventBuilder{
-		factionPub: &fakeFactionBuilder{err: factionErr},
-		premiumPub: &fakePremiumBuilder{err: premiumErr},
-	}
-}
-
-func (f *fakeEventBuilder) BuildFactionPurchased(playerID, faction string) (port.OutboxEvent, error) {
-	return f.factionPub.Build(playerID, faction)
-}
-
-func (f *fakeEventBuilder) BuildPremiumUpdated(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
-	return f.premiumPub.Build(playerID, isPremium, expiresAt)
-}
 
 type testShopEnv struct {
 	svc                 *Service
@@ -88,11 +23,6 @@ type testShopEnv struct {
 	itemPurchaseRepo    *postgres.ItemPurchaseRepository
 	purchaseLookup      *postgres.PurchaseLookupRepository
 	subRepo             *postgres.SubscriptionRepository
-	// factionPub / premiumPub は旧 publisher 時代の観測 API を踏襲した
-	// builder 側のスパイ。テストは env.factionPub.calls / env.premiumPub.calls で
-	// 「どのイベントが enqueue 要求されたか」を検証する。
-	factionPub *fakeFactionBuilder
-	premiumPub *fakePremiumBuilder
 }
 
 // shopEnvOption は newTestShopEnv に渡す依存差し替えオプション。verifier 等
@@ -103,8 +33,6 @@ type shopEnvOption func(*shopEnvDeps)
 type shopEnvDeps struct {
 	appleVerifier  port.ReceiptVerifier
 	googleVerifier port.ReceiptVerifier
-	factionPubErr  error
-	premiumPubErr  error
 }
 
 func withAppleVerifier(v port.ReceiptVerifier) shopEnvOption {
@@ -113,14 +41,6 @@ func withAppleVerifier(v port.ReceiptVerifier) shopEnvOption {
 
 func withGoogleVerifier(v port.ReceiptVerifier) shopEnvOption {
 	return func(d *shopEnvDeps) { d.googleVerifier = v }
-}
-
-func withFactionPubErr(err error) shopEnvOption {
-	return func(d *shopEnvDeps) { d.factionPubErr = err }
-}
-
-func withPremiumPubErr(err error) shopEnvOption {
-	return func(d *shopEnvDeps) { d.premiumPubErr = err }
 }
 
 func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
@@ -140,9 +60,11 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	itemPurchaseRepo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	purchaseLookup := postgres.NewPurchaseLookupRepository(sharedPg.Pool)
 	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
-	builder := newFakeEventBuilder(deps.factionPubErr, deps.premiumPubErr)
 
-	svc := New(productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo, deps.appleVerifier, deps.googleVerifier, builder)
+	svc := New(
+		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo,
+		deps.appleVerifier, deps.googleVerifier,
+	)
 
 	return &testShopEnv{
 		svc:                 svc,
@@ -151,9 +73,45 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 		itemPurchaseRepo:    itemPurchaseRepo,
 		purchaseLookup:      purchaseLookup,
 		subRepo:             subRepo,
-		factionPub:          builder.factionPub,
-		premiumPub:          builder.premiumPub,
 	}
+}
+
+func selectFactionPurchasedEvents(t *testing.T) []apishop.FactionPurchasedEvent {
+	t.Helper()
+	rows, err := sharedPg.Pool.Query(context.Background(),
+		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
+		apishop.EventTypeFactionPurchased)
+	require.NoError(t, err)
+	defer rows.Close()
+	var events []apishop.FactionPurchasedEvent
+	for rows.Next() {
+		var payload []byte
+		require.NoError(t, rows.Scan(&payload))
+		var ev apishop.FactionPurchasedEvent
+		require.NoError(t, json.Unmarshal(payload, &ev))
+		events = append(events, ev)
+	}
+	require.NoError(t, rows.Err())
+	return events
+}
+
+func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
+	t.Helper()
+	rows, err := sharedPg.Pool.Query(context.Background(),
+		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
+		apishop.EventTypePremiumUpdated)
+	require.NoError(t, err)
+	defer rows.Close()
+	var events []apishop.PremiumUpdatedEvent
+	for rows.Next() {
+		var payload []byte
+		require.NoError(t, rows.Scan(&payload))
+		var ev apishop.PremiumUpdatedEvent
+		require.NoError(t, json.Unmarshal(payload, &ev))
+		events = append(events, ev)
+	}
+	require.NoError(t, rows.Err())
+	return events
 }
 
 // insertProduct はテスト用に商品を shop.products に直接 INSERT する。
@@ -164,6 +122,30 @@ func insertProduct(t *testing.T, p *apishop.Product) {
 		`INSERT INTO shop.products (product_id, name, type, price, content, description, image_url, is_active)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 		p.ProductID, p.Name, p.Type, p.Price, p.Content, p.Description, p.ImageURL, p.IsActive)
+	require.NoError(t, err)
+}
+
+// insertSubscription は業務アクションを経由せず subscription 行と token 行を seed する。
+func insertSubscription(t *testing.T, sub *apishop.Subscription, platform, purchaseToken string) {
+	t.Helper()
+	tokenTable := map[string]string{
+		apishop.PlatformIOS:     "shop.apple_subscription_tokens",
+		apishop.PlatformAndroid: "shop.google_subscription_tokens",
+	}[platform]
+	require.NotEmpty(t, tokenTable, "test seed: unsupported platform %q", platform)
+
+	ctx := context.Background()
+	require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+		`INSERT INTO shop.subscriptions (player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING subscription_id`,
+		sub.PlayerID, sub.ProductID, sub.Status,
+		sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
+		sub.CreatedAt, sub.UpdatedAt,
+	).Scan(&sub.SubscriptionID))
+	_, err := sharedPg.Pool.Exec(ctx,
+		fmt.Sprintf(`INSERT INTO %s (token, subscription_id) VALUES ($1, $2)`, tokenTable),
+		purchaseToken, sub.SubscriptionID,
+	)
 	require.NoError(t, err)
 }
 
@@ -187,9 +169,10 @@ func TestPurchase_FactionSet_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("publishes faction-purchased event", func(t *testing.T) {
-		require.Len(t, env.factionPub.calls, 1)
-		assert.Equal(t, "11111111-1111-1111-1111-111111111111", env.factionPub.calls[0].PlayerID)
-		assert.Equal(t, "Tenki", env.factionPub.calls[0].Faction)
+		events := selectFactionPurchasedEvents(t)
+		require.Len(t, events, 1)
+		assert.Equal(t, "11111111-1111-1111-1111-111111111111", events[0].PlayerID)
+		assert.Equal(t, "Tenki", events[0].Faction)
 	})
 
 	t.Run("writes shop-local owned faction", func(t *testing.T) {
@@ -223,7 +206,7 @@ func TestPurchase_Idempotent(t *testing.T) {
 	require.NoError(t, env.svc.Purchase(ctx, playerID, "faction_tenki", "ios", "receipt-token-1"))
 
 	// publish は 1 回のみ (2 回目は既存 token 検出経路で publish 前に return)
-	assert.Len(t, env.factionPub.calls, 1)
+	assert.Len(t, selectFactionPurchasedEvents(t), 1)
 }
 
 func TestPurchase_ReceiptFailed(t *testing.T) {
@@ -244,7 +227,7 @@ func TestPurchase_ReceiptFailed(t *testing.T) {
 
 	err := env.svc.Purchase(context.Background(), "33333333-3333-3333-3333-333333333333", "faction_tenki", "ios", "bad-receipt")
 	assert.ErrorIs(t, err, ErrReceiptVerificationFailed)
-	assert.Len(t, env.factionPub.calls, 0)
+	assert.Empty(t, selectFactionPurchasedEvents(t))
 }
 
 func TestPurchase_CosmeticItem(t *testing.T) {
@@ -265,7 +248,7 @@ func TestPurchase_CosmeticItem(t *testing.T) {
 
 	err := env.svc.Purchase(context.Background(), "44444444-4444-4444-4444-444444444444", "playmat_01", "android", "cosmetic-receipt")
 	require.NoError(t, err)
-	assert.Len(t, env.factionPub.calls, 0)
+	assert.Empty(t, selectFactionPurchasedEvents(t))
 }
 
 func TestPurchase_AlreadyOwned_FactionSet(t *testing.T) {
@@ -376,9 +359,10 @@ func TestSubscribe_Success(t *testing.T) {
 	require.NotNil(t, result)
 
 	t.Run("publishes premium-updated event", func(t *testing.T) {
-		require.Len(t, env.premiumPub.calls, 1)
-		assert.Equal(t, playerID, env.premiumPub.calls[0].PlayerID)
-		assert.True(t, env.premiumPub.calls[0].IsPremium)
+		events := selectPremiumUpdatedEvents(t)
+		require.Len(t, events, 1)
+		assert.Equal(t, playerID, events[0].PlayerID)
+		assert.True(t, events[0].IsPremium)
 	})
 
 	t.Run("creates active subscription record", func(t *testing.T) {
@@ -520,7 +504,7 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 
 	playerID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
 	now := time.Now()
-	require.NoError(t, env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
+	insertSubscription(t, &apishop.Subscription{
 		PlayerID:           playerID,
 		ProductID:          "premium_monthly",
 		Status:             apishop.SubscriptionStatusActive,
@@ -528,7 +512,7 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 		CurrentPeriodEnd:   now.Add(30 * 24 * time.Hour),
 		CreatedAt:          now,
 		UpdatedAt:          now,
-	}, apishop.PlatformIOS, "sub-token", port.OutboxEvent{}))
+	}, apishop.PlatformIOS, "sub-token")
 
 	products, err := env.svc.GetProducts(context.Background(), playerID)
 	require.NoError(t, err)
@@ -600,7 +584,7 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 				IsActive:  true,
 			})
 			playerID := fmt.Sprintf("dddddddd-%04d-dddd-dddd-dddddddddddd", i)
-			require.NoError(t, env.subRepo.CreateSubscription(context.Background(), &apishop.Subscription{
+			insertSubscription(t, &apishop.Subscription{
 				PlayerID:           playerID,
 				ProductID:          "premium_monthly",
 				Status:             tt.status,
@@ -608,7 +592,7 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 				CurrentPeriodEnd:   tt.periodEnd,
 				CreatedAt:          now,
 				UpdatedAt:          now,
-			}, apishop.PlatformIOS, fmt.Sprintf("sub-token-%d", i), port.OutboxEvent{}))
+			}, apishop.PlatformIOS, fmt.Sprintf("sub-token-%d", i))
 			products, err := env.svc.GetProducts(context.Background(), playerID)
 			require.NoError(t, err)
 			require.Len(t, products, 1)
@@ -753,77 +737,7 @@ func TestPurchase_DefensivePaths(t *testing.T) {
 			if tt.wantSubs != "" {
 				assert.Contains(t, err.Error(), tt.wantSubs)
 			}
-			assert.Empty(t, env.factionPub.calls, "no publish on defensive failure")
-		})
-	}
-}
-
-// Purchase 後の event builder 経路 — ビルダーエラー時は tx ごと rollback され
-// 購入行も outbox 行も残らない (dual-write 問題を避けるための atomic 契約)。
-func TestPurchase_FactionPublisherPaths(t *testing.T) {
-	tests := []struct {
-		name          string
-		opts          []shopEnvOption
-		wantErr       bool
-		wantErrSubs   string
-		wantCalls     int
-		wantFactionDB bool
-	}{
-		{
-			// EventBuilder が失敗するケース。購入行 + outbox 行が同一 tx なので
-			// ビルダーエラーは tx 開始前に露見し、購入行も書かれない。
-			name:          "event builder がエラーを返す（購入行も残らない）",
-			opts:          []shopEnvOption{withFactionPubErr(fmt.Errorf("build failed"))},
-			wantErr:       true,
-			wantErrSubs:   "build faction-purchased",
-			wantCalls:     1,
-			wantFactionDB: false,
-		},
-		{
-			// 正常系: builder 成功 → 購入行 + outbox 行が同一 tx で書かれる。
-			name:          "event builder が成功（購入行が永続化される）",
-			opts:          nil,
-			wantErr:       false,
-			wantCalls:     1,
-			wantFactionDB: true,
-		},
-	}
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			opts := append([]shopEnvOption{
-				withAppleVerifier(&port.MockReceiptVerifier{
-					VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-						return &port.VerifyResult{IsValid: true, TransactionID: "txn-pub"}, nil
-					},
-				}),
-			}, tt.opts...)
-			env := newTestShopEnv(t, opts...)
-			insertProduct(t, &apishop.Product{
-				ProductID: "faction_tenki",
-				Name:      "Tenki",
-				Type:      apishop.ProductTypeFactionSet,
-				Price:     980,
-				Content:   json.RawMessage(`{"faction":"Tenki"}`),
-				IsActive:  true,
-			})
-
-			playerID := fmt.Sprintf("11111111-%04d-2222-3333-444444444444", i)
-			err := env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", fmt.Sprintf("pub-token-%d", i))
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErrSubs)
-			} else {
-				require.NoError(t, err)
-			}
-			assert.Len(t, env.factionPub.calls, tt.wantCalls)
-
-			factions, ferr := env.factionPurchaseRepo.ListOwnedFactions(context.Background(), playerID)
-			require.NoError(t, ferr)
-			if tt.wantFactionDB {
-				assert.Contains(t, factions, "Tenki")
-			} else {
-				assert.NotContains(t, factions, "Tenki", "builder 失敗時は購入行も rollback される")
-			}
+			assert.Empty(t, selectFactionPurchasedEvents(t), "no publish on defensive failure")
 		})
 	}
 }
@@ -855,7 +769,7 @@ func TestSubscribe_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	assert.WithinDuration(t, *first, *second, time.Second)
-	assert.Len(t, env.premiumPub.calls, 1, "publish only on first subscribe")
+	assert.Len(t, selectPremiumUpdatedEvents(t), 1, "publish only on first subscribe")
 }
 
 // VerifySubscription が infra error (ネットワーク等) を返した場合のラップ。
@@ -878,76 +792,7 @@ func TestSubscribe_VerifierReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "verify subscription")
 	assert.Contains(t, err.Error(), "network timeout")
-	assert.Empty(t, env.premiumPub.calls)
-}
-
-// Subscribe 後の event builder 経路 — ビルダーエラー時は subscription 行も残らない
-// (同一 tx で outbox と atomic なため)。
-func TestSubscribe_PremiumPublisherPaths(t *testing.T) {
-	tests := []struct {
-		name        string
-		opts        []shopEnvOption
-		wantErr     bool
-		wantErrSubs string
-		wantCalls   int
-		wantSubDB   bool
-	}{
-		{
-			name:        "event builder がエラーを返す（フロー失敗、subscription 行も残らない）",
-			opts:        []shopEnvOption{withPremiumPubErr(fmt.Errorf("build failed"))},
-			wantErr:     true,
-			wantErrSubs: "build premium-updated",
-			wantCalls:   1,
-			wantSubDB:   false,
-		},
-		{
-			name:      "event builder が成功（subscription 行が永続化される）",
-			opts:      nil,
-			wantErr:   false,
-			wantCalls: 1,
-			wantSubDB: true,
-		},
-	}
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			expiresAt := time.Now().Add(30 * 24 * time.Hour)
-			opts := append([]shopEnvOption{
-				withAppleVerifier(&port.MockReceiptVerifier{
-					VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
-						return &port.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
-					},
-				}),
-			}, tt.opts...)
-			env := newTestShopEnv(t, opts...)
-			insertProduct(t, &apishop.Product{
-				ProductID: "premium_monthly",
-				Name:      "プレミアム月額",
-				Type:      apishop.ProductTypeSubscription,
-				Price:     480,
-				Content:   json.RawMessage(`{}`),
-				IsActive:  true,
-			})
-
-			playerID := fmt.Sprintf("44444444-%04d-bbbb-cccc-dddddddddddd", i)
-			_, err := env.svc.Subscribe(context.Background(), playerID, "premium_monthly", "ios", fmt.Sprintf("sub-pub-%d", i))
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErrSubs)
-			} else {
-				require.NoError(t, err)
-			}
-			assert.Len(t, env.premiumPub.calls, tt.wantCalls)
-
-			sub, ferr := env.subRepo.GetLatestSubscription(context.Background(), playerID)
-			require.NoError(t, ferr)
-			if tt.wantSubDB {
-				require.NotNil(t, sub)
-				assert.Equal(t, apishop.SubscriptionStatusActive, sub.Status)
-			} else {
-				assert.Nil(t, sub, "builder 失敗時は subscription 行も rollback される")
-			}
-		})
-	}
+	assert.Empty(t, selectPremiumUpdatedEvents(t))
 }
 
 // GetProducts の cosmetic 所有判定 — item_type/item_no が一致するときのみ IsOwned。

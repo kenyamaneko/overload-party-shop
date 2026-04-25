@@ -26,14 +26,13 @@ type FactionPurchaseRepo interface {
 
 // ItemPurchaseRepo は cosmetic 購入 aggregate を扱う。
 // shop.one_time_purchases + shop.{apple,google}_purchase_tokens + shop.player_items
-// + shop.outbox_events を単一トランザクションで操作する。
+// を単一トランザクションで操作する。cosmetic 購入は現状イベントを発行しないため
+// outbox には書かない。
 type ItemPurchaseRepo interface {
 	// CreatePurchase は purchase + token + player_item を単一 tx で挿入する。
-	// eventOnCreate が空でない (Topic != "") ときは同 tx で outbox にも書く。cosmetic 購入は
-	// 現状イベントを発行しないため eventOnCreate は通常空で呼ばれる。
 	// 既存 token があれば created=false で既存 purchase_id を purchase.PurchaseID に埋めて
-	// no-op で返し、player_item / outbox 挿入もスキップする。
-	CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string, eventOnCreate OutboxEvent) (created bool, err error)
+	// no-op で返し、player_item の挿入もスキップする。
+	CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string) (created bool, err error)
 	HasPlayerItem(ctx context.Context, playerID, itemType string, itemNo int64) (bool, error)
 	ListPlayerItems(ctx context.Context, playerID string) ([]*apishop.PlayerItem, error)
 }
@@ -52,15 +51,15 @@ type PurchaseLookupRepo interface {
 // 同一トランザクションで挿入する。FindSubscriptionByToken は platform を見て対応 token
 // テーブルを引いてから subscriptions に JOIN する。
 type SubscriptionRepo interface {
-	// CreateSubscription は subscription + token + outbox event を単一 tx で挿入する。
-	// event.Topic が空なら outbox には書かない (テストや outbox 無用の内部呼び出し向け)。
 	CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string, event OutboxEvent) error
 	// GetLatestSubscription は player の最新サブスクリプション 1 行を返す (platform 横断)。
 	GetLatestSubscription(ctx context.Context, playerID string) (*apishop.Subscription, error)
 	FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*apishop.Subscription, error)
-	// UpdateSubscription は subscription の status/期間を更新しつつ、event.Topic が空でなければ
-	// 同 tx で outbox に書く。webhook 駆動の状態遷移で publish を atomic に揃えるためのもの。
-	UpdateSubscription(ctx context.Context, sub *apishop.Subscription, event OutboxEvent) error
+	// UpdateSubscription / UpdateSubscriptionWithEvent の使い分け: 解約 (cancelled)
+	// 遷移はエンタイトルメント維持契約により premium-updated を発行しない。それ以外
+	// の状態遷移 (renew/expire/revoke) は subscriber に状態を伝える必要がある。
+	UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error
+	UpdateSubscriptionWithEvent(ctx context.Context, sub *apishop.Subscription, event OutboxEvent) error
 }
 
 // GameConfigRepo はゲーム設定値の読み取りを抽象化するインターフェースです。

@@ -3,10 +3,13 @@ package purchase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
 	"time"
+
+	"github.com/google/uuid"
 
 	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
@@ -29,7 +32,6 @@ type Service struct {
 	subRepo             port.SubscriptionRepo
 	appleVerifier       port.ReceiptVerifier
 	googleVerifier      port.ReceiptVerifier
-	eventBuilder        port.OutboxEventBuilder
 }
 
 func New(
@@ -40,7 +42,6 @@ func New(
 	subRepo port.SubscriptionRepo,
 	appleVerifier port.ReceiptVerifier,
 	googleVerifier port.ReceiptVerifier,
-	eventBuilder port.OutboxEventBuilder,
 ) *Service {
 	return &Service{
 		productRepo:         productRepo,
@@ -50,7 +51,6 @@ func New(
 		subRepo:             subRepo,
 		appleVerifier:       appleVerifier,
 		googleVerifier:      googleVerifier,
-		eventBuilder:        eventBuilder,
 	}
 }
 
@@ -191,11 +191,11 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 
 	switch product.Type {
 	case apishop.ProductTypeFactionSet:
-		event, err := s.eventBuilder.BuildFactionPurchased(playerID, factionContent.Faction)
+		ev, err := buildFactionPurchasedEvent(playerID, factionContent.Faction)
 		if err != nil {
 			return fmt.Errorf("build faction-purchased: %w", err)
 		}
-		if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken, event); err != nil {
+		if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken, ev); err != nil {
 			return fmt.Errorf("create faction purchase: %w", err)
 		}
 	case apishop.ProductTypeCosmetic:
@@ -205,7 +205,7 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 			ItemNo:     cosmeticContent.ItemNo,
 			AcquiredAt: time.Now(),
 		}
-		if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, pf, purchaseToken, port.OutboxEvent{}); err != nil {
+		if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, pf, purchaseToken); err != nil {
 			return fmt.Errorf("create item purchase: %w", err)
 		}
 	}
@@ -257,11 +257,11 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purcha
 		UpdatedAt:          time.Now(),
 	}
 
-	event, err := s.eventBuilder.BuildPremiumUpdated(playerID, true, &info.ExpiresAt)
+	ev, err := buildPremiumUpdatedEvent(playerID, true, &info.ExpiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("build premium-updated: %w", err)
 	}
-	if err := s.subRepo.CreateSubscription(ctx, sub, pf, purchaseToken, event); err != nil {
+	if err := s.subRepo.CreateSubscription(ctx, sub, pf, purchaseToken, ev); err != nil {
 		return nil, fmt.Errorf("create subscription: %w", err)
 	}
 
@@ -277,4 +277,55 @@ func (s *Service) getVerifier(pf string) (port.ReceiptVerifier, error) {
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
 	}
+}
+
+func buildFactionPurchasedEvent(playerID, faction string) (port.OutboxEvent, error) {
+	if playerID == "" {
+		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
+	}
+	if faction == "" {
+		return port.OutboxEvent{}, errors.New("purchase: faction is empty")
+	}
+	eventID := uuid.New()
+	ev := apishop.FactionPurchasedEvent{
+		EventType: apishop.EventTypeFactionPurchased,
+		EventID:   eventID.String(),
+		Timestamp: time.Now().UTC(),
+		PlayerID:  playerID,
+		Faction:   faction,
+	}
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		return port.OutboxEvent{}, fmt.Errorf("marshal faction-purchased: %w", err)
+	}
+	return port.OutboxEvent{
+		EventID:   eventID,
+		EventType: apishop.EventTypeFactionPurchased,
+		Payload:   payload,
+	}, nil
+}
+
+func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
+	if playerID == "" {
+		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
+	}
+	eventID := uuid.New()
+	ev := apishop.PremiumUpdatedEvent{
+		EventType:        apishop.EventTypePremiumUpdated,
+		EventID:          eventID.String(),
+		Timestamp:        time.Now().UTC(),
+		PlayerID:         playerID,
+		IsPremium:        isPremium,
+		PremiumExpiresAt: expiresAt,
+		Source:           apishop.PremiumUpdatedSourceShop,
+	}
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		return port.OutboxEvent{}, fmt.Errorf("marshal premium-updated: %w", err)
+	}
+	return port.OutboxEvent{
+		EventID:   eventID,
+		EventType: apishop.EventTypePremiumUpdated,
+		Payload:   payload,
+	}, nil
 }

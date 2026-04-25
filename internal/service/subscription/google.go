@@ -41,19 +41,16 @@ const (
 // Apple 側の依存は持たない。
 type GoogleNotifier struct {
 	subRepo       port.SubscriptionRepo
-	eventBuilder  port.OutboxEventBuilder
 	expiryFetcher port.GoogleSubVerifier
 }
 
 // NewGoogleNotifier は依存を受け取り GoogleNotifier を構築する。
 func NewGoogleNotifier(
 	subRepo port.SubscriptionRepo,
-	eventBuilder port.OutboxEventBuilder,
 	expiryFetcher port.GoogleSubVerifier,
 ) *GoogleNotifier {
 	return &GoogleNotifier{
 		subRepo:       subRepo,
-		eventBuilder:  eventBuilder,
 		expiryFetcher: expiryFetcher,
 	}
 }
@@ -96,21 +93,21 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 		sub.Status = apishop.SubscriptionStatusActive
 		sub.CurrentPeriodEnd = newExpiry
 		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, n.eventBuilder, sub, true, &newExpiry); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, sub, true, &newExpiry); err != nil {
 			return err
 		}
 
 	case googleSubExpired:
 		sub.Status = apishop.SubscriptionStatusExpired
 		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, n.eventBuilder, sub, false, nil); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubRevoked:
 		sub.Status = apishop.SubscriptionStatusRevoked
 		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, n.eventBuilder, sub, false, nil); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
 			return err
 		}
 

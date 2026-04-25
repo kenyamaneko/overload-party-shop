@@ -2,8 +2,12 @@ package subscription
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
@@ -25,30 +29,55 @@ func IsEntitled(sub *apishop.Subscription, now time.Time) bool {
 	return false
 }
 
-// writeWithEvent はサブスクリプション行の更新と premium-updated 行の outbox enqueue を
-// 同一 tx で行う (dual-write 問題を避ける契約)。AppleNotifier / GoogleNotifier 共通。
+// writeWithEvent / writeNoEvent は dual-write 問題を避けるため subscription 行
+// 更新と premium-updated 発行 (またはその不発行) を同一 tx に揃える共通経路。
+// AppleNotifier / GoogleNotifier 共通。
 func writeWithEvent(
 	ctx context.Context,
 	subRepo port.SubscriptionRepo,
-	eventBuilder port.OutboxEventBuilder,
 	sub *apishop.Subscription,
 	isPremium bool,
 	expiresAt *time.Time,
 ) error {
-	ev, err := eventBuilder.BuildPremiumUpdated(sub.PlayerID, isPremium, expiresAt)
+	ev, err := buildPremiumUpdatedEvent(sub.PlayerID, isPremium, expiresAt)
 	if err != nil {
 		return fmt.Errorf("build premium-updated: %w", err)
 	}
-	if err := subRepo.UpdateSubscription(ctx, sub, ev); err != nil {
+	if err := subRepo.UpdateSubscriptionWithEvent(ctx, sub, ev); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
 	}
 	return nil
 }
 
-// writeNoEvent は premium-updated を発行しない状態遷移 (解約時の cancelled 遷移など、
-// エンタイトルメント維持契約により publish しないケース) で使う。
+func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
+	if playerID == "" {
+		return port.OutboxEvent{}, errors.New("subscription: playerID is empty")
+	}
+	eventID := uuid.New()
+	ev := apishop.PremiumUpdatedEvent{
+		EventType:        apishop.EventTypePremiumUpdated,
+		EventID:          eventID.String(),
+		Timestamp:        time.Now().UTC(),
+		PlayerID:         playerID,
+		IsPremium:        isPremium,
+		PremiumExpiresAt: expiresAt,
+		Source:           apishop.PremiumUpdatedSourceShop,
+	}
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		return port.OutboxEvent{}, fmt.Errorf("marshal premium-updated: %w", err)
+	}
+	return port.OutboxEvent{
+		EventID:   eventID,
+		EventType: apishop.EventTypePremiumUpdated,
+		Payload:   payload,
+	}, nil
+}
+
+// writeNoEvent は cancelled 遷移用 (エンタイトルメント維持契約 — 期限到来までは
+// is_premium=false を subscriber に伝えない)。
 func writeNoEvent(ctx context.Context, subRepo port.SubscriptionRepo, sub *apishop.Subscription) error {
-	if err := subRepo.UpdateSubscription(ctx, sub, port.OutboxEvent{}); err != nil {
+	if err := subRepo.UpdateSubscription(ctx, sub); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
 	}
 	return nil
