@@ -51,7 +51,7 @@ func insertOutboxRow(t *testing.T, testIdx, seedIdx int, payload []byte) uuid.UU
 	factionRepo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	purchase := &apishop.OneTimePurchase{PlayerID: playerID, ProductID: "faction_" + faction, PurchasedAt: time.Now().UTC()}
 	_, err := factionRepo.CreatePurchase(context.Background(), purchase, faction, apishop.PlatformIOS, token,
-		port.OutboxEvent{EventID: id, Topic: apishop.TopicFactionPurchased, Payload: payload})
+		port.OutboxEvent{EventID: id, EventType: apishop.EventTypeFactionPurchased, Payload: payload})
 	require.NoError(t, err)
 	return id
 }

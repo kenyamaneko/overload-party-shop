@@ -37,7 +37,7 @@ func newGoogleTestEnv(t *testing.T) *googleTestEnv {
 
 	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	gv := &mockGoogleSubVerifier{expiry: time.Now().Add(30 * 24 * time.Hour)}
-	notifier := NewGoogleNotifier(subRepo, apishop.TopicPremiumUpdated, gv)
+	notifier := NewGoogleNotifier(subRepo, gv)
 	return &googleTestEnv{
 		notifier:      notifier,
 		subRepo:       subRepo,
@@ -219,7 +219,7 @@ func TestHandleGoogleNotification_EarlyReturn(t *testing.T) {
 // case 固有の env 差し替えは configure で受ける — if 分岐をテスト内に入れない。
 func TestHandleGoogleNotification_VerifierPaths(t *testing.T) {
 	withNilVerifier := func(env *googleTestEnv) {
-		env.notifier = NewGoogleNotifier(env.subRepo, apishop.TopicPremiumUpdated, nil)
+		env.notifier = NewGoogleNotifier(env.subRepo, nil)
 	}
 	withVerifierError := func(env *googleTestEnv) {
 		env.expiryFetcher.err = fmt.Errorf("google API 500")

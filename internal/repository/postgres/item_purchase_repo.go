@@ -46,7 +46,7 @@ func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *a
 		return false, fmt.Errorf("insert player item: %w", err)
 	}
 
-	if eventOnCreate.Topic != "" {
+	if eventOnCreate.EventType != "" {
 		if err := writeOutboxEvent(ctx, tx, eventOnCreate); err != nil {
 			return false, err
 		}

@@ -40,9 +40,9 @@ func TestMain(m *testing.M) {
 }
 
 // Publisher を emulator に向けて構築するヘルパ。両 topic を事前作成。
-// Outbox 導入後、Publisher は topic + payload を取る低レベル送信層、payload 構築は
-// service/event の build 関数が担う。Integration test は両者を直結して end-to-end
-// の shape を検証する。
+// emulator では topic 名を UUID-suffix 付きで隔離するため、構築時に物理 topic 名
+// を渡す。Publisher は内部で apishop.EventType* → 該当 topic の対応表を組む。
+// Integration test は event.Build* と Publisher を直結して end-to-end shape を検証。
 func setupPublisher(t *testing.T) (*Publisher, string, string) {
 	t.Helper()
 	factionTopic := sharedEmulator.CreateTopic(t, apishop.TopicFactionPurchased)
@@ -63,9 +63,9 @@ func TestIntegration_PublishFactionPurchased(t *testing.T) {
 	sub := sharedEmulator.Subscribe(t, factionTopic)
 
 	ctx := context.Background()
-	ev, err := event.BuildFactionPurchased(factionTopic, "player-123", "Tenki")
+	ev, err := event.BuildFactionPurchased("player-123", "Tenki")
 	require.NoError(t, err)
-	require.NoError(t, pub.Publish(ctx, ev.Topic, ev.Payload))
+	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)
@@ -87,9 +87,9 @@ func TestIntegration_PublishPremiumUpdated_Granted(t *testing.T) {
 
 	ctx := context.Background()
 	expiresAt := time.Now().Add(30 * 24 * time.Hour).UTC()
-	ev, err := event.BuildPremiumUpdated(premiumTopic, "player-premium", true, &expiresAt)
+	ev, err := event.BuildPremiumUpdated("player-premium", true, &expiresAt)
 	require.NoError(t, err)
-	require.NoError(t, pub.Publish(ctx, ev.Topic, ev.Payload))
+	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)
@@ -113,9 +113,9 @@ func TestIntegration_PublishPremiumUpdated_Revoked(t *testing.T) {
 	sub := sharedEmulator.Subscribe(t, premiumTopic)
 
 	ctx := context.Background()
-	ev, err := event.BuildPremiumUpdated(premiumTopic, "player-not-premium", false, nil)
+	ev, err := event.BuildPremiumUpdated("player-not-premium", false, nil)
 	require.NoError(t, err)
-	require.NoError(t, pub.Publish(ctx, ev.Topic, ev.Payload))
+	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)

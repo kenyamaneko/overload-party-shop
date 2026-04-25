@@ -40,21 +40,18 @@ const (
 // RTDN payload には expiry が含まれないため expiryFetcher (Play Developer API) で取得する。
 // Apple 側の依存は持たない。
 type GoogleNotifier struct {
-	subRepo             port.SubscriptionRepo
-	premiumUpdatedTopic string
-	expiryFetcher       port.GoogleSubVerifier
+	subRepo       port.SubscriptionRepo
+	expiryFetcher port.GoogleSubVerifier
 }
 
 // NewGoogleNotifier は依存を受け取り GoogleNotifier を構築する。
 func NewGoogleNotifier(
 	subRepo port.SubscriptionRepo,
-	premiumUpdatedTopic string,
 	expiryFetcher port.GoogleSubVerifier,
 ) *GoogleNotifier {
 	return &GoogleNotifier{
-		subRepo:             subRepo,
-		premiumUpdatedTopic: premiumUpdatedTopic,
-		expiryFetcher:       expiryFetcher,
+		subRepo:       subRepo,
+		expiryFetcher: expiryFetcher,
 	}
 }
 
@@ -96,21 +93,21 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 		sub.Status = apishop.SubscriptionStatusActive
 		sub.CurrentPeriodEnd = newExpiry
 		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, n.premiumUpdatedTopic, sub, true, &newExpiry); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, sub, true, &newExpiry); err != nil {
 			return err
 		}
 
 	case googleSubExpired:
 		sub.Status = apishop.SubscriptionStatusExpired
 		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, n.premiumUpdatedTopic, sub, false, nil); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubRevoked:
 		sub.Status = apishop.SubscriptionStatusRevoked
 		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, n.premiumUpdatedTopic, sub, false, nil); err != nil {
+		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
 			return err
 		}
 

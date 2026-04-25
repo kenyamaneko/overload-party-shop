@@ -30,7 +30,7 @@ func newAppleTestEnv(t *testing.T) *appleTestEnv {
 	// 既定の MockAppleJWSVerifier は 3-part JWS の payload を base64 デコードして
 	// 返すだけの no-verify 動作。証明書チェーン検証ロジックは adapter 側で
 	// 独立にテストする。
-	notifier := NewAppleNotifier(subRepo, apishop.TopicPremiumUpdated, &port.MockAppleJWSVerifier{})
+	notifier := NewAppleNotifier(subRepo, &port.MockAppleJWSVerifier{})
 	return &appleTestEnv{
 		notifier: notifier,
 		subRepo:  subRepo,

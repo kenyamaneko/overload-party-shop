@@ -17,20 +17,24 @@ import (
 // service/event の build 関数が構築する。postgres adapter は payload の
 // スキーマを知らず、単に bytes として書き込む。
 //
-// ゼロ値 (Topic == "") は「イベントを書かない」を意味し、repo 層はこの値を
+// EventType は論理イベント種別 (apishop.EventType*)。物理 topic 名への解決は
+// pubsub adapter が内部で行うため、service / outbox / worker は EventType しか
+// 触らない (Pub/Sub 固有概念は adapter に閉じ込める)。
+//
+// ゼロ値 (EventType == "") は「イベントを書かない」を意味し、repo 層はこの値を
 // 受け取ったとき outbox への INSERT をスキップする (解約遷移など publish
 // しない状態遷移で使う)。
 type OutboxEvent struct {
-	EventID uuid.UUID
-	Topic   string
-	Payload []byte
+	EventID   uuid.UUID
+	EventType string
+	Payload   []byte
 }
 
 // ClaimedOutboxEvent は OutboxStore.ClaimUnpublished が返す 1 行分の情報。
 // failure_count は閾値超過の alert 判定に使う。
 type ClaimedOutboxEvent struct {
 	EventID      uuid.UUID
-	Topic        string
+	EventType    string
 	Payload      []byte
 	FailureCount int
 }

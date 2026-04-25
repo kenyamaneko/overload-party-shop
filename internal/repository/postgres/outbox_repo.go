@@ -19,9 +19,9 @@ var _ port.OutboxStore = (*OutboxRepository)(nil)
 // Create/Update の tx に outbox INSERT を相乗りさせる。
 func writeOutboxEvent(ctx context.Context, tx pgx.Tx, ev port.OutboxEvent) error {
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO shop.outbox_events (event_id, topic, payload)
+		`INSERT INTO shop.outbox_events (event_id, event_type, payload)
 		 VALUES ($1, $2, $3)`,
-		ev.EventID, ev.Topic, ev.Payload,
+		ev.EventID, ev.EventType, ev.Payload,
 	); err != nil {
 		return fmt.Errorf("insert outbox event: %w", err)
 	}
@@ -67,7 +67,7 @@ func (r *OutboxRepository) ClaimUnpublished(ctx context.Context, limit int, visi
 		   SET last_attempted_at = now()
 		  FROM claimed c
 		 WHERE o.event_id = c.event_id
-		 RETURNING o.event_id, o.topic, o.payload, o.failure_count`,
+		 RETURNING o.event_id, o.event_type, o.payload, o.failure_count`,
 		limit, visibilityInterval, failureThreshold,
 	)
 	if err != nil {
@@ -78,7 +78,7 @@ func (r *OutboxRepository) ClaimUnpublished(ctx context.Context, limit int, visi
 	var claimed []port.ClaimedOutboxEvent
 	for rows.Next() {
 		var ev port.ClaimedOutboxEvent
-		if err := rows.Scan(&ev.EventID, &ev.Topic, &ev.Payload, &ev.FailureCount); err != nil {
+		if err := rows.Scan(&ev.EventID, &ev.EventType, &ev.Payload, &ev.FailureCount); err != nil {
 			return nil, fmt.Errorf("scan claimed row: %w", err)
 		}
 		claimed = append(claimed, ev)

@@ -29,7 +29,7 @@ type FactionPurchaseRepo interface {
 // + shop.outbox_events を単一トランザクションで操作する。
 type ItemPurchaseRepo interface {
 	// CreatePurchase は purchase + token + player_item を単一 tx で挿入する。
-	// eventOnCreate が空でない (Topic != "") ときは同 tx で outbox にも書く。cosmetic 購入は
+	// eventOnCreate が空でない (EventType != "") ときは同 tx で outbox にも書く。cosmetic 購入は
 	// 現状イベントを発行しないため eventOnCreate は通常空で呼ばれる。
 	// 既存 token があれば created=false で既存 purchase_id を purchase.PurchaseID に埋めて
 	// no-op で返し、player_item / outbox 挿入もスキップする。
@@ -53,12 +53,12 @@ type PurchaseLookupRepo interface {
 // テーブルを引いてから subscriptions に JOIN する。
 type SubscriptionRepo interface {
 	// CreateSubscription は subscription + token + outbox event を単一 tx で挿入する。
-	// event.Topic が空なら outbox には書かない (テストや outbox 無用の内部呼び出し向け)。
+	// event.EventType が空なら outbox には書かない (テストや outbox 無用の内部呼び出し向け)。
 	CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string, event OutboxEvent) error
 	// GetLatestSubscription は player の最新サブスクリプション 1 行を返す (platform 横断)。
 	GetLatestSubscription(ctx context.Context, playerID string) (*apishop.Subscription, error)
 	FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*apishop.Subscription, error)
-	// UpdateSubscription は subscription の status/期間を更新しつつ、event.Topic が空でなければ
+	// UpdateSubscription は subscription の status/期間を更新しつつ、event.EventType が空でなければ
 	// 同 tx で outbox に書く。webhook 駆動の状態遷移で publish を atomic に揃えるためのもの。
 	UpdateSubscription(ctx context.Context, sub *apishop.Subscription, event OutboxEvent) error
 }

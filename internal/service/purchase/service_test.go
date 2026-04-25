@@ -64,7 +64,6 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	svc := New(
 		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo,
 		deps.appleVerifier, deps.googleVerifier,
-		apishop.TopicFactionPurchased, apishop.TopicPremiumUpdated,
 	)
 
 	return &testShopEnv{
@@ -84,8 +83,8 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 func selectFactionPurchasedEvents(t *testing.T) []apishop.FactionPurchasedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
-		`SELECT payload FROM shop.outbox_events WHERE topic = $1 ORDER BY created_at`,
-		apishop.TopicFactionPurchased)
+		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
+		apishop.EventTypeFactionPurchased)
 	require.NoError(t, err)
 	defer rows.Close()
 	var events []apishop.FactionPurchasedEvent
@@ -104,8 +103,8 @@ func selectFactionPurchasedEvents(t *testing.T) []apishop.FactionPurchasedEvent 
 func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
-		`SELECT payload FROM shop.outbox_events WHERE topic = $1 ORDER BY created_at`,
-		apishop.TopicPremiumUpdated)
+		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
+		apishop.EventTypePremiumUpdated)
 	require.NoError(t, err)
 	defer rows.Close()
 	var events []apishop.PremiumUpdatedEvent

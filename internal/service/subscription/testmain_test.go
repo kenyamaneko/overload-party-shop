@@ -31,8 +31,8 @@ func TestMain(m *testing.M) {
 func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
-		`SELECT payload FROM shop.outbox_events WHERE topic = $1 ORDER BY created_at`,
-		apishop.TopicPremiumUpdated)
+		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
+		apishop.EventTypePremiumUpdated)
 	require.NoError(t, err)
 	defer rows.Close()
 	var events []apishop.PremiumUpdatedEvent

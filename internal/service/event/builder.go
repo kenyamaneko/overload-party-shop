@@ -1,9 +1,10 @@
 // Package event はビジネスイベントを OutboxEvent (outbox 行 1 件分) に
 // シリアライズする pure 関数を提供する。
 //
-// 役割は postgres adapter での「pgxpool に対する SQL 構築」と対称で、
-// 「pubsub publisher に対する payload 構築」をサービス層のロジックとして
-// 表現する。adapter ではなく service 層に置くのは、apishop の event スキーマ
+// OutboxEvent には EventType (= 論理イベント種別 / apishop.EventType*) を
+// 載せる。物理 topic 名への解決は pubsub adapter (Publisher) が担うため、
+// この層では Pub/Sub 固有の概念に触れない。役割分担は postgres adapter での
+// 「pgxpool に対する SQL 構築」と対称で、apishop の event スキーマ
 // (= サービス間契約) を知っているのは service 層であるべきだから。
 package event
 
@@ -22,10 +23,7 @@ import (
 // BuildFactionPurchased は shop 購入起因の faction-purchased イベントを
 // outbox 行用の OutboxEvent に組み立てる。常に「購入による追加所有」を意味し、
 // onboarding 由来の初期 faction 付与は対象外。
-func BuildFactionPurchased(topic, playerID, faction string) (port.OutboxEvent, error) {
-	if topic == "" {
-		return port.OutboxEvent{}, errors.New("event: topic is empty")
-	}
+func BuildFactionPurchased(playerID, faction string) (port.OutboxEvent, error) {
 	if playerID == "" {
 		return port.OutboxEvent{}, errors.New("event: playerID is empty")
 	}
@@ -45,18 +43,15 @@ func BuildFactionPurchased(topic, playerID, faction string) (port.OutboxEvent, e
 		return port.OutboxEvent{}, fmt.Errorf("marshal faction-purchased: %w", err)
 	}
 	return port.OutboxEvent{
-		EventID: eventID,
-		Topic:   topic,
-		Payload: payload,
+		EventID:   eventID,
+		EventType: apishop.EventTypeFactionPurchased,
+		Payload:   payload,
 	}, nil
 }
 
 // BuildPremiumUpdated は subscription 状態変化起因の premium-updated イベントを
 // 構築する。expiresAt は任意 (is_premium=false のときは nil)。
-func BuildPremiumUpdated(topic, playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
-	if topic == "" {
-		return port.OutboxEvent{}, errors.New("event: topic is empty")
-	}
+func BuildPremiumUpdated(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
 	if playerID == "" {
 		return port.OutboxEvent{}, errors.New("event: playerID is empty")
 	}
@@ -75,8 +70,8 @@ func BuildPremiumUpdated(topic, playerID string, isPremium bool, expiresAt *time
 		return port.OutboxEvent{}, fmt.Errorf("marshal premium-updated: %w", err)
 	}
 	return port.OutboxEvent{
-		EventID: eventID,
-		Topic:   topic,
-		Payload: payload,
+		EventID:   eventID,
+		EventType: apishop.EventTypePremiumUpdated,
+		Payload:   payload,
 	}, nil
 }

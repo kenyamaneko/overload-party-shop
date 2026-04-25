@@ -193,7 +193,6 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) htt
 		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup,
 		subRepo,
 		vfs.apple, vfs.google,
-		cfg.FactionPurchasedTopic, cfg.PremiumUpdatedTopic,
 	)
 	shopH := rest.NewShopHandler(shopSvc)
 	var (
@@ -202,10 +201,10 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) htt
 	)
 	if cfg.IAPMode == config.IAPModeProduction {
 		appleWH = rest.NewAppleWebhookHandler(
-			subscription.NewAppleNotifier(subRepo, cfg.PremiumUpdatedTopic, vfs.appleJWS),
+			subscription.NewAppleNotifier(subRepo, vfs.appleJWS),
 		)
 		googleWH = rest.NewGoogleWebhookHandler(
-			subscription.NewGoogleNotifier(subRepo, cfg.PremiumUpdatedTopic, vfs.googleSub),
+			subscription.NewGoogleNotifier(subRepo, vfs.googleSub),
 		)
 	}
 	return router.New(shopH, appleWH, googleWH)

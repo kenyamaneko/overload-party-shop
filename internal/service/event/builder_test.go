@@ -14,28 +14,18 @@ import (
 func TestBuildFactionPurchased_Validation(t *testing.T) {
 	tests := []struct {
 		name     string
-		topic    string
 		playerID string
 		faction  string
 		wantErr  string
 	}{
 		{
-			name:     "topic 空",
-			topic:    "",
-			playerID: "player-1",
-			faction:  "Tenki",
-			wantErr:  "topic is empty",
-		},
-		{
 			name:     "playerID 空",
-			topic:    apishop.TopicFactionPurchased,
 			playerID: "",
 			faction:  "Tenki",
 			wantErr:  "playerID is empty",
 		},
 		{
 			name:     "faction 空",
-			topic:    apishop.TopicFactionPurchased,
 			playerID: "player-1",
 			faction:  "",
 			wantErr:  "faction is empty",
@@ -43,20 +33,21 @@ func TestBuildFactionPurchased_Validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := BuildFactionPurchased(tt.topic, tt.playerID, tt.faction)
+			_, err := BuildFactionPurchased(tt.playerID, tt.faction)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
 }
 
-// 正常系: 指定 topic を持ち、payload は apishop.FactionPurchasedEvent の shape に従う。
-// payload 内 eventId は OutboxEvent.EventID と一致 (subscriber の冪等キー)。
+// 正常系: EventType は apishop の論理名定数。payload は apishop.FactionPurchasedEvent
+// の shape に従い、payload 内 eventId は OutboxEvent.EventID と一致 (subscriber の
+// 冪等キー)。
 func TestBuildFactionPurchased_Success(t *testing.T) {
-	ev, err := BuildFactionPurchased(apishop.TopicFactionPurchased, "player-1", "Tenki")
+	ev, err := BuildFactionPurchased("player-1", "Tenki")
 	require.NoError(t, err)
 
-	assert.Equal(t, apishop.TopicFactionPurchased, ev.Topic)
+	assert.Equal(t, apishop.EventTypeFactionPurchased, ev.EventType)
 	assert.NotEqual(t, "", ev.EventID.String())
 
 	var decoded apishop.FactionPurchasedEvent
@@ -70,44 +61,21 @@ func TestBuildFactionPurchased_Success(t *testing.T) {
 
 // 同一入力でも EventID は毎回異なる (subscriber dedupe の前提)。
 func TestBuildFactionPurchased_EventIDUnique(t *testing.T) {
-	ev1, err := BuildFactionPurchased(apishop.TopicFactionPurchased, "player-1", "Tenki")
+	ev1, err := BuildFactionPurchased("player-1", "Tenki")
 	require.NoError(t, err)
-	ev2, err := BuildFactionPurchased(apishop.TopicFactionPurchased, "player-1", "Tenki")
+	ev2, err := BuildFactionPurchased("player-1", "Tenki")
 	require.NoError(t, err)
 	assert.NotEqual(t, ev1.EventID, ev2.EventID, "同一入力でも event_id は毎回異なる")
 }
 
 func TestBuildPremiumUpdated_Validation(t *testing.T) {
-	tests := []struct {
-		name     string
-		topic    string
-		playerID string
-		wantErr  string
-	}{
-		{
-			name:     "topic 空",
-			topic:    "",
-			playerID: "player-1",
-			wantErr:  "topic is empty",
-		},
-		{
-			name:     "playerID 空",
-			topic:    apishop.TopicPremiumUpdated,
-			playerID: "",
-			wantErr:  "playerID is empty",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := BuildPremiumUpdated(tt.topic, tt.playerID, true, nil)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
-		})
-	}
+	_, err := BuildPremiumUpdated("", true, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "playerID is empty")
 }
 
 // 正常系: is_premium と expiresAt の組み合わせがそのまま payload に乗る。
-// Source は shop 固定。
+// EventType は apishop の論理名定数で、Source は shop 固定。
 func TestBuildPremiumUpdated_Success(t *testing.T) {
 	expiresAt := time.Now().Add(30 * 24 * time.Hour).UTC()
 
@@ -129,10 +97,10 @@ func TestBuildPremiumUpdated_Success(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ev, err := BuildPremiumUpdated(apishop.TopicPremiumUpdated, "player-1", tt.isPremium, tt.expiresAt)
+			ev, err := BuildPremiumUpdated("player-1", tt.isPremium, tt.expiresAt)
 			require.NoError(t, err)
 
-			assert.Equal(t, apishop.TopicPremiumUpdated, ev.Topic)
+			assert.Equal(t, apishop.EventTypePremiumUpdated, ev.EventType)
 
 			var decoded apishop.PremiumUpdatedEvent
 			require.NoError(t, json.Unmarshal(ev.Payload, &decoded))

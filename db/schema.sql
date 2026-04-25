@@ -158,7 +158,7 @@ CREATE TABLE shop.player_owned_factions (
 -- 配信済み行は削除しない (監査・障害調査用に保持)。
 CREATE TABLE shop.outbox_events (
   event_id          UUID NOT NULL,                        -- payload 内 eventId と一致
-  topic             VARCHAR(100) NOT NULL,                -- Pub/Sub topic 名
+  event_type        VARCHAR(100) NOT NULL,                -- 論理イベント種別 (apishop.EventType*)。adapter が物理 topic に解決する
   payload           JSONB NOT NULL,                       -- JSON Marshal 済みイベント本体
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),   -- enqueue 日時
   published_at      TIMESTAMPTZ,                          -- NULL = 未配信

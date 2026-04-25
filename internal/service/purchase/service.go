@@ -23,15 +23,13 @@ import (
 // ビジネス行の INSERT と outbox 行の INSERT は repo 層の単一トランザクションで
 // 同時に commit される。publish は別プロセスの worker が outbox を消費して行う。
 type Service struct {
-	productRepo           port.ProductRepo
-	factionPurchaseRepo   port.FactionPurchaseRepo
-	itemPurchaseRepo      port.ItemPurchaseRepo
-	purchaseLookup        port.PurchaseLookupRepo
-	subRepo               port.SubscriptionRepo
-	appleVerifier         port.ReceiptVerifier
-	googleVerifier        port.ReceiptVerifier
-	factionPurchasedTopic string
-	premiumUpdatedTopic   string
+	productRepo         port.ProductRepo
+	factionPurchaseRepo port.FactionPurchaseRepo
+	itemPurchaseRepo    port.ItemPurchaseRepo
+	purchaseLookup      port.PurchaseLookupRepo
+	subRepo             port.SubscriptionRepo
+	appleVerifier       port.ReceiptVerifier
+	googleVerifier      port.ReceiptVerifier
 }
 
 func New(
@@ -42,19 +40,15 @@ func New(
 	subRepo port.SubscriptionRepo,
 	appleVerifier port.ReceiptVerifier,
 	googleVerifier port.ReceiptVerifier,
-	factionPurchasedTopic string,
-	premiumUpdatedTopic string,
 ) *Service {
 	return &Service{
-		productRepo:           productRepo,
-		factionPurchaseRepo:   factionPurchaseRepo,
-		itemPurchaseRepo:      itemPurchaseRepo,
-		purchaseLookup:        purchaseLookup,
-		subRepo:               subRepo,
-		appleVerifier:         appleVerifier,
-		googleVerifier:        googleVerifier,
-		factionPurchasedTopic: factionPurchasedTopic,
-		premiumUpdatedTopic:   premiumUpdatedTopic,
+		productRepo:         productRepo,
+		factionPurchaseRepo: factionPurchaseRepo,
+		itemPurchaseRepo:    itemPurchaseRepo,
+		purchaseLookup:      purchaseLookup,
+		subRepo:             subRepo,
+		appleVerifier:       appleVerifier,
+		googleVerifier:      googleVerifier,
 	}
 }
 
@@ -195,7 +189,7 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 
 	switch product.Type {
 	case apishop.ProductTypeFactionSet:
-		ev, err := event.BuildFactionPurchased(s.factionPurchasedTopic, playerID, factionContent.Faction)
+		ev, err := event.BuildFactionPurchased(playerID, factionContent.Faction)
 		if err != nil {
 			return fmt.Errorf("build faction-purchased: %w", err)
 		}
@@ -261,7 +255,7 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purcha
 		UpdatedAt:          time.Now(),
 	}
 
-	ev, err := event.BuildPremiumUpdated(s.premiumUpdatedTopic, playerID, true, &info.ExpiresAt)
+	ev, err := event.BuildPremiumUpdated(playerID, true, &info.ExpiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("build premium-updated: %w", err)
 	}

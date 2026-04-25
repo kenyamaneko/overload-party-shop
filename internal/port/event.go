@@ -2,9 +2,10 @@ package port
 
 import "context"
 
-// RawEventPublisher は outbox worker が topic + payload で Pub/Sub に送出する
-// 低レベルインターフェース。イベント struct の構築は service/event の build 関数
-// が担い、worker は構築済み payload を流すだけ。
+// RawEventPublisher は outbox worker が eventType + payload で Pub/Sub に送出する
+// 低レベルインターフェース。eventType (apishop.EventType*) を物理 topic 名に
+// 解決するのは adapter (pubsub.Publisher) の責務で、worker は outbox 行から
+// 取り出した eventType / payload をそのまま渡す。
 type RawEventPublisher interface {
-	Publish(ctx context.Context, topic string, payload []byte) error
+	Publish(ctx context.Context, eventType string, payload []byte) error
 }

@@ -48,7 +48,7 @@ func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase
 		return false, fmt.Errorf("insert owned faction: %w", err)
 	}
 
-	if eventOnCreate.Topic != "" {
+	if eventOnCreate.EventType != "" {
 		if err := writeOutboxEvent(ctx, tx, eventOnCreate); err != nil {
 			return false, err
 		}

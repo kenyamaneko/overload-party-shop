@@ -83,7 +83,7 @@ func (s *Publisher) RunOnce(ctx context.Context) error {
 // processOne は 1 行の publish と結果記録を行う。エラーを伝播しないのは
 // 同バッチ内の他行処理を止めないため。記録自体が失敗した場合は ERROR ログだけ出して継続。
 func (s *Publisher) processOne(ctx context.Context, ev port.ClaimedOutboxEvent) {
-	pubErr := s.pub.Publish(ctx, ev.Topic, ev.Payload)
+	pubErr := s.pub.Publish(ctx, ev.EventType, ev.Payload)
 	if pubErr == nil {
 		if err := s.store.MarkPublished(ctx, ev.EventID); err != nil {
 			slog.Error("mark published failed", "event_id", ev.EventID, "error", err)
@@ -93,10 +93,10 @@ func (s *Publisher) processOne(ctx context.Context, ev port.ClaimedOutboxEvent) 
 	attempts := ev.FailureCount + 1
 	if attempts >= s.failureThreshold {
 		slog.Error("outbox event stuck",
-			"event_id", ev.EventID, "topic", ev.Topic, "attempts", attempts, "error", pubErr)
+			"event_id", ev.EventID, "event_type", ev.EventType, "attempts", attempts, "error", pubErr)
 	} else {
 		slog.Warn("outbox publish failed",
-			"event_id", ev.EventID, "topic", ev.Topic, "attempts", attempts, "error", pubErr)
+			"event_id", ev.EventID, "event_type", ev.EventType, "attempts", attempts, "error", pubErr)
 	}
 	if err := s.store.RecordFailure(ctx, ev.EventID, pubErr.Error()); err != nil {
 		slog.Error("record failure failed", "event_id", ev.EventID, "error", err)
