@@ -2,12 +2,15 @@ package subscription
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/event"
 )
 
 // IsEntitled はサブスクリプションが指定時刻に特典有効かを返す。
@@ -35,7 +38,7 @@ func writeWithEvent(
 	isPremium bool,
 	expiresAt *time.Time,
 ) error {
-	ev, err := event.BuildPremiumUpdated(sub.PlayerID, isPremium, expiresAt)
+	ev, err := buildPremiumUpdatedEvent(sub.PlayerID, isPremium, expiresAt)
 	if err != nil {
 		return fmt.Errorf("build premium-updated: %w", err)
 	}
@@ -43,6 +46,34 @@ func writeWithEvent(
 		return fmt.Errorf("update subscription: %w", err)
 	}
 	return nil
+}
+
+// buildPremiumUpdatedEvent は domain 値から apishop.PremiumUpdatedEvent を
+// 組み立てて OutboxEvent にする。webhook 由来の状態遷移 (renew/expire/revoke)
+// で publish する。expiresAt は任意 (is_premium=false のときは nil)。
+func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
+	if playerID == "" {
+		return port.OutboxEvent{}, errors.New("subscription: playerID is empty")
+	}
+	eventID := uuid.New()
+	ev := apishop.PremiumUpdatedEvent{
+		EventType:        apishop.EventTypePremiumUpdated,
+		EventID:          eventID.String(),
+		Timestamp:        time.Now().UTC(),
+		PlayerID:         playerID,
+		IsPremium:        isPremium,
+		PremiumExpiresAt: expiresAt,
+		Source:           apishop.PremiumUpdatedSourceShop,
+	}
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		return port.OutboxEvent{}, fmt.Errorf("marshal premium-updated: %w", err)
+	}
+	return port.OutboxEvent{
+		EventID:   eventID,
+		EventType: apishop.EventTypePremiumUpdated,
+		Payload:   payload,
+	}, nil
 }
 
 // writeNoEvent は premium-updated を発行しない状態遷移 (解約時の cancelled 遷移など、

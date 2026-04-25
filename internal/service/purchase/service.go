@@ -3,15 +3,17 @@ package purchase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
+
 	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/event"
 	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
 )
 
@@ -189,7 +191,7 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 
 	switch product.Type {
 	case apishop.ProductTypeFactionSet:
-		ev, err := event.BuildFactionPurchased(playerID, factionContent.Faction)
+		ev, err := buildFactionPurchasedEvent(playerID, factionContent.Faction)
 		if err != nil {
 			return fmt.Errorf("build faction-purchased: %w", err)
 		}
@@ -255,7 +257,7 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purcha
 		UpdatedAt:          time.Now(),
 	}
 
-	ev, err := event.BuildPremiumUpdated(playerID, true, &info.ExpiresAt)
+	ev, err := buildPremiumUpdatedEvent(playerID, true, &info.ExpiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("build premium-updated: %w", err)
 	}
@@ -275,4 +277,61 @@ func (s *Service) getVerifier(pf string) (port.ReceiptVerifier, error) {
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
 	}
+}
+
+// buildFactionPurchasedEvent は domain 値から apishop.FactionPurchasedEvent を
+// 組み立て、JSON marshal して outbox 行用の OutboxEvent にする。purchase で
+// faction_set 購入が確定したときに呼ぶ。
+func buildFactionPurchasedEvent(playerID, faction string) (port.OutboxEvent, error) {
+	if playerID == "" {
+		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
+	}
+	if faction == "" {
+		return port.OutboxEvent{}, errors.New("purchase: faction is empty")
+	}
+	eventID := uuid.New()
+	ev := apishop.FactionPurchasedEvent{
+		EventType: apishop.EventTypeFactionPurchased,
+		EventID:   eventID.String(),
+		Timestamp: time.Now().UTC(),
+		PlayerID:  playerID,
+		Faction:   faction,
+	}
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		return port.OutboxEvent{}, fmt.Errorf("marshal faction-purchased: %w", err)
+	}
+	return port.OutboxEvent{
+		EventID:   eventID,
+		EventType: apishop.EventTypeFactionPurchased,
+		Payload:   payload,
+	}, nil
+}
+
+// buildPremiumUpdatedEvent は domain 値から apishop.PremiumUpdatedEvent を
+// 組み立てて OutboxEvent にする。Subscribe 完了時に呼ぶ。
+// expiresAt は任意 (is_premium=false のときは nil)。
+func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
+	if playerID == "" {
+		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
+	}
+	eventID := uuid.New()
+	ev := apishop.PremiumUpdatedEvent{
+		EventType:        apishop.EventTypePremiumUpdated,
+		EventID:          eventID.String(),
+		Timestamp:        time.Now().UTC(),
+		PlayerID:         playerID,
+		IsPremium:        isPremium,
+		PremiumExpiresAt: expiresAt,
+		Source:           apishop.PremiumUpdatedSourceShop,
+	}
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		return port.OutboxEvent{}, fmt.Errorf("marshal premium-updated: %w", err)
+	}
+	return port.OutboxEvent{
+		EventID:   eventID,
+		EventType: apishop.EventTypePremiumUpdated,
+		Payload:   payload,
+	}, nil
 }

@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub/pubsubtest"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/event"
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
@@ -42,7 +43,6 @@ func TestMain(m *testing.M) {
 // Publisher を emulator に向けて構築するヘルパ。両 topic を事前作成。
 // emulator では topic 名を UUID-suffix 付きで隔離するため、構築時に物理 topic 名
 // を渡す。Publisher は内部で apishop.EventType* → 該当 topic の対応表を組む。
-// Integration test は event.Build* と Publisher を直結して end-to-end shape を検証。
 func setupPublisher(t *testing.T) (*Publisher, string, string) {
 	t.Helper()
 	factionTopic := sharedEmulator.CreateTopic(t, apishop.TopicFactionPurchased)
@@ -56,15 +56,55 @@ func setupPublisher(t *testing.T) (*Publisher, string, string) {
 	return pub, factionTopic, premiumTopic
 }
 
-// event.BuildFactionPurchased が構築する payload が Publisher で送信できる
-// shape であることを固定する (outbox 行を worker が送出する経路の近似)。
+// buildFactionPurchasedOutbox / buildPremiumUpdatedOutbox はテスト内で
+// service 側 helper の同等物を用意する小ヘルパ。adapter テストから service
+// パッケージに逆依存しないため、構築ロジックは複製する。
+func buildFactionPurchasedOutbox(t *testing.T, playerID, faction string) port.OutboxEvent {
+	t.Helper()
+	id := uuid.New()
+	payload, err := json.Marshal(apishop.FactionPurchasedEvent{
+		EventType: apishop.EventTypeFactionPurchased,
+		EventID:   id.String(),
+		Timestamp: time.Now().UTC(),
+		PlayerID:  playerID,
+		Faction:   faction,
+	})
+	require.NoError(t, err)
+	return port.OutboxEvent{
+		EventID:   id,
+		EventType: apishop.EventTypeFactionPurchased,
+		Payload:   payload,
+	}
+}
+
+func buildPremiumUpdatedOutbox(t *testing.T, playerID string, isPremium bool, expiresAt *time.Time) port.OutboxEvent {
+	t.Helper()
+	id := uuid.New()
+	payload, err := json.Marshal(apishop.PremiumUpdatedEvent{
+		EventType:        apishop.EventTypePremiumUpdated,
+		EventID:          id.String(),
+		Timestamp:        time.Now().UTC(),
+		PlayerID:         playerID,
+		IsPremium:        isPremium,
+		PremiumExpiresAt: expiresAt,
+		Source:           apishop.PremiumUpdatedSourceShop,
+	})
+	require.NoError(t, err)
+	return port.OutboxEvent{
+		EventID:   id,
+		EventType: apishop.EventTypePremiumUpdated,
+		Payload:   payload,
+	}
+}
+
+// faction-purchased payload が Publisher で送信できる shape であることを固定する
+// (outbox 行を worker が送出する経路の近似)。
 func TestIntegration_PublishFactionPurchased(t *testing.T) {
 	pub, factionTopic, _ := setupPublisher(t)
 	sub := sharedEmulator.Subscribe(t, factionTopic)
 
 	ctx := context.Background()
-	ev, err := event.BuildFactionPurchased("player-123", "Tenki")
-	require.NoError(t, err)
+	ev := buildFactionPurchasedOutbox(t, "player-123", "Tenki")
 	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
@@ -87,8 +127,7 @@ func TestIntegration_PublishPremiumUpdated_Granted(t *testing.T) {
 
 	ctx := context.Background()
 	expiresAt := time.Now().Add(30 * 24 * time.Hour).UTC()
-	ev, err := event.BuildPremiumUpdated("player-premium", true, &expiresAt)
-	require.NoError(t, err)
+	ev := buildPremiumUpdatedOutbox(t, "player-premium", true, &expiresAt)
 	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
@@ -113,8 +152,7 @@ func TestIntegration_PublishPremiumUpdated_Revoked(t *testing.T) {
 	sub := sharedEmulator.Subscribe(t, premiumTopic)
 
 	ctx := context.Background()
-	ev, err := event.BuildPremiumUpdated("player-not-premium", false, nil)
-	require.NoError(t, err)
+	ev := buildPremiumUpdatedOutbox(t, "player-not-premium", false, nil)
 	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
