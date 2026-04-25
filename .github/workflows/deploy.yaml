@@ -12,7 +12,7 @@ on:
 
 permissions:
   contents: read
-  # Workload Identity Federation で GCP に認証するために OIDC トークンの発行権限が必要
+  # Workload Identity Federation で Google Cloud に認証するために OIDC トークンの発行権限が必要
   id-token: write
 
 concurrency:

@@ -151,7 +151,7 @@ func run() error {
 
 	slog.Info("listening",
 		"addr", srv.Addr,
-		"gcp_project", cfg.GoogleCloudProject,
+		"google_cloud_project", cfg.GoogleCloudProject,
 		"faction_topic", cfg.FactionPurchasedTopic,
 		"premium_topic", cfg.PremiumUpdatedTopic,
 	)

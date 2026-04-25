@@ -93,7 +93,7 @@ repo (`postgres.OutboxRepository`) は `port.OutboxStore` を実装する pure d
 Apple と Google で信頼の引き方が違う。新プラットフォーム追加時や webhook まわりを触るときに必要な前提:
 
 - **Apple**: payload は JWS (JSON Web Signature) で署名されている。shop 自身が `x5c` 証明書チェーンを Apple Root CA (`internal/service/apple_root_ca_g3.pem`) まで検証してからデコードする。**payload レベルの認証**。
-- **Google**: Pub/Sub push delivery 経由。メッセージ本体は署名されておらず、GCP の Pub/Sub subscription auth (transport レベル) で担保する。
+- **Google**: Pub/Sub push delivery 経由。メッセージ本体は署名されておらず、Google Cloud の Pub/Sub subscription auth (transport レベル) で担保する。
 
 どちらも gateway を経由しない外部エンドポイントだが、信頼境界を引くレイヤが異なる。この前提があるため、router に gateway 認証を挟んでいない。
 

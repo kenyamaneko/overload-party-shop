@@ -32,7 +32,7 @@ type Config struct {
 	// したがって機密情報ではなく ConfigMap で注入して良い。
 	DatabaseConn string
 
-	// GoogleCloudProject はこのサービスが利用する全 GCP リソース
+	// GoogleCloudProject はこのサービスが利用する全 Google Cloud リソース
 	// （Pub/Sub topic / Firestore / Secret Manager）の project ID。
 	GoogleCloudProject string
 
