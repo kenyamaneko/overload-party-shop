@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
 )
@@ -55,7 +55,7 @@ func New(
 }
 
 // GetProducts はプレイヤー向けの商品一覧を所有状態付きで返す。
-func (s *Service) GetProducts(ctx context.Context, playerID string) ([]apishop.ProductResponse, error) {
+func (s *Service) GetProducts(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error) {
 	products, err := s.productRepo.GetActiveProducts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get products: %w", err)
@@ -80,38 +80,28 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]apishop.P
 		return nil, fmt.Errorf("list owned items: %w", err)
 	}
 
-	result := make([]apishop.ProductResponse, 0, len(products))
+	result := make([]domain.ProductWithOwnership, 0, len(products))
 	for _, p := range products {
 		owned := false
 		switch p.Type {
-		case apishop.ProductTypeFactionSet:
-			var content apishop.FactionSetContent
+		case domain.ProductTypeFactionSet:
+			var content domain.FactionSetContent
 			if err := json.Unmarshal(p.Content, &content); err != nil {
 				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
 			}
 			owned = slices.Contains(ownedFactions, content.Faction)
-		case apishop.ProductTypeSubscription:
+		case domain.ProductTypeSubscription:
 			owned = subEntitled
-		case apishop.ProductTypeCosmetic:
-			var content apishop.CosmeticContent
+		case domain.ProductTypeCosmetic:
+			var content domain.CosmeticContent
 			if err := json.Unmarshal(p.Content, &content); err != nil {
 				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
 			}
-			owned = slices.ContainsFunc(ownedItems, func(it *apishop.PlayerItem) bool {
+			owned = slices.ContainsFunc(ownedItems, func(it *domain.PlayerItem) bool {
 				return it.ItemType == content.ItemType && it.ItemNo == content.ItemNo
 			})
 		}
-		result = append(result, apishop.ProductResponse{
-			ProductID:   p.ProductID,
-			Name:        p.Name,
-			Type:        p.Type,
-			Price:       p.Price,
-			Content:     p.Content,
-			Description: p.Description,
-			ImageURL:    p.ImageURL,
-			IsActive:    p.IsActive,
-			IsOwned:     owned,
-		})
+		result = append(result, domain.ProductWithOwnership{Product: *p, IsOwned: owned})
 	}
 	return result, nil
 }
@@ -144,12 +134,12 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 	}
 
 	var (
-		factionContent  apishop.FactionSetContent
-		cosmeticContent apishop.CosmeticContent
+		factionContent  domain.FactionSetContent
+		cosmeticContent domain.CosmeticContent
 	)
 
 	switch product.Type {
-	case apishop.ProductTypeFactionSet:
+	case domain.ProductTypeFactionSet:
 		if err := json.Unmarshal(product.Content, &factionContent); err != nil {
 			return fmt.Errorf("parse faction set content: %w", err)
 		}
@@ -163,7 +153,7 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 		if slices.Contains(ownedFactions, factionContent.Faction) {
 			return ErrAlreadyOwned
 		}
-	case apishop.ProductTypeCosmetic:
+	case domain.ProductTypeCosmetic:
 		if err := json.Unmarshal(product.Content, &cosmeticContent); err != nil {
 			return fmt.Errorf("parse cosmetic content: %w", err)
 		}
@@ -186,14 +176,14 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 		return ErrReceiptVerificationFailed
 	}
 
-	purchase := &apishop.OneTimePurchase{
+	purchase := &domain.OneTimePurchase{
 		PlayerID:    playerID,
 		ProductID:   productID,
 		PurchasedAt: time.Now(),
 	}
 
 	switch product.Type {
-	case apishop.ProductTypeFactionSet:
+	case domain.ProductTypeFactionSet:
 		ev, err := buildFactionPurchasedEvent(playerID, factionContent.Faction)
 		if err != nil {
 			return fmt.Errorf("build faction-purchased: %w", err)
@@ -201,8 +191,8 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 		if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken, ev); err != nil {
 			return fmt.Errorf("create faction purchase: %w", err)
 		}
-	case apishop.ProductTypeCosmetic:
-		item := &apishop.PlayerItem{
+	case domain.ProductTypeCosmetic:
+		item := &domain.PlayerItem{
 			PlayerID:   playerID,
 			ItemType:   cosmeticContent.ItemType,
 			ItemNo:     cosmeticContent.ItemNo,
@@ -238,7 +228,7 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purcha
 	if err != nil {
 		return nil, fmt.Errorf("get product: %w", err)
 	}
-	if product.Type != apishop.ProductTypeSubscription {
+	if product.Type != domain.ProductTypeSubscription {
 		return nil, ErrProductNotSubscription
 	}
 	info, err := verifier.VerifySubscription(ctx, purchaseToken)
@@ -250,10 +240,10 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purcha
 	}
 
 	now := time.Now()
-	sub := &apishop.Subscription{
+	sub := &domain.Subscription{
 		PlayerID:           playerID,
 		ProductID:          productID,
-		Status:             apishop.SubscriptionStatusActive,
+		Status:             domain.SubscriptionStatusActive,
 		CurrentPeriodStart: now,
 		CurrentPeriodEnd:   info.ExpiresAt,
 		CreatedAt:          time.Now(),
@@ -273,9 +263,9 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purcha
 
 func (s *Service) getVerifier(pf string) (port.ReceiptVerifier, error) {
 	switch pf {
-	case apishop.PlatformIOS:
+	case domain.PlatformIOS:
 		return s.appleVerifier, nil
-	case apishop.PlatformAndroid:
+	case domain.PlatformAndroid:
 		return s.googleVerifier, nil
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedPlatform, pf)
@@ -290,8 +280,8 @@ func buildFactionPurchasedEvent(playerID, faction string) (port.OutboxEvent, err
 		return port.OutboxEvent{}, errors.New("purchase: faction is empty")
 	}
 	eventID := uuid.New()
-	ev := apishop.FactionPurchasedEvent{
-		EventType: apishop.EventTypeFactionPurchased,
+	ev := domain.FactionPurchasedEvent{
+		EventType: domain.EventTypeFactionPurchased,
 		EventID:   eventID.String(),
 		Timestamp: time.Now().UTC(),
 		PlayerID:  playerID,
@@ -303,7 +293,7 @@ func buildFactionPurchasedEvent(playerID, faction string) (port.OutboxEvent, err
 	}
 	return port.OutboxEvent{
 		EventID:   eventID,
-		EventType: apishop.EventTypeFactionPurchased,
+		EventType: domain.EventTypeFactionPurchased,
 		Payload:   payload,
 	}, nil
 }
@@ -313,14 +303,14 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
 	}
 	eventID := uuid.New()
-	ev := apishop.PremiumUpdatedEvent{
-		EventType:        apishop.EventTypePremiumUpdated,
+	ev := domain.PremiumUpdatedEvent{
+		EventType:        domain.EventTypePremiumUpdated,
 		EventID:          eventID.String(),
 		Timestamp:        time.Now().UTC(),
 		PlayerID:         playerID,
 		IsPremium:        isPremium,
 		PremiumExpiresAt: expiresAt,
-		Source:           apishop.PremiumUpdatedSourceShop,
+		Source:           domain.PremiumUpdatedSourceShop,
 	}
 	payload, err := json.Marshal(ev)
 	if err != nil {
@@ -328,7 +318,7 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 	}
 	return port.OutboxEvent{
 		EventID:   eventID,
-		EventType: apishop.EventTypePremiumUpdated,
+		EventType: domain.EventTypePremiumUpdated,
 		Payload:   payload,
 	}, nil
 }

@@ -4,6 +4,18 @@
 
 サービス概要・起動手順は [../README.md](../README.md)、エンドポイントは [API_REFERENCE.md](API_REFERENCE.md)、テーブル定義は [DATA_DESIGN.md](DATA_DESIGN.md) を参照。
 
+## 型のレイヤ分離 (domain / wire / persistence)
+
+型は責務ごとに 3 つのレイヤに物理分離する。クリーンアーキテクチャの「ビジネスロジックは外部アダプターに依存しない」を構造で担保する。境界変換は handler (REST) と adapter (Pub/Sub) のみが担う。
+
+| レイヤ | 置き場所 | 役割 |
+|---|---|---|
+| domain | [internal/domain/](../internal/domain/) | エンティティ・値オブジェクト・状態機械定数・ドメインイベント |
+| wire | [packages/api-shop/](../packages/api-shop/) | REST request/response、webhook payload、Pub/Sub event の wire 契約 |
+| persistence | repository 実装内部 | DB 行マッピング (専用の row 型は持たず pgx の positional `Scan` で domain 型へ直接読み書き) |
+
+`packages/api-shop` は別 Go module で `internal/domain` を import できないため依存方向は物理強制される。inter-service event (`FactionPurchasedEvent` / `PremiumUpdatedEvent`) のみ両レイヤに同形状で生成する (producer は domain、外部 subscriber は wire)。重複は [data/models.yaml](../data/models.yaml) からの codegen に閉じ込めている。
+
 ## Shop の責務境界 (SSoT と read model)
 
 Shop は **IAP 取引そのもの** の single source of truth だが、**プレイヤーの所有状態** の authoritative owner ではない。

@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
@@ -25,7 +25,7 @@ func NewFactionPurchaseRepository(pool *pgxpool.Pool) *FactionPurchaseRepository
 	return &FactionPurchaseRepository{pool: pool}
 }
 
-func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, faction, platform, purchaseToken string, eventOnCreate port.OutboxEvent) (created bool, err error) {
+func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, faction, platform, purchaseToken string, eventOnCreate port.OutboxEvent) (created bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin tx: %w", err)

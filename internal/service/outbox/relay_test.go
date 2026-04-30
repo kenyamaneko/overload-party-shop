@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 )
 
 // fakeOutboxStore は port.OutboxStore の簡易モック。claim 系の返り値と各メソッド
@@ -144,7 +144,7 @@ func TestRelay_RunOnce(t *testing.T) {
 		{
 			name: "全件 publish 成功で全件 MarkPublished",
 			claimed: []port.ClaimedOutboxEvent{
-				{EventID: okID, EventType: apishop.EventTypeFactionPurchased, Payload: []byte(`{}`), FailureCount: 0},
+				{EventID: okID, EventType: domain.EventTypeFactionPurchased, Payload: []byte(`{}`), FailureCount: 0},
 			},
 			wantMarked:       []uuid.UUID{okID},
 			wantPublishCalls: 1,
@@ -152,9 +152,9 @@ func TestRelay_RunOnce(t *testing.T) {
 		{
 			name: "publish 失敗で RecordFailure を呼び、MarkPublished は呼ばない",
 			claimed: []port.ClaimedOutboxEvent{
-				{EventID: ngID, EventType: apishop.EventTypeFactionPurchased, Payload: []byte(`{}`), FailureCount: 0},
+				{EventID: ngID, EventType: domain.EventTypeFactionPurchased, Payload: []byte(`{}`), FailureCount: 0},
 			},
-			publishErrs:      map[string]error{apishop.EventTypeFactionPurchased: errors.New("pubsub down")},
+			publishErrs:      map[string]error{domain.EventTypeFactionPurchased: errors.New("pubsub down")},
 			wantFailed:       []uuid.UUID{ngID},
 			wantPublishCalls: 1,
 		},

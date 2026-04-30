@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,27 +68,27 @@ func TestHandleGoogleNotification_PublishesEvent(t *testing.T) {
 		{
 			name:            "更新",
 			notifType:       googleSubRenewed,
-			initialStatus:   apishop.SubscriptionStatusActive,
-			expectedStatus:  apishop.SubscriptionStatusActive,
+			initialStatus:   domain.SubscriptionStatusActive,
+			expectedStatus:  domain.SubscriptionStatusActive,
 			expectedPremium: true,
 		},
 		{
 			name:           "取消（revoke）",
 			notifType:      googleSubRevoked,
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusRevoked,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusRevoked,
 		},
 		{
 			name:           "期限切れ",
 			notifType:      googleSubExpired,
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusExpired,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusExpired,
 		},
 		{
 			name:            "期限切れからの復活",
 			notifType:       googleSubRecovered,
-			initialStatus:   apishop.SubscriptionStatusExpired,
-			expectedStatus:  apishop.SubscriptionStatusActive,
+			initialStatus:   domain.SubscriptionStatusExpired,
+			expectedStatus:  domain.SubscriptionStatusActive,
 			expectedPremium: true,
 		},
 	}
@@ -98,7 +98,7 @@ func TestHandleGoogleNotification_PublishesEvent(t *testing.T) {
 			env := newGoogleTestEnv(t)
 			token := "google-token-" + tt.name
 			playerID := fmt.Sprintf("bbbbbbbb-%04d-bbbb-bbbb-bbbbbbbbbbbb", i)
-			createTestSubscription(t, env.subRepo, apishop.PlatformAndroid, playerID, token, tt.initialStatus)
+			createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, tt.initialStatus)
 
 			msg := encodeRTDN(t, map[string]interface{}{
 				"subscriptionNotification": map[string]interface{}{
@@ -110,7 +110,7 @@ func TestHandleGoogleNotification_PublishesEvent(t *testing.T) {
 
 			require.NoError(t, env.notifier.HandleNotification(context.Background(), msg))
 
-			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformAndroid, token)
+			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformAndroid, token)
 			require.NoError(t, err)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
@@ -135,14 +135,14 @@ func TestHandleGoogleNotification_NoPublish(t *testing.T) {
 		{
 			name:           "自動更新キャンセル（cancelled 遷移）",
 			notifType:      googleSubCanceled,
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusCancelled,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusCancelled,
 		},
 		{
 			name:           "未対応の通知タイプは無視（status 変化なし）",
 			notifType:      99,
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusActive,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusActive,
 		},
 	}
 
@@ -151,7 +151,7 @@ func TestHandleGoogleNotification_NoPublish(t *testing.T) {
 			env := newGoogleTestEnv(t)
 			token := "google-nopub-token-" + tt.name
 			playerID := fmt.Sprintf("dddddddd-%04d-dddd-dddd-dddddddddddd", i)
-			createTestSubscription(t, env.subRepo, apishop.PlatformAndroid, playerID, token, tt.initialStatus)
+			createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, tt.initialStatus)
 
 			msg := encodeRTDN(t, map[string]interface{}{
 				"subscriptionNotification": map[string]interface{}{
@@ -163,7 +163,7 @@ func TestHandleGoogleNotification_NoPublish(t *testing.T) {
 
 			require.NoError(t, env.notifier.HandleNotification(context.Background(), msg))
 
-			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformAndroid, token)
+			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformAndroid, token)
 			require.NoError(t, err)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
@@ -235,28 +235,28 @@ func TestHandleGoogleNotification_VerifierPaths(t *testing.T) {
 		{
 			name:          "verifier 未設定＋更新通知",
 			notifType:     googleSubRenewed,
-			initialStatus: apishop.SubscriptionStatusActive,
+			initialStatus: domain.SubscriptionStatusActive,
 			configure:     withNilVerifier,
 			wantSubs:      "google subscription verifier not configured",
 		},
 		{
 			name:          "verifier 未設定＋復活通知",
 			notifType:     googleSubRecovered,
-			initialStatus: apishop.SubscriptionStatusExpired,
+			initialStatus: domain.SubscriptionStatusExpired,
 			configure:     withNilVerifier,
 			wantSubs:      "google subscription verifier not configured",
 		},
 		{
 			name:          "verifier エラー＋更新通知",
 			notifType:     googleSubRenewed,
-			initialStatus: apishop.SubscriptionStatusActive,
+			initialStatus: domain.SubscriptionStatusActive,
 			configure:     withVerifierError,
 			wantSubs:      "get subscription expiry from Google",
 		},
 		{
 			name:          "verifier エラー＋復活通知",
 			notifType:     googleSubRecovered,
-			initialStatus: apishop.SubscriptionStatusExpired,
+			initialStatus: domain.SubscriptionStatusExpired,
 			configure:     withVerifierError,
 			wantSubs:      "get subscription expiry from Google",
 		},
@@ -266,7 +266,7 @@ func TestHandleGoogleNotification_VerifierPaths(t *testing.T) {
 			env := newGoogleTestEnv(t)
 			token := fmt.Sprintf("google-verify-token-%d", i)
 			playerID := fmt.Sprintf("cccccccc-%04d-cccc-cccc-cccccccccccc", i)
-			createTestSubscription(t, env.subRepo, apishop.PlatformAndroid, playerID, token, tt.initialStatus)
+			createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, tt.initialStatus)
 			tt.configure(env)
 
 			msg := encodeRTDN(t, map[string]interface{}{

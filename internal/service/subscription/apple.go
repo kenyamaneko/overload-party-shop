@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
@@ -70,7 +70,7 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 		return fmt.Errorf("%w: %w", ErrDecodeTransactionInfo, err)
 	}
 
-	sub, err := n.subRepo.FindSubscriptionByToken(ctx, apishop.PlatformIOS, txnInfo.OriginalTransactionID)
+	sub, err := n.subRepo.FindSubscriptionByToken(ctx, domain.PlatformIOS, txnInfo.OriginalTransactionID)
 	if err != nil {
 		return fmt.Errorf("find subscription: %w", err)
 	}
@@ -82,21 +82,21 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 	case appleNotifDIDRenew:
 		expiresAt := time.UnixMilli(txnInfo.ExpiresDate)
 		sub.CurrentPeriodEnd = expiresAt
-		sub.Status = apishop.SubscriptionStatusActive
+		sub.Status = domain.SubscriptionStatusActive
 		sub.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subRepo, sub, true, &expiresAt); err != nil {
 			return err
 		}
 
 	case appleNotifExpired, appleNotifGracePeriodExpired:
-		sub.Status = apishop.SubscriptionStatusExpired
+		sub.Status = domain.SubscriptionStatusExpired
 		sub.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
 			return err
 		}
 
 	case appleNotifRevoke:
-		sub.Status = apishop.SubscriptionStatusRevoked
+		sub.Status = domain.SubscriptionStatusRevoked
 		sub.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
 			return err
@@ -104,7 +104,7 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 
 	case appleNotifDIDChangeRenewStatus:
 		if notif.Subtype == appleSubtypeAutoRenewDisabled {
-			sub.Status = apishop.SubscriptionStatusCancelled
+			sub.Status = domain.SubscriptionStatusCancelled
 			sub.UpdatedAt = time.Now()
 			// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
 			// (エンタイトルメント維持契約: docs/ARCHITECTURE.md)。

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/stretchr/testify/assert"
@@ -76,33 +76,33 @@ func TestHandleAppleNotification_PublishesEvent(t *testing.T) {
 		{
 			name:            "更新",
 			notifType:       appleNotifDIDRenew,
-			initialStatus:   apishop.SubscriptionStatusActive,
-			expectedStatus:  apishop.SubscriptionStatusActive,
+			initialStatus:   domain.SubscriptionStatusActive,
+			expectedStatus:  domain.SubscriptionStatusActive,
 			expectedPremium: true,
 		},
 		{
 			name:           "期限切れ",
 			notifType:      appleNotifExpired,
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusExpired,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusExpired,
 		},
 		{
 			name:           "猶予期間終了",
 			notifType:      appleNotifGracePeriodExpired,
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusExpired,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusExpired,
 		},
 		{
 			name:           "返金取消",
 			notifType:      appleNotifRevoke,
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusRevoked,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusRevoked,
 		},
 		{
 			name:           "既に期限切れ状態での EXPIRED 通知",
 			notifType:      appleNotifExpired,
-			initialStatus:  apishop.SubscriptionStatusExpired,
-			expectedStatus: apishop.SubscriptionStatusExpired,
+			initialStatus:  domain.SubscriptionStatusExpired,
+			expectedStatus: domain.SubscriptionStatusExpired,
 		},
 	}
 
@@ -111,12 +111,12 @@ func TestHandleAppleNotification_PublishesEvent(t *testing.T) {
 			env := newAppleTestEnv(t)
 			token := "apple-token-" + tt.name
 			playerID := fmt.Sprintf("aaaaaaaa-%04d-aaaa-aaaa-aaaaaaaaaaaa", i)
-			createTestSubscription(t, env.subRepo, apishop.PlatformIOS, playerID, token, tt.initialStatus)
+			createTestSubscription(t, env.subRepo, domain.PlatformIOS, playerID, token, tt.initialStatus)
 
 			notifPayload := buildAppleNotificationJWS(tt.notifType, "", token, time.Now().UnixMilli())
 			require.NoError(t, env.notifier.HandleNotification(context.Background(), notifPayload))
 
-			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformIOS, token)
+			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformIOS, token)
 			require.NoError(t, err)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
@@ -142,22 +142,22 @@ func TestHandleAppleNotification_NoPublish(t *testing.T) {
 		{
 			name:           "未知の通知タイプは無視",
 			notifType:      "UNKNOWN_TYPE",
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusActive,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusActive,
 		},
 		{
 			name:           "自動更新オン（status 変化なし）",
 			notifType:      appleNotifDIDChangeRenewStatus,
 			subtype:        appleSubtypeAutoRenewEnabled,
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusActive,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusActive,
 		},
 		{
 			name:           "自動更新オフ（cancelled 遷移）",
 			notifType:      appleNotifDIDChangeRenewStatus,
 			subtype:        appleSubtypeAutoRenewDisabled,
-			initialStatus:  apishop.SubscriptionStatusActive,
-			expectedStatus: apishop.SubscriptionStatusCancelled,
+			initialStatus:  domain.SubscriptionStatusActive,
+			expectedStatus: domain.SubscriptionStatusCancelled,
 		},
 	}
 
@@ -166,12 +166,12 @@ func TestHandleAppleNotification_NoPublish(t *testing.T) {
 			env := newAppleTestEnv(t)
 			token := "apple-nopub-token-" + tt.name
 			playerID := fmt.Sprintf("eeeeeeee-%04d-eeee-eeee-eeeeeeeeeeee", i)
-			createTestSubscription(t, env.subRepo, apishop.PlatformIOS, playerID, token, tt.initialStatus)
+			createTestSubscription(t, env.subRepo, domain.PlatformIOS, playerID, token, tt.initialStatus)
 
 			notifPayload := buildAppleNotificationJWS(tt.notifType, tt.subtype, token, time.Now().UnixMilli())
 			require.NoError(t, env.notifier.HandleNotification(context.Background(), notifPayload))
 
-			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), apishop.PlatformIOS, token)
+			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformIOS, token)
 			require.NoError(t, err)
 			require.NotNil(t, updatedSub)
 			assert.Equal(t, tt.expectedStatus, updatedSub.Status)

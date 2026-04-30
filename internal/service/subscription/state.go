@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
@@ -17,17 +17,17 @@ import (
 // active / cancelled (auto-renew off だが期間内) / grace_period (支払い失敗中だが猶予内)
 // が期間内である限り特典は有効。expired / revoked は無効。
 // 未知の status は上流の不整合なのでエラーで返す。
-func IsEntitled(sub *apishop.Subscription, now time.Time) (bool, error) {
+func IsEntitled(sub *domain.Subscription, now time.Time) (bool, error) {
 	if sub == nil {
 		return false, nil
 	}
 	switch sub.Status {
-	case apishop.SubscriptionStatusActive,
-		apishop.SubscriptionStatusCancelled,
-		apishop.SubscriptionStatusGracePeriod:
+	case domain.SubscriptionStatusActive,
+		domain.SubscriptionStatusCancelled,
+		domain.SubscriptionStatusGracePeriod:
 		return sub.CurrentPeriodEnd.After(now), nil
-	case apishop.SubscriptionStatusExpired,
-		apishop.SubscriptionStatusRevoked:
+	case domain.SubscriptionStatusExpired,
+		domain.SubscriptionStatusRevoked:
 		return false, nil
 	default:
 		return false, fmt.Errorf("subscription: unknown status %q", sub.Status)
@@ -40,7 +40,7 @@ func IsEntitled(sub *apishop.Subscription, now time.Time) (bool, error) {
 func writeWithEvent(
 	ctx context.Context,
 	subRepo port.SubscriptionRepo,
-	sub *apishop.Subscription,
+	sub *domain.Subscription,
 	isPremium bool,
 	expiresAt *time.Time,
 ) error {
@@ -59,14 +59,14 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 		return port.OutboxEvent{}, errors.New("subscription: playerID is empty")
 	}
 	eventID := uuid.New()
-	ev := apishop.PremiumUpdatedEvent{
-		EventType:        apishop.EventTypePremiumUpdated,
+	ev := domain.PremiumUpdatedEvent{
+		EventType:        domain.EventTypePremiumUpdated,
 		EventID:          eventID.String(),
 		Timestamp:        time.Now().UTC(),
 		PlayerID:         playerID,
 		IsPremium:        isPremium,
 		PremiumExpiresAt: expiresAt,
-		Source:           apishop.PremiumUpdatedSourceShop,
+		Source:           domain.PremiumUpdatedSourceShop,
 	}
 	payload, err := json.Marshal(ev)
 	if err != nil {
@@ -74,14 +74,14 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 	}
 	return port.OutboxEvent{
 		EventID:   eventID,
-		EventType: apishop.EventTypePremiumUpdated,
+		EventType: domain.EventTypePremiumUpdated,
 		Payload:   payload,
 	}, nil
 }
 
 // writeNoEvent は cancelled 遷移用 (エンタイトルメント維持契約 — 期限到来までは
 // is_premium=false を subscriber に伝えない)。
-func writeNoEvent(ctx context.Context, subRepo port.SubscriptionRepo, sub *apishop.Subscription) error {
+func writeNoEvent(ctx context.Context, subRepo port.SubscriptionRepo, sub *domain.Subscription) error {
 	if err := subRepo.UpdateSubscription(ctx, sub); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
 	}

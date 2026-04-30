@@ -12,7 +12,7 @@ import (
 // EventID は payload 内 eventId と一致し、再試行でも変えない。subscriber は
 // この値を冪等性キーとして使える (at-least-once)。
 //
-// EventType は論理イベント種別 (apishop.EventType*)。物理 topic への解決は
+// EventType は論理イベント種別 (domain.EventType*)。物理 topic への解決は
 // pubsub adapter 内部で行う。
 type OutboxEvent struct {
 	EventID   uuid.UUID

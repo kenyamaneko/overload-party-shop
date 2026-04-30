@@ -50,5 +50,6 @@
 - git tagの手動打ちは禁止（CIが自動生成）
 - 生成済み型コードを手で書き換えない。型は `data/models.yaml` を
   SSoT とし、変更後は `python3 scripts/generate_types.py` で再生成する
+- Google CloudのことをGCPと表現してはいけない。（GCPは旧名称のため）
 - このファイル（CLAUDE.md）をClaudeが書き換えない。
   ルールの追加・修正は人間が明示的に指示した場合のみ行う

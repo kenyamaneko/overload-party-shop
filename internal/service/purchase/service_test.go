@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/stretchr/testify/assert"
@@ -76,18 +76,18 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 	}
 }
 
-func selectFactionPurchasedEvents(t *testing.T) []apishop.FactionPurchasedEvent {
+func selectFactionPurchasedEvents(t *testing.T) []domain.FactionPurchasedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
 		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
-		apishop.EventTypeFactionPurchased)
+		domain.EventTypeFactionPurchased)
 	require.NoError(t, err)
 	defer rows.Close()
-	var events []apishop.FactionPurchasedEvent
+	var events []domain.FactionPurchasedEvent
 	for rows.Next() {
 		var payload []byte
 		require.NoError(t, rows.Scan(&payload))
-		var ev apishop.FactionPurchasedEvent
+		var ev domain.FactionPurchasedEvent
 		require.NoError(t, json.Unmarshal(payload, &ev))
 		events = append(events, ev)
 	}
@@ -95,18 +95,18 @@ func selectFactionPurchasedEvents(t *testing.T) []apishop.FactionPurchasedEvent 
 	return events
 }
 
-func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
+func selectPremiumUpdatedEvents(t *testing.T) []domain.PremiumUpdatedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
 		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
-		apishop.EventTypePremiumUpdated)
+		domain.EventTypePremiumUpdated)
 	require.NoError(t, err)
 	defer rows.Close()
-	var events []apishop.PremiumUpdatedEvent
+	var events []domain.PremiumUpdatedEvent
 	for rows.Next() {
 		var payload []byte
 		require.NoError(t, rows.Scan(&payload))
-		var ev apishop.PremiumUpdatedEvent
+		var ev domain.PremiumUpdatedEvent
 		require.NoError(t, json.Unmarshal(payload, &ev))
 		events = append(events, ev)
 	}
@@ -116,7 +116,7 @@ func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
 
 // insertProduct はテスト用に商品を shop.products に直接 INSERT する。
 // PgShopRepository には商品作成 API がないため SQL で書き込む。
-func insertProduct(t *testing.T, p *apishop.Product) {
+func insertProduct(t *testing.T, p *domain.Product) {
 	t.Helper()
 	_, err := sharedPg.Pool.Exec(context.Background(),
 		`INSERT INTO shop.products (product_id, name, type, price, content, description, image_url, is_active)
@@ -126,11 +126,11 @@ func insertProduct(t *testing.T, p *apishop.Product) {
 }
 
 // insertSubscription は業務アクションを経由せず subscription 行と token 行を seed する。
-func insertSubscription(t *testing.T, sub *apishop.Subscription, platform, purchaseToken string) {
+func insertSubscription(t *testing.T, sub *domain.Subscription, platform, purchaseToken string) {
 	t.Helper()
 	tokenTable := map[string]string{
-		apishop.PlatformIOS:     "shop.apple_subscription_tokens",
-		apishop.PlatformAndroid: "shop.google_subscription_tokens",
+		domain.PlatformIOS:     "shop.apple_subscription_tokens",
+		domain.PlatformAndroid: "shop.google_subscription_tokens",
 	}[platform]
 	require.NotEmpty(t, tokenTable, "test seed: unsupported platform %q", platform)
 
@@ -156,10 +156,10 @@ func TestPurchase_FactionSet_Success(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
-		Type:      apishop.ProductTypeFactionSet,
+		Type:      domain.ProductTypeFactionSet,
 		Price:     980,
 		Content:   json.RawMessage(`{"faction":"Tenki"}`),
 		IsActive:  true,
@@ -189,10 +189,10 @@ func TestPurchase_Idempotent(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
-		Type:      apishop.ProductTypeFactionSet,
+		Type:      domain.ProductTypeFactionSet,
 		Price:     980,
 		Content:   json.RawMessage(`{"faction":"Tenki"}`),
 		IsActive:  true,
@@ -216,10 +216,10 @@ func TestPurchase_ReceiptFailed(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
-		Type:      apishop.ProductTypeFactionSet,
+		Type:      domain.ProductTypeFactionSet,
 		Price:     980,
 		Content:   json.RawMessage(`{"faction":"Tenki"}`),
 		IsActive:  true,
@@ -237,10 +237,10 @@ func TestPurchase_CosmeticItem(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "playmat_01",
 		Name:      "プレイマット: サイバー",
-		Type:      apishop.ProductTypeCosmetic,
+		Type:      domain.ProductTypeCosmetic,
 		Price:     320,
 		Content:   json.RawMessage(`{"item_type":"playmat","item_no":1}`),
 		IsActive:  true,
@@ -258,10 +258,10 @@ func TestPurchase_AlreadyOwned_FactionSet(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
-		Type:      apishop.ProductTypeFactionSet,
+		Type:      domain.ProductTypeFactionSet,
 		Price:     980,
 		Content:   json.RawMessage(`{"faction":"Tenki"}`),
 		IsActive:  true,
@@ -283,10 +283,10 @@ func TestPurchase_AlreadyOwned_Cosmetic(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "playmat_01",
 		Name:      "プレイマット: サイバー",
-		Type:      apishop.ProductTypeCosmetic,
+		Type:      domain.ProductTypeCosmetic,
 		Price:     320,
 		Content:   json.RawMessage(`{"item_type":"playmat","item_no":1}`),
 		IsActive:  true,
@@ -303,10 +303,10 @@ func TestPurchase_AlreadyOwned_Cosmetic(t *testing.T) {
 func TestPurchase_InactiveProduct(t *testing.T) {
 	env := newTestShopEnv(t)
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "old_product",
 		Name:      "旧商品",
-		Type:      apishop.ProductTypeFactionSet,
+		Type:      domain.ProductTypeFactionSet,
 		Price:     100,
 		Content:   json.RawMessage(`{"faction":"SHE"}`),
 		IsActive:  false,
@@ -319,10 +319,10 @@ func TestPurchase_InactiveProduct(t *testing.T) {
 func TestPurchase_UnsupportedPlatform(t *testing.T) {
 	env := newTestShopEnv(t)
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "faction_she",
 		Name:      "SHEカードセット",
-		Type:      apishop.ProductTypeFactionSet,
+		Type:      domain.ProductTypeFactionSet,
 		Price:     980,
 		Content:   json.RawMessage(`{"faction":"SHE"}`),
 		IsActive:  true,
@@ -344,10 +344,10 @@ func TestSubscribe_Success(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "premium_monthly",
 		Name:      "プレミアム月額",
-		Type:      apishop.ProductTypeSubscription,
+		Type:      domain.ProductTypeSubscription,
 		Price:     480,
 		Content:   json.RawMessage(`{}`),
 		IsActive:  true,
@@ -369,7 +369,7 @@ func TestSubscribe_Success(t *testing.T) {
 		sub, err := env.subRepo.GetLatestSubscription(context.Background(), playerID)
 		require.NoError(t, err)
 		require.NotNil(t, sub)
-		assert.Equal(t, apishop.SubscriptionStatusActive, sub.Status)
+		assert.Equal(t, domain.SubscriptionStatusActive, sub.Status)
 	})
 }
 
@@ -384,7 +384,7 @@ func TestSubscribe_Errors(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		product       *apishop.Product
+		product       *domain.Product
 		appleVerifier port.ReceiptVerifier
 		productID     string
 		platform      string
@@ -393,10 +393,10 @@ func TestSubscribe_Errors(t *testing.T) {
 	}{
 		{
 			name: "サブスク以外の商品を Subscribe",
-			product: &apishop.Product{
+			product: &domain.Product{
 				ProductID: "faction_she",
 				Name:      "SHEカードセット",
-				Type:      apishop.ProductTypeFactionSet,
+				Type:      domain.ProductTypeFactionSet,
 				Price:     980,
 				Content:   json.RawMessage(`{"faction":"SHE"}`),
 				IsActive:  true,
@@ -409,10 +409,10 @@ func TestSubscribe_Errors(t *testing.T) {
 		},
 		{
 			name: "レシート検証失敗（IsValid=false）",
-			product: &apishop.Product{
+			product: &domain.Product{
 				ProductID: "premium_monthly",
 				Name:      "プレミアム月額",
-				Type:      apishop.ProductTypeSubscription,
+				Type:      domain.ProductTypeSubscription,
 				Price:     480,
 				Content:   json.RawMessage(`{}`),
 				IsActive:  true,
@@ -425,10 +425,10 @@ func TestSubscribe_Errors(t *testing.T) {
 		},
 		{
 			name: "未対応 platform",
-			product: &apishop.Product{
+			product: &domain.Product{
 				ProductID: "premium_monthly",
 				Name:      "プレミアム月額",
-				Type:      apishop.ProductTypeSubscription,
+				Type:      domain.ProductTypeSubscription,
 				Price:     480,
 				Content:   json.RawMessage(`{}`),
 				IsActive:  true,
@@ -454,18 +454,18 @@ func TestSubscribe_Errors(t *testing.T) {
 func TestGetProducts_WithOwnership(t *testing.T) {
 	env := newTestShopEnv(t)
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "faction_she",
 		Name:      "SHEカードセット",
-		Type:      apishop.ProductTypeFactionSet,
+		Type:      domain.ProductTypeFactionSet,
 		Price:     980,
 		Content:   json.RawMessage(`{"faction":"SHE"}`),
 		IsActive:  true,
 	})
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "faction_tenki",
 		Name:      "Tenkiカードセット",
-		Type:      apishop.ProductTypeFactionSet,
+		Type:      domain.ProductTypeFactionSet,
 		Price:     980,
 		Content:   json.RawMessage(`{"faction":"Tenki"}`),
 		IsActive:  true,
@@ -482,9 +482,9 @@ func TestGetProducts_WithOwnership(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, products, 2)
 
-	byID := map[string]apishop.ProductResponse{}
+	byID := map[string]domain.ProductWithOwnership{}
 	for _, p := range products {
-		byID[p.ProductID] = p
+		byID[p.Product.ProductID] = p
 	}
 	assert.True(t, byID["faction_she"].IsOwned)
 	assert.False(t, byID["faction_tenki"].IsOwned)
@@ -493,10 +493,10 @@ func TestGetProducts_WithOwnership(t *testing.T) {
 func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 	env := newTestShopEnv(t)
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "premium_monthly",
 		Name:      "プレミアム月額",
-		Type:      apishop.ProductTypeSubscription,
+		Type:      domain.ProductTypeSubscription,
 		Price:     480,
 		Content:   json.RawMessage(`{}`),
 		IsActive:  true,
@@ -504,15 +504,15 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 
 	playerID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
 	now := time.Now()
-	insertSubscription(t, &apishop.Subscription{
+	insertSubscription(t, &domain.Subscription{
 		PlayerID:           playerID,
 		ProductID:          "premium_monthly",
-		Status:             apishop.SubscriptionStatusActive,
+		Status:             domain.SubscriptionStatusActive,
 		CurrentPeriodStart: now,
 		CurrentPeriodEnd:   now.Add(30 * 24 * time.Hour),
 		CreatedAt:          now,
 		UpdatedAt:          now,
-	}, apishop.PlatformIOS, "sub-token")
+	}, domain.PlatformIOS, "sub-token")
 
 	products, err := env.svc.GetProducts(context.Background(), playerID)
 	require.NoError(t, err)
@@ -535,56 +535,56 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 	}{
 		{
 			name:        "active かつ期間内",
-			status:      apishop.SubscriptionStatusActive,
+			status:      domain.SubscriptionStatusActive,
 			periodEnd:   future,
 			wantIsOwned: true,
 		},
 		{
 			name:        "cancelled だが期間内",
-			status:      apishop.SubscriptionStatusCancelled,
+			status:      domain.SubscriptionStatusCancelled,
 			periodEnd:   future,
 			wantIsOwned: true,
 		},
 		{
 			name:        "grace_period かつ期間内",
-			status:      apishop.SubscriptionStatusGracePeriod,
+			status:      domain.SubscriptionStatusGracePeriod,
 			periodEnd:   future,
 			wantIsOwned: true,
 		},
 		{
 			name:      "active で期限切れ",
-			status:    apishop.SubscriptionStatusActive,
+			status:    domain.SubscriptionStatusActive,
 			periodEnd: past,
 		},
 		{
 			name:      "cancelled で期限切れ",
-			status:    apishop.SubscriptionStatusCancelled,
+			status:    domain.SubscriptionStatusCancelled,
 			periodEnd: past,
 		},
 		{
 			name:      "expired は期間内でも無効",
-			status:    apishop.SubscriptionStatusExpired,
+			status:    domain.SubscriptionStatusExpired,
 			periodEnd: future,
 		},
 		{
 			name:      "revoked は期間内でも無効",
-			status:    apishop.SubscriptionStatusRevoked,
+			status:    domain.SubscriptionStatusRevoked,
 			periodEnd: future,
 		},
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newTestShopEnv(t)
-			insertProduct(t, &apishop.Product{
+			insertProduct(t, &domain.Product{
 				ProductID: "premium_monthly",
 				Name:      "プレミアム月額",
-				Type:      apishop.ProductTypeSubscription,
+				Type:      domain.ProductTypeSubscription,
 				Price:     480,
 				Content:   json.RawMessage(`{}`),
 				IsActive:  true,
 			})
 			playerID := fmt.Sprintf("dddddddd-%04d-dddd-dddd-dddddddddddd", i)
-			insertSubscription(t, &apishop.Subscription{
+			insertSubscription(t, &domain.Subscription{
 				PlayerID:           playerID,
 				ProductID:          "premium_monthly",
 				Status:             tt.status,
@@ -592,7 +592,7 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 				CurrentPeriodEnd:   tt.periodEnd,
 				CreatedAt:          now,
 				UpdatedAt:          now,
-			}, apishop.PlatformIOS, fmt.Sprintf("sub-token-%d", i))
+			}, domain.PlatformIOS, fmt.Sprintf("sub-token-%d", i))
 			products, err := env.svc.GetProducts(context.Background(), playerID)
 			require.NoError(t, err)
 			require.Len(t, products, 1)
@@ -644,10 +644,10 @@ func TestPurchase_VerifierReturnsError(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "faction_she",
 		Name:      "SHEカードセット",
-		Type:      apishop.ProductTypeFactionSet,
+		Type:      domain.ProductTypeFactionSet,
 		Price:     980,
 		Content:   json.RawMessage(`{"faction":"SHE"}`),
 		IsActive:  true,
@@ -664,10 +664,10 @@ func TestPurchase_SubscriptionTypeViaPurchase(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "premium_monthly",
 		Name:      "プレミアム月額",
-		Type:      apishop.ProductTypeSubscription,
+		Type:      domain.ProductTypeSubscription,
 		Price:     480,
 		Content:   json.RawMessage(`{}`),
 		IsActive:  true,
@@ -682,16 +682,16 @@ func TestPurchase_SubscriptionTypeViaPurchase(t *testing.T) {
 func TestPurchase_DefensivePaths(t *testing.T) {
 	tests := []struct {
 		name     string
-		product  *apishop.Product
+		product  *domain.Product
 		wantErr  error
 		wantSubs string
 	}{
 		{
 			name: "選択不可 faction が content に入っている",
-			product: &apishop.Product{
+			product: &domain.Product{
 				ProductID: "faction_unknown",
 				Name:      "未知 faction",
-				Type:      apishop.ProductTypeFactionSet,
+				Type:      domain.ProductTypeFactionSet,
 				Price:     980,
 				Content:   json.RawMessage(`{"faction":"NotARealFaction"}`),
 				IsActive:  true,
@@ -700,10 +700,10 @@ func TestPurchase_DefensivePaths(t *testing.T) {
 		},
 		{
 			name: "faction content の JSON 型不一致",
-			product: &apishop.Product{
+			product: &domain.Product{
 				ProductID: "faction_broken",
 				Name:      "壊れた faction",
-				Type:      apishop.ProductTypeFactionSet,
+				Type:      domain.ProductTypeFactionSet,
 				Price:     980,
 				Content:   json.RawMessage(`{"faction":123}`),
 				IsActive:  true,
@@ -712,10 +712,10 @@ func TestPurchase_DefensivePaths(t *testing.T) {
 		},
 		{
 			name: "cosmetic content の JSON 型不一致",
-			product: &apishop.Product{
+			product: &domain.Product{
 				ProductID: "cosmetic_broken",
 				Name:      "壊れた cosmetic",
-				Type:      apishop.ProductTypeCosmetic,
+				Type:      domain.ProductTypeCosmetic,
 				Price:     320,
 				Content:   json.RawMessage(`{"item_type":123,"item_no":1}`),
 				IsActive:  true,
@@ -750,10 +750,10 @@ func TestSubscribe_Idempotent(t *testing.T) {
 			return &port.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
 		},
 	}))
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "premium_monthly",
 		Name:      "プレミアム月額",
-		Type:      apishop.ProductTypeSubscription,
+		Type:      domain.ProductTypeSubscription,
 		Price:     480,
 		Content:   json.RawMessage(`{}`),
 		IsActive:  true,
@@ -779,10 +779,10 @@ func TestSubscribe_VerifierReturnsError(t *testing.T) {
 			return nil, fmt.Errorf("network timeout")
 		},
 	}))
-	insertProduct(t, &apishop.Product{
+	insertProduct(t, &domain.Product{
 		ProductID: "premium_monthly",
 		Name:      "プレミアム月額",
-		Type:      apishop.ProductTypeSubscription,
+		Type:      domain.ProductTypeSubscription,
 		Price:     480,
 		Content:   json.RawMessage(`{}`),
 		IsActive:  true,
@@ -830,10 +830,10 @@ func TestGetProducts_CosmeticOwnership(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newTestShopEnv(t)
-			insertProduct(t, &apishop.Product{
+			insertProduct(t, &domain.Product{
 				ProductID: "playmat_01",
 				Name:      "プレイマット",
-				Type:      apishop.ProductTypeCosmetic,
+				Type:      domain.ProductTypeCosmetic,
 				Price:     320,
 				Content:   json.RawMessage(`{"item_type":"playmat","item_no":1}`),
 				IsActive:  true,
@@ -866,19 +866,19 @@ func TestGetProducts_MalformedContent(t *testing.T) {
 	}{
 		{
 			name:        "faction_set で faction の JSON 型不一致",
-			productType: apishop.ProductTypeFactionSet,
+			productType: domain.ProductTypeFactionSet,
 			content:     json.RawMessage(`{"faction":123}`),
 		},
 		{
 			name:        "cosmetic で item_type の JSON 型不一致",
-			productType: apishop.ProductTypeCosmetic,
+			productType: domain.ProductTypeCosmetic,
 			content:     json.RawMessage(`{"item_type":123,"item_no":1}`),
 		},
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newTestShopEnv(t)
-			insertProduct(t, &apishop.Product{
+			insertProduct(t, &domain.Product{
 				ProductID: fmt.Sprintf("broken_%d", i),
 				Name:      "broken",
 				Type:      tt.productType,
