@@ -16,7 +16,7 @@ import (
 
 	"github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub/pubsubtest"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 )
 
 var sharedEmulator *pubsubtest.Emulator
@@ -43,8 +43,8 @@ func TestMain(m *testing.M) {
 // Publisher を emulator に向けて構築するヘルパ。両 topic を事前作成。
 func setupPublisher(t *testing.T) (*Publisher, string, string) {
 	t.Helper()
-	factionTopic := sharedEmulator.CreateTopic(t, apishop.TopicFactionPurchased)
-	premiumTopic := sharedEmulator.CreateTopic(t, apishop.TopicPremiumUpdated)
+	factionTopic := sharedEmulator.CreateTopic(t, domain.TopicFactionPurchased)
+	premiumTopic := sharedEmulator.CreateTopic(t, domain.TopicPremiumUpdated)
 
 	ctx := context.Background()
 	pub, err := New(ctx, sharedEmulator.ProjectID(), factionTopic, premiumTopic)
@@ -57,8 +57,8 @@ func setupPublisher(t *testing.T) (*Publisher, string, string) {
 func buildFactionPurchasedOutbox(t *testing.T, playerID, faction string) port.OutboxEvent {
 	t.Helper()
 	id := uuid.New()
-	payload, err := json.Marshal(apishop.FactionPurchasedEvent{
-		EventType: apishop.EventTypeFactionPurchased,
+	payload, err := json.Marshal(domain.FactionPurchasedEvent{
+		EventType: domain.EventTypeFactionPurchased,
 		EventID:   id.String(),
 		Timestamp: time.Now().UTC(),
 		PlayerID:  playerID,
@@ -67,7 +67,7 @@ func buildFactionPurchasedOutbox(t *testing.T, playerID, faction string) port.Ou
 	require.NoError(t, err)
 	return port.OutboxEvent{
 		EventID:   id,
-		EventType: apishop.EventTypeFactionPurchased,
+		EventType: domain.EventTypeFactionPurchased,
 		Payload:   payload,
 	}
 }
@@ -75,19 +75,19 @@ func buildFactionPurchasedOutbox(t *testing.T, playerID, faction string) port.Ou
 func buildPremiumUpdatedOutbox(t *testing.T, playerID string, isPremium bool, expiresAt *time.Time) port.OutboxEvent {
 	t.Helper()
 	id := uuid.New()
-	payload, err := json.Marshal(apishop.PremiumUpdatedEvent{
-		EventType:        apishop.EventTypePremiumUpdated,
+	payload, err := json.Marshal(domain.PremiumUpdatedEvent{
+		EventType:        domain.EventTypePremiumUpdated,
 		EventID:          id.String(),
 		Timestamp:        time.Now().UTC(),
 		PlayerID:         playerID,
 		IsPremium:        isPremium,
 		PremiumExpiresAt: expiresAt,
-		Source:           apishop.PremiumUpdatedSourceShop,
+		Source:           domain.PremiumUpdatedSourceShop,
 	})
 	require.NoError(t, err)
 	return port.OutboxEvent{
 		EventID:   id,
-		EventType: apishop.EventTypePremiumUpdated,
+		EventType: domain.EventTypePremiumUpdated,
 		Payload:   payload,
 	}
 }
@@ -105,10 +105,10 @@ func TestIntegration_PublishFactionPurchased(t *testing.T) {
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)
 
-	var decoded apishop.FactionPurchasedEvent
+	var decoded domain.FactionPurchasedEvent
 	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, apishop.EventTypeFactionPurchased, decoded.EventType)
+	assert.Equal(t, domain.EventTypeFactionPurchased, decoded.EventType)
 	assert.Equal(t, ev.EventID.String(), decoded.EventID, "payload の eventId は outbox 行の PK と一致する")
 	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
 	assert.Equal(t, "player-123", decoded.PlayerID)
@@ -128,15 +128,15 @@ func TestIntegration_PublishPremiumUpdated_Granted(t *testing.T) {
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)
 
-	var decoded apishop.PremiumUpdatedEvent
+	var decoded domain.PremiumUpdatedEvent
 	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
+	assert.Equal(t, domain.EventTypePremiumUpdated, decoded.EventType)
 	assert.Equal(t, ev.EventID.String(), decoded.EventID)
 	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
 	assert.Equal(t, "player-premium", decoded.PlayerID)
 	assert.True(t, decoded.IsPremium)
-	assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
+	assert.Equal(t, domain.PremiumUpdatedSourceShop, decoded.Source)
 	require.NotNil(t, decoded.PremiumExpiresAt)
 	assert.WithinDuration(t, expiresAt, *decoded.PremiumExpiresAt, time.Second)
 }
@@ -153,15 +153,15 @@ func TestIntegration_PublishPremiumUpdated_Revoked(t *testing.T) {
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)
 
-	var decoded apishop.PremiumUpdatedEvent
+	var decoded domain.PremiumUpdatedEvent
 	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
+	assert.Equal(t, domain.EventTypePremiumUpdated, decoded.EventType)
 	assert.Equal(t, ev.EventID.String(), decoded.EventID)
 	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
 	assert.Equal(t, "player-not-premium", decoded.PlayerID)
 	assert.False(t, decoded.IsPremium)
-	assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
+	assert.Equal(t, domain.PremiumUpdatedSourceShop, decoded.Source)
 	assert.Nil(t, decoded.PremiumExpiresAt)
 }
 

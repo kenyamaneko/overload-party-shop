@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 )
 
 // New の入力検証は gpubsub.NewClient 呼び出し前に return するため、
@@ -23,21 +23,21 @@ func TestNew_Validation(t *testing.T) {
 		{
 			name:                  "projectID が空",
 			projectID:             "",
-			factionPurchasedTopic: apishop.TopicFactionPurchased,
-			premiumUpdatedTopic:   apishop.TopicPremiumUpdated,
+			factionPurchasedTopic: domain.TopicFactionPurchased,
+			premiumUpdatedTopic:   domain.TopicPremiumUpdated,
 			wantSubs:              "projectID is empty",
 		},
 		{
 			name:                  "faction-purchased topic 名が空",
 			projectID:             "test-project",
 			factionPurchasedTopic: "",
-			premiumUpdatedTopic:   apishop.TopicPremiumUpdated,
+			premiumUpdatedTopic:   domain.TopicPremiumUpdated,
 			wantSubs:              "both topic names are required",
 		},
 		{
 			name:                  "premium-updated topic 名が空",
 			projectID:             "test-project",
-			factionPurchasedTopic: apishop.TopicFactionPurchased,
+			factionPurchasedTopic: domain.TopicFactionPurchased,
 			premiumUpdatedTopic:   "",
 			wantSubs:              "both topic names are required",
 		},

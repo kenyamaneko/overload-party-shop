@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
@@ -73,7 +73,7 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 	}
 
 	notif := rtdn.SubscriptionNotification
-	sub, err := n.subRepo.FindSubscriptionByToken(ctx, apishop.PlatformAndroid, notif.PurchaseToken)
+	sub, err := n.subRepo.FindSubscriptionByToken(ctx, domain.PlatformAndroid, notif.PurchaseToken)
 	if err != nil {
 		return fmt.Errorf("find subscription: %w", err)
 	}
@@ -90,7 +90,7 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 		if err != nil {
 			return fmt.Errorf("get subscription expiry from Google: %w", err)
 		}
-		sub.Status = apishop.SubscriptionStatusActive
+		sub.Status = domain.SubscriptionStatusActive
 		sub.CurrentPeriodEnd = newExpiry
 		sub.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subRepo, sub, true, &newExpiry); err != nil {
@@ -98,21 +98,21 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 		}
 
 	case googleSubExpired:
-		sub.Status = apishop.SubscriptionStatusExpired
+		sub.Status = domain.SubscriptionStatusExpired
 		sub.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubRevoked:
-		sub.Status = apishop.SubscriptionStatusRevoked
+		sub.Status = domain.SubscriptionStatusRevoked
 		sub.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubCanceled:
-		sub.Status = apishop.SubscriptionStatusCancelled
+		sub.Status = domain.SubscriptionStatusCancelled
 		sub.UpdatedAt = time.Now()
 		// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
 		// (エンタイトルメント維持契約: docs/ARCHITECTURE.md)。

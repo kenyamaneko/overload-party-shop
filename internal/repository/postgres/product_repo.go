@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
@@ -23,7 +23,7 @@ func NewProductRepository(pool *pgxpool.Pool) *ProductRepository {
 	return &ProductRepository{pool: pool}
 }
 
-func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]*apishop.Product, error) {
+func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]*domain.Product, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT product_id, name, type, price, content, description, image_url, is_active
 		 FROM shop.products WHERE is_active = true`)
@@ -32,9 +32,9 @@ func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]*apishop.P
 	}
 	defer rows.Close()
 
-	var products []*apishop.Product
+	var products []*domain.Product
 	for rows.Next() {
-		var p apishop.Product
+		var p domain.Product
 		var content []byte
 		if err := rows.Scan(&p.ProductID, &p.Name, &p.Type, &p.Price, &content, &p.Description, &p.ImageURL, &p.IsActive); err != nil {
 			return nil, fmt.Errorf("scan product: %w", err)
@@ -48,13 +48,13 @@ func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]*apishop.P
 	return products, nil
 }
 
-func (r *ProductRepository) GetProductByID(ctx context.Context, productID string) (*apishop.Product, error) {
+func (r *ProductRepository) GetProductByID(ctx context.Context, productID string) (*domain.Product, error) {
 	row := r.pool.QueryRow(ctx,
 		`SELECT product_id, name, type, price, content, description, image_url, is_active
 		 FROM shop.products WHERE product_id = $1`,
 		productID)
 
-	var p apishop.Product
+	var p domain.Product
 	var content []byte
 	err := row.Scan(&p.ProductID, &p.Name, &p.Type, &p.Price, &content, &p.Description, &p.ImageURL, &p.IsActive)
 	if err != nil {

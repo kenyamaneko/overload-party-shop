@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
@@ -20,7 +20,7 @@ import (
 func newFactionEvent() port.OutboxEvent {
 	return port.OutboxEvent{
 		EventID:   uuid.New(),
-		EventType: apishop.EventTypeFactionPurchased,
+		EventType: domain.EventTypeFactionPurchased,
 		Payload:   []byte(`{}`),
 	}
 }
@@ -34,8 +34,8 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		user2 = "22222222-2222-2222-2222-222222222222"
 	)
 
-	newPurchase := func(playerID string) *apishop.OneTimePurchase {
-		return &apishop.OneTimePurchase{
+	newPurchase := func(playerID string) *domain.OneTimePurchase {
+		return &domain.OneTimePurchase{
 			PlayerID:    playerID,
 			ProductID:   "faction_tenki",
 			PurchasedAt: time.Now().UTC(),
@@ -63,7 +63,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			name:               "新規トークン: purchase + token + owned_faction作成",
 			playerID:           user1,
 			faction:            "Tenki",
-			platform:           apishop.PlatformIOS,
+			platform:           domain.PlatformIOS,
 			token:              "apple-new",
 			wantCreated:        true,
 			expectPurchaseRows: 1,
@@ -72,11 +72,11 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		{
 			name: "同一ユーザー既存トークンはべき等 (created=false, owned_factionも追加されない)",
 			seeds: []seed{
-				{user1, "Tenki", apishop.PlatformIOS, "dup-token"},
+				{user1, "Tenki", domain.PlatformIOS, "dup-token"},
 			},
 			playerID:           user1,
 			faction:            "Tenki",
-			platform:           apishop.PlatformIOS,
+			platform:           domain.PlatformIOS,
 			token:              "dup-token",
 			wantCreated:        false,
 			expectPurchaseRows: 1,
@@ -85,11 +85,11 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		{
 			name: "別ユーザー既存トークンもべき等 (first purchaseに紐付いたまま)",
 			seeds: []seed{
-				{user1, "Tenki", apishop.PlatformIOS, "shared-token"},
+				{user1, "Tenki", domain.PlatformIOS, "shared-token"},
 			},
 			playerID:           user2,
 			faction:            "Tenki",
-			platform:           apishop.PlatformIOS,
+			platform:           domain.PlatformIOS,
 			token:              "shared-token",
 			wantCreated:        false,
 			expectPurchaseRows: 1,
@@ -98,11 +98,11 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		{
 			name: "異なるユーザーに同じfaction新規トークンで追加可",
 			seeds: []seed{
-				{user1, "Tenki", apishop.PlatformIOS, "tok-u1"},
+				{user1, "Tenki", domain.PlatformIOS, "tok-u1"},
 			},
 			playerID:           user2,
 			faction:            "Tenki",
-			platform:           apishop.PlatformIOS,
+			platform:           domain.PlatformIOS,
 			token:              "tok-u2",
 			wantCreated:        true,
 			expectPurchaseRows: 2,
@@ -120,7 +120,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			name:     "player_IDが空文字(UUID不正)はエラー",
 			playerID: "",
 			faction:  "Tenki",
-			platform: apishop.PlatformIOS,
+			platform: domain.PlatformIOS,
 			token:    "tok",
 			wantErr:  true,
 		},
@@ -128,7 +128,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			name:     "不正なfaction文字列はCHECK制約でエラー",
 			playerID: user1,
 			faction:  "InvalidFaction",
-			platform: apishop.PlatformIOS,
+			platform: domain.PlatformIOS,
 			token:    "tok",
 			wantErr:  true,
 		},
@@ -174,12 +174,12 @@ func TestFactionPurchaseRepository_CreatePurchase_AtomicRollback_OwnedFaction(t 
 	const playerID = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
 	seedOwnedFaction(t, playerID, "Tenki")
 
-	purchase := &apishop.OneTimePurchase{
+	purchase := &domain.OneTimePurchase{
 		PlayerID:    playerID,
 		ProductID:   "faction_tenki",
 		PurchasedAt: time.Now().UTC(),
 	}
-	created, err := repo.CreatePurchase(ctx, purchase, "Tenki", apishop.PlatformIOS, "new-token", newFactionEvent())
+	created, err := repo.CreatePurchase(ctx, purchase, "Tenki", domain.PlatformIOS, "new-token", newFactionEvent())
 	require.Error(t, err, "player_owned_factions PK違反で失敗するはず")
 	require.Contains(t, err.Error(), "insert owned faction",
 		"owned_faction INSERTで落ちている (purchase/token INSERT後の失敗)")
@@ -206,12 +206,12 @@ func TestFactionPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *testin
 	const playerID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
 	tooLongToken := strings.Repeat("x", 257)
 
-	purchase := &apishop.OneTimePurchase{
+	purchase := &domain.OneTimePurchase{
 		PlayerID:    playerID,
 		ProductID:   "faction_sugar",
 		PurchasedAt: time.Now().UTC(),
 	}
-	created, err := repo.CreatePurchase(ctx, purchase, "Sugar", apishop.PlatformIOS, tooLongToken, newFactionEvent())
+	created, err := repo.CreatePurchase(ctx, purchase, "Sugar", domain.PlatformIOS, tooLongToken, newFactionEvent())
 	require.Error(t, err, "VARCHAR(256)超えでtoken INSERTが失敗するはず")
 	require.Contains(t, err.Error(), "insert purchase token",
 		"token INSERTで落ちている (purchase INSERT後の失敗)")

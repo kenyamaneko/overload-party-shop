@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
@@ -27,16 +27,16 @@ func NewSubscriptionRepository(pool *pgxpool.Pool) *SubscriptionRepository {
 
 func subscriptionTokenTableForPlatform(platform string) (string, error) {
 	switch platform {
-	case apishop.PlatformIOS:
+	case domain.PlatformIOS:
 		return "shop.apple_subscription_tokens", nil
-	case apishop.PlatformAndroid:
+	case domain.PlatformAndroid:
 		return "shop.google_subscription_tokens", nil
 	default:
 		return "", fmt.Errorf("%w: subscription platform %q", port.ErrUnsupportedPlatform, platform)
 	}
 }
 
-func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
+func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *domain.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
 	tokenTable, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
 		return err
@@ -77,7 +77,7 @@ func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *ap
 
 // GetLatestSubscription は player の最新サブスクリプション 1 行を返す。
 // 純粋ドメインなので token テーブルは引かない (status / 期間判定のみが必要なため)。
-func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, playerID string) (*apishop.Subscription, error) {
+func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, playerID string) (*domain.Subscription, error) {
 	row := r.pool.QueryRow(ctx,
 		`SELECT subscription_id, player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at
 		   FROM shop.subscriptions
@@ -97,7 +97,7 @@ func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, play
 }
 
 // FindSubscriptionByToken は platform に応じた token テーブル → subscriptions の JOIN で引く。
-func (r *SubscriptionRepository) FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*apishop.Subscription, error) {
+func (r *SubscriptionRepository) FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*domain.Subscription, error) {
 	table, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
 		return nil, err
@@ -120,8 +120,8 @@ func (r *SubscriptionRepository) FindSubscriptionByToken(ctx context.Context, pl
 	return s, nil
 }
 
-func scanSubscription(row pgx.Row) (*apishop.Subscription, error) {
-	var s apishop.Subscription
+func scanSubscription(row pgx.Row) (*domain.Subscription, error) {
+	var s domain.Subscription
 	if err := row.Scan(
 		&s.SubscriptionID, &s.PlayerID, &s.ProductID,
 		&s.Status,
@@ -136,7 +136,7 @@ func scanSubscription(row pgx.Row) (*apishop.Subscription, error) {
 // UpdateSubscription は解約 (cancelled) 遷移用。エンタイトルメント維持契約に
 // より subscriber に is_premium=false を伝えてはいけないため、premium-updated
 // は発行しない。
-func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription) error {
+func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *domain.Subscription) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -155,7 +155,7 @@ func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *ap
 
 // UpdateSubscriptionWithEvent は webhook 駆動の状態遷移 (renew/expire/revoke)
 // で DB 更新と publish を atomic に揃えるためのもの。
-func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context, sub *apishop.Subscription, event port.OutboxEvent) error {
+func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context, sub *domain.Subscription, event port.OutboxEvent) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -175,7 +175,7 @@ func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context
 	return nil
 }
 
-func updateSubscriptionRow(ctx context.Context, tx pgx.Tx, sub *apishop.Subscription) error {
+func updateSubscriptionRow(ctx context.Context, tx pgx.Tx, sub *domain.Subscription) error {
 	if _, err := tx.Exec(ctx,
 		`UPDATE shop.subscriptions SET
 			status = $1,

@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
@@ -24,7 +24,7 @@ func NewPurchaseLookupRepository(pool *pgxpool.Pool) *PurchaseLookupRepository {
 	return &PurchaseLookupRepository{pool: pool}
 }
 
-func (r *PurchaseLookupRepository) FindPurchaseByToken(ctx context.Context, platform, purchaseToken string) (*apishop.OneTimePurchase, error) {
+func (r *PurchaseLookupRepository) FindPurchaseByToken(ctx context.Context, platform, purchaseToken string) (*domain.OneTimePurchase, error) {
 	table, err := purchaseTokenTableForPlatform(platform)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ func (r *PurchaseLookupRepository) FindPurchaseByToken(ctx context.Context, plat
 	)
 	row := r.pool.QueryRow(ctx, q, purchaseToken)
 
-	var p apishop.OneTimePurchase
+	var p domain.OneTimePurchase
 	if err := row.Scan(&p.PurchaseID, &p.PlayerID, &p.ProductID, &p.PurchasedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
