@@ -1,7 +1,7 @@
 # CI/CD と Release 自動化 (shop 固有)
 
 本リポジトリ固有の CI/CD ワークフローと、ブランチ戦略を実体化する自動化の仕組みを定義する。
-ブランチ戦略の一般論は [BRANCHING.md](BRANCHING.md) を参照。
+ブランチ戦略の一般論は [BRANCHING.md](../.claude-common/flow-gitflow/BRANCHING.md) を参照。
 
 ## CI/CD パイプライン
 
@@ -43,7 +43,7 @@ PR 更新時 (追加 push) にも CI が再実行される。
 
 ## ブランチ保護: 必須ステータスチェック (実体)
 
-[BRANCHING.md](BRANCHING.md) の「ブランチ保護設定」を本リポでは以下の具体的なチェックで実装する。
+[BRANCHING.md](../.claude-common/flow-gitflow/BRANCHING.md) の「ブランチ保護設定」を本リポでは以下の具体的なチェックで実装する。
 
 ### main
 
