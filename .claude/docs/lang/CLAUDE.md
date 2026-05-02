@@ -1,4 +1,4 @@
-<!-- このファイルは overload-party-common/claude/lang/go/CLAUDE.md から同期されています。編集はそちらで行ってください。 -->
+<!-- このファイルは overload-party-common/presets/claude/lang/go/CLAUDE.md から同期されています。編集はそちらで行ってください。 -->
 
 ## [lang/go] 設計思想
 
