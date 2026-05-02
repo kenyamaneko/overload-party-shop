@@ -1,8 +1,8 @@
-# Branching Strategy
+# Branching Strategy (Git flow)
 
-本リポジトリのブランチ戦略を定義する。Git flow を採用する全リポで共通の方針。
+Git flow を採用するリポ共通のブランチ戦略。
 
-> **Note**: このドキュメントは将来 `overload-party-common` に移動する予定。Git flow を採用する全サービス・ジョブリポで共通のブランチ戦略として参照される形にする。本リポ固有の CI/CD・タグ自動生成の実装は [CI_AND_RELEASE.md](CI_AND_RELEASE.md) を参照。
+> **Note**: このファイルは `overload-party-common/claude/flow-gitflow/BRANCHING.md` から各消費リポへ同期される。各リポ固有の CI/CD・タグ自動生成の実装は、各リポ内の `docs/CI_AND_RELEASE.md` (または同等のファイル) を参照。
 
 ## 概要
 
@@ -50,7 +50,7 @@ GitFlow をベースに、環境とブランチを対応付けた運用を採用
 
 - 新機能・改善の作業ブランチ
 - `develop` から切って `develop` にマージ
-- 命名: `feature/{issue番号}-{概要}` (例: `feature/39-split-branching-md`)
+- 命名: `feature/{issue番号}-{概要}` (例: `feature/42-add-foo`)
 - PR マージ時にブランチ削除
 
 ### hotfix/xxx
@@ -126,7 +126,7 @@ Semantic Versioning (SemVer) を採用する。
 - **MINOR**: 後方互換のある機能追加
 - **PATCH**: バグ修正、ドキュメント修正、内部リファクタ
 
-具体的なタグ自動生成ワークフローおよびサブパッケージのバージョニングは、各リポの CI/CD ドキュメントを参照。本リポでは [CI_AND_RELEASE.md](CI_AND_RELEASE.md) を参照。
+具体的なタグ自動生成ワークフローおよびサブパッケージのバージョニングは、各リポの CI/CD ドキュメントを参照。
 
 ## ブランチ保護設定
 
@@ -154,7 +154,3 @@ GitHub Rulesets で以下を設定する。必須ステータスチェックの�
 - PR マージのみ許可
 - 必須ステータスチェック: CI の lint / test が green
 - required reviews: 不要(一人開発での速度優先)
-
-## 関連ドキュメント
-
-- 本リポ固有の CI/CD ワークフロー詳細・タグ自動生成の仕組み・必須ステータスチェック実体: [CI_AND_RELEASE.md](CI_AND_RELEASE.md)

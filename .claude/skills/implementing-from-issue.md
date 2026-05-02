@@ -13,12 +13,12 @@ GitHub Issue を起点に、feature ブランチを切り、テストファー�
    - 背景・受け入れ基準・関連リンクを読み、何が「完了」かを把握する
    - 方針に迷いがあれば**着手前に**ユーザーに相談する(実装後の手戻りを避ける)
 2. `develop` から feature ブランチを切る
-   - 命名: `feature/{issue番号}-{概要}` (例: `feature/9-claude-skills`)
+   - 命名: `feature/{issue番号}-{概要}` (例: `feature/42-add-foo`)
    - 最新の `develop` を取得してから切る: `git fetch origin && git switch -c feature/{n}-{summary} origin/develop`
 3. 必要に応じてドキュメントを更新する
-   - 仕様変更: `docs/FEATURE_SPEC.md` / `docs/API_REFERENCE.md`
+   - 仕様変更: `docs/FEATURE_SPEC.md` / `docs/API_REFERENCE.md` 等
    - 設計レベルの意図: `docs/ARCHITECTURE.md`
-   - データモデル: `data/models.yaml` (変更後 `python3 scripts/generate_types.py` で再生成)
+   - データモデル・型定義の SSoT を変更した場合は、各リポの CLAUDE.md / README に従って生成スクリプトを再実行する
 4. テストファーストで実装する
    - 受け入れ基準を Given/When/Then に落としてテストを書いてから実装する
    - テスト方針・設計思想・コーディング方針は [CLAUDE.md](../../CLAUDE.md) に従う
@@ -29,7 +29,7 @@ GitHub Issue を起点に、feature ブランチを切り、テストファー�
    - `git push -u origin feature/{n}-{summary}`
 6. `develop` への PR を作成する
    - タイトルは 70 文字以内。本文は「Summary」「Test plan」を含める
-   - Issue 番号を本文に記載する (例: `Closes #9`)
+   - Issue 番号を本文に記載する (例: `Closes #42`)
 7. ユーザーに PR URL を通知する
 
 ## 確認事項

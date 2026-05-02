@@ -1,59 +1,22 @@
-# Overload Party - Development Principles
+# Overload Party Shop
 
-## 設計思想
-- エラーは握りつぶさず根本解決する。ログだけして握りつぶすのは禁止
-- デフォルト値へのフォールバックを行わない。意図しない値になるならエラーにする
-- 一つの関数に複数の責務を負わせない
-- 保守性と拡張性を最大限に高めるため、クリーンアーキテクチャを遵守する
-  - ビジネスロジックは外部アダプターに依存しない
-  - 純粋なportやdelivery層とロジックを分離する
-  - リポジトリ層は純粋な外部永続装置へのアクセスであり、ロジックを持たない
-  - リポジトリ層は外部永続装置以外に依存しないため、API契約の型を使わない
+@.claude-common/base/CLAUDE.md
+@.claude-common/flow-gitflow/CLAUDE.md
 
-## コーディング方針
-- マジックナンバーを使用しない。定数化し、数値の用途がわかるようにする
-- 関数などにはdocsコメントを付与する
-  - 要約のみを書く。実装手順や設計判断の列挙はしない
-  - 設計レベルのWhyはARCHITECTURE.mdに、行レベルのWhyはその行のインラインコメントに分離する
-- 実装との二重管理になるのでWhatコメントを書いてはいけない。
-- 実装から読み取れない意図はWhyコメントとして記述する。設計レベルの意図なら
-  ARCHITECTURE.mdに記述する
+# このリポ固有
 
-## ログ方針
-- 構造化されたログを出力する
-- ログ出力すべき事象
-  - 呼び出し元に伝搬させられないエラーの補足
-  - エラーではないが、その場所でしか気づけない事象 (未対応のイベント種別など)
-- ログレベル
-  - `Info`: 起動・停止・正常系の事象
-  - `Warn`: システムの運用に影響を与えない、あるいは影響が軽微な事象
-  - `Error`: システムの運用に支障をきたす事象
+## [shop] 言語固有方針 (Go)
 
-## テスト方針
-- 実装をなぞるテストではなく、仕様に従っていることを確認するテストを書く
-- 「この関数がこう動く」ではなく「この仕様をこう満たす」という観点で書く
 - テストコードはテーブル駆動で書く
-- ケースの網羅性が見えづらくなるため、テストコードにif文を書かず、条件はケースで表現する
+  - 将来 `lang-go` レイヤが整備された時点で common 側に移動予定
 
-## API契約
-- エンドポイント・イベント名・ヘッダ名・トピック名はリテラルで書かず
-  共通パッケージの定数を使う
+## [shop] 禁止事項
 
-## 実装フロー
-- 実装を変更したら、単体テストと統合テストが通過することを確認する
+- 生成済み型コードを手で書き換えない。型は `data/models.yaml` を SSoT とし、変更後は `python3 scripts/generate_types.py` で再生成する
+- このファイル (リポルートの CLAUDE.md) を Claude が書き換えない。ルール変更は人間が明示的に指示した場合のみ
 
-## ブランチ・Issue 運用
-- 開発は GitHub Issue を起点に行う
-- Issue 起票・コミット作成時の type / タイトル / メッセージ形式は対応する skill を参照
-  ([creating-issue-from-request](.claude/skills/creating-issue-from-request.md) /
-  [implementing-from-issue](.claude/skills/implementing-from-issue.md))
-- ブランチ戦略の詳細は [BRANCHING.md](docs/BRANCHING.md) を参照
-- 本リポ固有の CI/CD と release tag 自動生成は [CI_AND_RELEASE.md](docs/CI_AND_RELEASE.md) を参照
+## [shop] 参考リンク
 
-## 禁止事項
-- git tagの手動打ちは禁止（CIが自動生成）
-- 生成済み型コードを手で書き換えない。型は `data/models.yaml` を
-  SSoT とし、変更後は `python3 scripts/generate_types.py` で再生成する
-- Google CloudのことをGCPと表現してはいけない。（GCPは旧名称のため）
-- このファイル（CLAUDE.md）をClaudeが書き換えない。
-  ルールの追加・修正は人間が明示的に指示した場合のみ行う
+- 本リポ固有の CI/CD と release tag 自動生成: [docs/CI_AND_RELEASE.md](docs/CI_AND_RELEASE.md)
+
+> **衝突解決**: `@import` した common の方針と矛盾する指示がこのファイルにある場合、リポ固有 (このファイル) を優先する。
