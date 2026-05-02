@@ -1,4 +1,4 @@
-<!-- このファイルは overload-party-common/claude/base/CLAUDE.md から同期されています。編集はそちらで行ってください。 -->
+<!-- このファイルは overload-party-common/claude-config/base/CLAUDE.md から同期されています。編集はそちらで行ってください。 -->
 
 ## [base] 設計思想
 

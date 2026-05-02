@@ -2,7 +2,7 @@
 
 Git flow を採用するリポ共通のブランチ戦略。
 
-> **Note**: このファイルは `overload-party-common/claude/flow/gitflow/BRANCHING.md` から各消費リポへ同期される。各リポ固有の CI/CD・タグ自動生成の実装は、各リポ内の `docs/CI_AND_RELEASE.md` (または同等のファイル) を参照。
+> **Note**: このファイルは `overload-party-common/claude-config/flow/gitflow/BRANCHING.md` から各消費リポへ同期される。各リポ固有の CI/CD・タグ自動生成の実装は、各リポ内の `docs/CI_AND_RELEASE.md` (または同等のファイル) を参照。
 
 ## 概要
 
