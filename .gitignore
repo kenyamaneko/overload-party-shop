@@ -8,4 +8,8 @@ vendor/
 go.work
 go.work.sum
 .claude/*
+!.claude/docs.yaml
+!.claude/docs/
+!.claude/docs/**
 !.claude/skills/
+!.claude/skills/**

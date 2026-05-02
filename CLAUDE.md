@@ -1,14 +1,10 @@
 # Overload Party Shop
 
-@.claude-common/base/CLAUDE.md
-@.claude-common/flow-gitflow/CLAUDE.md
+@.claude/docs/base/CLAUDE.md
+@.claude/docs/flow/CLAUDE.md
+@.claude/docs/lang/CLAUDE.md
 
 # このリポ固有
-
-## [shop] 言語固有方針 (Go)
-
-- テストコードはテーブル駆動で書く
-  - 将来 `lang-go` レイヤが整備された時点で common 側に移動予定
 
 ## [shop] SSoT と生成コード
 
