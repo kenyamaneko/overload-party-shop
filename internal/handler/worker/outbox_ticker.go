@@ -1,7 +1,7 @@
 // Package worker は周期起動される delivery 層のエントリポイントを提供する。
-// HTTP handler が inbound 要求を受けて service を呼ぶのと対称に、worker は
-// ticker 起点で service の RunOnce 系メソッドを呼ぶだけの薄い層に留める。
-// orchestration / ビジネスロジックは service 層に閉じ込める。
+// HTTP handler が inbound 要求を受けて usecase を呼ぶのと対称に、worker は
+// ticker 起点で usecase の RunOnce 系メソッドを呼ぶだけの薄い層に留める。
+// orchestration / ビジネスロジックは usecase 層に閉じ込める。
 package worker
 
 import (
@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// outboxRunner は OutboxTicker が依存する service の狭い契約。
-// service.OutboxPublisher.RunOnce が満たす。interface にしておくことで
-// handler/worker 側は service の内部実装を知らずに ticker 制御だけに集中できる。
+// outboxRunner は OutboxTicker が依存する usecase の狭い契約。
+// outbox.Relay.RunOnce が満たす。interface にしておくことで
+// handler/worker 側は usecase の内部実装を知らずに ticker 制御だけに集中できる。
 type outboxRunner interface {
 	RunOnce(ctx context.Context) error
 }

@@ -14,7 +14,7 @@ import (
 	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
 // Service は shop ローカルの購入フローを管理する。shop は `shop` スキーマ

@@ -56,10 +56,10 @@ DB commit が成功した瞬間にイベントは必ず発行される運命に�
 
 | ファイル | 層 | 責務 |
 |---|---|---|
-| [internal/service/outbox_publisher.go](../internal/service/outbox_publisher.go) | service (use case) | `RunOnce` で claim → publish → mark/fail の orchestration。`port.OutboxStore` と `port.RawEventPublisher` に依存 |
-| [internal/handler/worker/outbox_ticker.go](../internal/handler/worker/outbox_ticker.go) | handler (delivery) | ticker で `service.OutboxPublisher.RunOnce` を周期呼び出し。ctx キャンセル制御と tick 失敗時の ERROR ログだけを持つ |
+| [internal/usecase/outbox/relay.go](../internal/usecase/outbox/relay.go) | usecase | `RunOnce` で claim → publish → mark/fail の orchestration。`port.OutboxStore` と `port.RawEventPublisher` に依存 |
+| [internal/handler/worker/outbox_ticker.go](../internal/handler/worker/outbox_ticker.go) | handler (delivery) | ticker で `outbox.Relay.RunOnce` を周期呼び出し。ctx キャンセル制御と tick 失敗時の ERROR ログだけを持つ |
 
-依存方向: `handler/worker` → `service` → `port`。handler/worker は service の具体実装を知らず、service は postgres / pubsub の具体型を知らない。
+依存方向: `handler/worker` → `usecase` → `port`。handler/worker は usecase の具体実装を知らず、usecase は postgres / pubsub の具体型を知らない。
 
 repo (`postgres.OutboxRepository`) は `port.OutboxStore` を実装する pure data access 層で、orchestration は持たない。ポーリング間隔・バッチサイズ・失敗閾値・visibility timeout は env (`OUTBOX_POLL_INTERVAL` / `OUTBOX_BATCH_SIZE` / `OUTBOX_FAILURE_THRESHOLD` / `OUTBOX_VISIBILITY_TIMEOUT`) で可変。
 
@@ -104,7 +104,7 @@ repo (`postgres.OutboxRepository`) は `port.OutboxStore` を実装する pure d
 
 Apple と Google で信頼の引き方が違う。新プラットフォーム追加時や webhook まわりを触るときに必要な前提:
 
-- **Apple**: payload は JWS (JSON Web Signature) で署名されている。shop 自身が `x5c` 証明書チェーンを Apple Root CA (`internal/service/apple_root_ca_g3.pem`) まで検証してからデコードする。**payload レベルの認証**。
+- **Apple**: payload は JWS (JSON Web Signature) で署名されている。shop 自身が `x5c` 証明書チェーンを Apple Root CA (`internal/adapter/apple/apple_root_ca_g3.pem`) まで検証してからデコードする。**payload レベルの認証**。
 - **Google**: Pub/Sub push delivery 経由。メッセージ本体は署名されておらず、Google Cloud の Pub/Sub subscription auth (transport レベル) で担保する。
 
 どちらも gateway を経由しない外部エンドポイントだが、信頼境界を引くレイヤが異なる。この前提があるため、router に gateway 認証を挟んでいない。
@@ -117,7 +117,7 @@ webhook の deterministic error (decode 失敗 / unknown subscription 等) は *
 
 1. `cmd/server/main.go`: `IAP_MODE!=production` のとき verifier 系を全て nil のまま返し、webhookH も nil 構築する
 2. `internal/router/router.go`: `webhookH == nil` のとき `/webhook/*` ルートを **登録しない**
-3. `internal/service/shop_service.go` の `getVerifier`: 内部 `/purchase` / `/subscribe` ルートから呼ばれ、platform 不明時は `ErrUnsupportedPlatform`
+3. `internal/usecase/purchase/service.go` の `getVerifier`: 内部 `/purchase` / `/subscribe` ルートから呼ばれ、platform 不明時は `ErrUnsupportedPlatform`
 
 つまり local モードでは webhook エンドポイント自体が存在しないため、署名なしペイロードを受理する入口がない。`IAP_MODE` の分岐条件や webhook 登録条件を変更するときは、この構造的安全性を崩さないこと。
 

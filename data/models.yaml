@@ -64,7 +64,7 @@ files:
           - {name: AcquiredAt, type: time.Time}
 
       - name: ProductWithOwnership
-        comment: "ProductWithOwnership は Product にリクエスト元プレイヤーの所有状態を付与した service 層のビュー。"
+        comment: "ProductWithOwnership は Product にリクエスト元プレイヤーの所有状態を付与した usecase 層のビュー。"
         fields:
           - {name: Product, type: Product}
           - {name: IsOwned, type: bool}

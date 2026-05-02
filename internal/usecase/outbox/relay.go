@@ -16,7 +16,7 @@ import (
 // Relay は outbox 行を claim → publish → mark/fail に振り分ける message relay
 // (Transactional Outbox パターンの "Polling Publisher" 役)。呼び出し契機
 // (ticker / cron / 1 回だけ) は持たず、handler/worker 側で周期駆動する
-// (依存方向: handler/worker → service → port)。
+// (依存方向: handler/worker → usecase → port)。
 type Relay struct {
 	store             port.OutboxStore
 	pub               port.RawEventPublisher

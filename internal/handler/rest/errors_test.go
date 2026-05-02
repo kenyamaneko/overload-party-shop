@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/purchase"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/purchase"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
 func init() {
@@ -100,7 +100,7 @@ func TestErrorClassificationToStatus(t *testing.T) {
 }
 
 // fmt.Errorf("%w: ...") で wrap しても分類関数が元の sentinel を認識することを
-// 固定する。service 実装側は頻繁に wrap するため、errors.Is 経由の分類が
+// 固定する。usecase 実装側は頻繁に wrap するため、errors.Is 経由の分類が
 // 機能しないとリアルな呼び出しでマッチしなくなる。
 func TestErrorClassification_WrappedErrors(t *testing.T) {
 	wrapped := fmt.Errorf("purchase: %w", purchase.ErrAlreadyOwned)
