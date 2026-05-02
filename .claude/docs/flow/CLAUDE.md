@@ -1,4 +1,4 @@
-<!-- このファイルは overload-party-common/claude/flow/gitflow/CLAUDE.md から同期されています。編集はそちらで行ってください。 -->
+<!-- このファイルは overload-party-common/presets/claude/flow/gitflow/CLAUDE.md から同期されています。編集はそちらで行ってください。 -->
 
 ## [flow/gitflow] ブランチ・Issue 運用
 
