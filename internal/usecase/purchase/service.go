@@ -17,13 +17,7 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
-// Service は shop ローカルの購入フローを管理する。shop は `shop` スキーマ
-// のみを直接変更し、faction + premium 状態更新は Transactional Outbox 経由で
-// account / card / gateway subscriber が処理する。IsOwned チェックは shop ローカル
-// の `player_owned_factions` read model で行う。
-//
-// ビジネス行の INSERT と outbox 行の INSERT は repo 層の単一トランザクションで
-// 同時に commit される。publish は別プロセスの worker が outbox を消費して行う。
+// Service は shop ローカルの購入フロー (商品一覧・単発購入・サブスクリプション) を管理する。
 type Service struct {
 	productRepo         port.ProductRepo
 	factionPurchaseRepo port.FactionPurchaseRepo
@@ -106,10 +100,7 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]domain.Pr
 	return result, nil
 }
 
-// Purchase は単発購入フローを実行する。レシート検証・べき等チェック・
-// 購入記録・faction-purchased イベントの outbox enqueue を行う。
-// 購入行 + 所有権行 + outbox 行は repo 層の単一 tx で atomic に commit される。
-// publish は worker が outbox を消費して別途実行する。
+// Purchase は単発購入フローを実行する (べき等チェック・レシート検証・購入記録・outbox enqueue)。
 func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error {
 	verifier, err := s.getVerifier(pf)
 	if err != nil {
@@ -206,9 +197,7 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 	return nil
 }
 
-// Subscribe はサブスクリプション購入フローを実行する。レシート検証・べき等チェック・
-// サブスクリプション記録・premium-updated イベントの outbox enqueue を行う。
-// subscription 行 + token 行 + outbox 行は repo 層の単一 tx で atomic に commit される。
+// Subscribe はサブスクリプション購入フローを実行する (べき等チェック・レシート検証・記録・outbox enqueue)。
 func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error) {
 	verifier, err := s.getVerifier(pf)
 	if err != nil {

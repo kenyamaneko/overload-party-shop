@@ -5,14 +5,11 @@ import (
 	"fmt"
 )
 
-// newEventID は RFC 4122 v4 相当の UUID 文字列を返す。本パッケージは api-shop
-// module に属し google/uuid を依存に入れたくないため、crypto/rand + stdlib で
-// 自前生成する (テスト用 fake 専用のため外部ライブラリを増やさない方針)。
+// newEventID は RFC 4122 v4 相当の UUID 文字列を返す。
+// api-shop module に google/uuid 依存を入れないため crypto/rand + stdlib で自前生成。
 func newEventID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		// crypto/rand.Read は実装上エラーを返さない (darwin/linux とも
-		// getentropy / getrandom が常に成功)。理論上の保険として panic する。
 		panic(fmt.Sprintf("apishopfake: crypto/rand.Read failed: %v", err))
 	}
 	b[6] = (b[6] & 0x0f) | 0x40 // RFC 4122 version 4

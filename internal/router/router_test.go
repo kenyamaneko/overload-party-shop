@@ -15,8 +15,7 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// /health は webhook の登録状態に関わらず常に 200 を返す (router 自体が機能
-// していることの sanity check)。webhook 登録の spec とは独立したテスト。
+// /health は webhook の登録状態に関わらず常に 200 を返す。
 func TestNew_HealthEndpoint(t *testing.T) {
 	r := New(rest.NewShopHandler(nil), nil, nil)
 	w := httptest.NewRecorder()
@@ -24,13 +23,8 @@ func TestNew_HealthEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-// CLAUDE.md 禁止事項「IAP_MODE=local は webhook ルート自体を登録しない
-// (nil verifier で silent accept しない意図的設計)」を spec 単位で固定する。
-// 各行 = (apple/google handler 設定, path, 期待 status) の 1 spec。
-//
-// registered 側で 400 が返るのは body 空で ShouldBindJSON が失敗するため。
-// 「ルートが登録されていて handler に到達した」ことの証拠として使う
-// (未登録なら 404 になるため、登録/未登録の区別がつく)。
+// nil handler の webhook はルート自体を登録しないこと、登録時は handler に到達することを固定する。
+// (未登録は 404、登録済は body 空で 400 が返るため登録/未登録が区別できる)
 func TestNew_WebhookRouteRegistration(t *testing.T) {
 	registeredApple := rest.NewAppleWebhookHandler(nil)
 	registeredGoogle := rest.NewGoogleWebhookHandler(nil)

@@ -11,12 +11,7 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
-// errorStatus はドメインエラーを HTTP ステータスコードに変換する。
-// usecase 層が返す sentinel をここで「conflict / validation / payment failed / not found」
-// のいずれに翻訳するかを決定する責務は transport (handler) 側に閉じる。
-//
-// 分類対象に該当しないエラー (DB 一時障害等) は default の 500 にフォールバックし、
-// クライアント / ストア側のリトライを促す。
+// errorStatus はドメインエラーを HTTP ステータスコードに変換する (default は 500)。
 func errorStatus(err error) int {
 	switch {
 	case isNotFound(err):
@@ -37,7 +32,6 @@ func respondError(c *gin.Context, err error) {
 }
 
 // isNotFound は対象リソースが見つからない類のエラーか判定する。
-// port.ErrNotFound は repo から bubble される。
 func isNotFound(err error) bool {
 	return errors.Is(err, port.ErrNotFound)
 }
@@ -57,17 +51,13 @@ func isValidation(err error) bool {
 		errors.Is(err, purchase.ErrUnsupportedPlatform)
 }
 
-// isPaymentFailed はレシート/サブスクリプション検証がストア側で無効判定された
-// エラーか判定する。verifier 自体の infra 障害 (purchase.ErrVerifyReceipt) は含まない。
+// isPaymentFailed はストア側で無効判定された検証エラーか判定する (infra 失敗は含まない)。
 func isPaymentFailed(err error) bool {
 	return errors.Is(err, purchase.ErrReceiptVerificationFailed) ||
 		errors.Is(err, purchase.ErrSubVerificationFailed)
 }
 
-// isDeterministic は webhook 通知処理において「再送しても結果が変わらない」
-// 確定的エラーか判定する。webhook handler はこれに該当するエラーを ack (2xx) し、
-// ストア側の無駄なリトライを防ぐ。該当しないエラー (DB 障害・pub/sub 失敗等) は
-// 一時的な問題として 5xx で返しリトライを促す。
+// isDeterministic は webhook 通知処理で「再送しても結果が変わらない」確定的エラーか判定する。
 func isDeterministic(err error) bool {
 	return errors.Is(err, subscription.ErrDecodeNotification) ||
 		errors.Is(err, subscription.ErrDecodeTransactionInfo) ||

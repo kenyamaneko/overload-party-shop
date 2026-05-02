@@ -35,9 +35,7 @@ type Verifier struct {
 	httpClient *http.Client
 }
 
-// NewVerifier はファイルシステムから PEM 鍵を読み込んで Apple レシート
-// verifier を構築する。PEM データがメモリ上にある場合（Secret Manager 経由等）は
-// NewVerifierFromPEM を使用する。
+// NewVerifier はファイルシステムから PEM 鍵を読み込んで Apple verifier を構築する。
 func NewVerifier(keyID, issuerID, bundleID, privateKeyPath, environment string) (*Verifier, error) {
 	keyData, err := os.ReadFile(privateKeyPath)
 	if err != nil {
@@ -46,9 +44,7 @@ func NewVerifier(keyID, issuerID, bundleID, privateKeyPath, environment string) 
 	return NewVerifierFromPEM(keyID, issuerID, bundleID, keyData, environment)
 }
 
-// NewVerifierFromPEM はメモリ上の PEM エンコード P-256 秘密鍵バイト列
-// から Apple レシート verifier を構築する。
-// environment は "Production" または "Sandbox"。
+// NewVerifierFromPEM はメモリ上の P-256 秘密鍵から Apple verifier を構築する。environment は "Production" / "Sandbox"。
 func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, environment string) (*Verifier, error) {
 	block, _ := pem.Decode(pemData)
 	if block == nil {
@@ -82,7 +78,7 @@ func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, enviro
 
 var _ port.ReceiptVerifier = (*Verifier)(nil)
 
-// VerifyPurchase は Apple App Store Server API v2 で単発購入トランザクションを検証する。
+// VerifyPurchase は App Store Server API v2 で単発購入トランザクションを検証する。
 func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*port.VerifyResult, error) {
 	token, err := v.generateJWT()
 	if err != nil {
@@ -130,7 +126,7 @@ func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*p
 	}, nil
 }
 
-// VerifySubscription は Apple App Store Server API v2 でサブスクリプションを検証する。
+// VerifySubscription は App Store Server API v2 でサブスクリプションを検証する。
 func (v *Verifier) VerifySubscription(ctx context.Context, purchaseToken string) (*port.SubscriptionInfo, error) {
 	token, err := v.generateJWT()
 	if err != nil {
@@ -210,7 +206,6 @@ func (v *Verifier) generateJWT() (string, error) {
 	return token.SignedString(v.privateKey)
 }
 
-// appleTransactionInfo は Apple JWS payload のデコード結果。
 type appleTransactionInfo struct {
 	TransactionID string `json:"transactionId"`
 	ProductID     string `json:"productId"`
@@ -224,10 +219,8 @@ type appleRenewalInfo struct {
 }
 
 // decodeJWSPayload は JWS から署名検証なしで payload を抽出する。
+// 信頼は App Store Server API への JWT bearer auth に委譲している (webhook 経路では JWSVerifier を使う)。
 // TODO: 本番前に Apple root cert に対する署名検証を追加する。
-// 現在は App Store Server API への認証済み HTTPS 呼び出し（JWT bearer auth）に
-// 信頼を委譲している。App Store Server Notifications V2 webhook パスでは
-// x5c + ECDSA 検証を行う（internal/usecase/subscription/apple.go 参照）。
 func decodeJWSPayload(jws string) (*appleTransactionInfo, error) {
 	parts := strings.Split(jws, ".")
 	if len(parts) != 3 {

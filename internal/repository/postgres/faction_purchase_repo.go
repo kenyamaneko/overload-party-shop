@@ -12,11 +12,7 @@ import (
 
 var _ port.FactionPurchaseRepo = (*FactionPurchaseRepository)(nil)
 
-// FactionPurchaseRepository は faction_set 購入 aggregate を扱う。
-// 書き込みは shop.one_time_purchases + shop.{apple,google}_purchase_tokens +
-// shop.player_owned_factions の 3 テーブルを同一 tx で更新する。
-// shop.player_owned_factions は authoritative な account.player_factions の shop ローカル射影
-// (cross-schema 読み込み不可のため GetProducts の IsOwned 判定用に独立保持)。
+// FactionPurchaseRepository は faction_set 購入 aggregate (purchase + token + owned_faction + outbox) を扱う。
 type FactionPurchaseRepository struct {
 	pool *pgxpool.Pool
 }

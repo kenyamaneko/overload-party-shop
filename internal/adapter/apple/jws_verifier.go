@@ -36,26 +36,21 @@ func init() {
 	appleRootPool.AddCert(cert)
 }
 
-// JWSVerifier は Apple App Store Server Notifications V2 の signed JWS を
-// Apple Root CA に対して検証する port.AppleJWSVerifier 実装。
+// JWSVerifier は Apple JWS を Apple Root CA に対して検証する port.AppleJWSVerifier 実装。
 type JWSVerifier struct{}
 
 var _ port.AppleJWSVerifier = (*JWSVerifier)(nil)
 
-// NewJWSVerifier は JWSVerifier を構築する。Apple Root CA は init で
-// パッケージレベルにロード済みなので追加引数なし。
 func NewJWSVerifier() *JWSVerifier {
 	return &JWSVerifier{}
 }
 
-// jwsHeader は JWS の JOSE ヘッダを表す。
 type jwsHeader struct {
 	Alg string   `json:"alg"`
 	X5C []string `json:"x5c"`
 }
 
-// Verify は Apple JWS token の x5c 証明書チェーンと ECDSA 署名を検証し、
-// 生 payload バイト列を返す。
+// Verify は JWS の x5c 証明書チェーンと ECDSA 署名を検証し、生 payload バイト列を返す。
 func (v *JWSVerifier) Verify(jws string) ([]byte, error) {
 	parts := strings.Split(jws, ".")
 	if len(parts) != 3 {

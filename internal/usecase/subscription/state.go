@@ -13,10 +13,7 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-// IsEntitled はサブスクリプションが指定時刻に特典有効かを返す。
-// active / cancelled (auto-renew off だが期間内) / grace_period (支払い失敗中だが猶予内)
-// が期間内である限り特典は有効。expired / revoked は無効。
-// 未知の status は上流の不整合なのでエラーで返す。
+// IsEntitled はサブスクリプションが指定時刻に特典有効かを返す。未知の status はエラー。
 func IsEntitled(sub *domain.Subscription, now time.Time) (bool, error) {
 	if sub == nil {
 		return false, nil
@@ -34,9 +31,7 @@ func IsEntitled(sub *domain.Subscription, now time.Time) (bool, error) {
 	}
 }
 
-// writeWithEvent / writeNoEvent は dual-write 問題を避けるため subscription 行
-// 更新と premium-updated 発行 (またはその不発行) を同一 tx に揃える共通経路。
-// AppleNotifier / GoogleNotifier 共通。
+// writeWithEvent は subscription 行の更新と premium-updated event の outbox enqueue を同一 tx で行う。
 func writeWithEvent(
 	ctx context.Context,
 	subRepo port.SubscriptionRepo,
@@ -79,8 +74,7 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 	}, nil
 }
 
-// writeNoEvent は cancelled 遷移用 (エンタイトルメント維持契約 — 期限到来までは
-// is_premium=false を subscriber に伝えない)。
+// writeNoEvent は subscription 行を更新し、premium-updated を発行しない (cancelled 遷移用)。
 func writeNoEvent(ctx context.Context, subRepo port.SubscriptionRepo, sub *domain.Subscription) error {
 	if err := subRepo.UpdateSubscription(ctx, sub); err != nil {
 		return fmt.Errorf("update subscription: %w", err)

@@ -21,10 +21,8 @@ var (
 	ErrReceiptVerificationFailed = errors.New("receipt verification failed")
 	// ErrSubVerificationFailed はサブスクリプション検証失敗時に返される。
 	ErrSubVerificationFailed = errors.New("subscription verification failed")
-	// ErrVerifyReceipt は verifier が IsValid 判定以前にインフラ的失敗
-	// （ネットワーク／署名検証等）を返した場合。
+	// ErrVerifyReceipt は verifier がインフラ的失敗 (ネットワーク／署名検証等) を返した場合。
 	ErrVerifyReceipt = errors.New("verify receipt")
-	// ErrUnsupportedProductType は Purchase で subscription 等の非対応 type が
-	// 指定された場合（subscription は Subscribe を使う）。
+	// ErrUnsupportedProductType は Purchase で subscription 等の非対応 type が指定された場合。
 	ErrUnsupportedProductType = errors.New("unsupported product type for purchase")
 )

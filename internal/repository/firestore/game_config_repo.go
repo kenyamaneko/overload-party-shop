@@ -24,8 +24,7 @@ func NewGameConfigRepository(client *firestore.Client) *GameConfigRepository {
 	return &GameConfigRepository{client: client}
 }
 
-// GetInt64 は指定キーの設定値を int64 で返します。
-// ドキュメント不在は port.ErrNotFound を返す（fail-fast）。
+// GetInt64 は指定キーの設定値を int64 で返す。ドキュメント不在は port.ErrNotFound。
 func (r *GameConfigRepository) GetInt64(ctx context.Context, key string) (int64, error) {
 	snap, err := r.client.Collection(gameConfigCollection).Doc(key).Get(ctx)
 	if err != nil {

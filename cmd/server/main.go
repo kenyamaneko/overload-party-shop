@@ -53,7 +53,6 @@ func setupLogger(mode config.IAPMode) error {
 }
 
 // newCloudLoggingHandler は Cloud Logging 互換の JSON ハンドラを返す。
-// slog のデフォルトフィールド名・値では Cloud Logging が認識しないため変換する。
 func newCloudLoggingHandler() slog.Handler {
 	return slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
@@ -81,7 +80,6 @@ func newCloudLoggingHandler() slog.Handler {
 }
 
 // verifiers は IAP_MODE=production のときだけ初期化される verifier をまとめる。
-// local モードでは全て nil のまま返り、purchase usecase 側で ErrUnsupportedPlatform を返す。
 type verifiers struct {
 	apple     port.ReceiptVerifier
 	google    port.ReceiptVerifier
@@ -154,8 +152,7 @@ func run() error {
 	return runHTTPAndWorker(ctx, srv, outboxTicker)
 }
 
-// setupVerifiers は IAP_MODE に応じて Apple/Google verifier を初期化する。
-// local モードでは全 verifier を nil のまま返し、webhook ルートも未登録となる。
+// setupVerifiers は IAP_MODE に応じて Apple/Google verifier を初期化する。local モードでは全て nil。
 func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) {
 	if cfg.IAPMode != config.IAPModeProduction {
 		slog.Info("skipping verifier init and webhook route registration", "iap_mode", "local")
@@ -180,8 +177,7 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 	return verifiers{apple: av, google: gv, googleSub: gsv, appleJWS: ajws}, nil
 }
 
-// buildHTTPHandler は repo / usecase / handler の配線を一箇所にまとめる。
-// run() の肥大を避けるための分割であり、起動順には依存していない。
+// buildHTTPHandler は repo / usecase / handler の配線を組み立てる。
 func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) http.Handler {
 	productRepo := postgres.NewProductRepository(pool)
 	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(pool)
@@ -210,8 +206,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) htt
 	return router.New(shopH, appleWH, googleWH)
 }
 
-// buildOutboxTicker は outbox 消費フローを構成する 2 コンポーネント (usecase
-// + handler/worker の ticker) を組み立てる。依存方向は worker → usecase → port。
+// buildOutboxTicker は outbox 消費フローの relay と worker ticker を組み立てる。
 func buildOutboxTicker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *config.Config) (*worker.OutboxTicker, error) {
 	outboxRepo := postgres.NewOutboxRepository(pool)
 	relay, err := outbox.New(outboxRepo, pub, outbox.Config{
@@ -225,10 +220,7 @@ func buildOutboxTicker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *conf
 	return worker.NewOutboxTicker(relay, cfg.OutboxPollInterval)
 }
 
-// runHTTPAndWorker は HTTP server と outbox ticker を並行起動し、
-// どちらかの失敗・シグナル到来で両方を graceful に停止する。
-// errgroup を使うのは「どちらが先に終わっても相方を畳む」ためで、shop 独自の
-// 停止順序 (http 先・worker 後) が必要になった場合はここを変える。
+// runHTTPAndWorker は HTTP server と outbox ticker を並行起動し、どちらかの失敗・signal で両方を graceful に停止する。
 func runHTTPAndWorker(ctx context.Context, srv *http.Server, outboxTicker *worker.OutboxTicker) error {
 	g, gCtx := errgroup.WithContext(ctx)
 

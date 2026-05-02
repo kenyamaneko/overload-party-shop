@@ -22,11 +22,8 @@ func purchaseTokenTableForPlatform(platform string) (string, error) {
 	}
 }
 
-// insertOneTimePurchaseAndToken は shop.one_time_purchases + 対応する token テーブル
-// への挿入を同一 tx 内で実行する。faction_purchase / item_purchase repo の共通処理。
-//   - 既存 token があれば created=false、purchase.PurchaseID に既存 id を埋めて返す
-//     (呼び出し側は owned_faction / player_item 挿入をスキップする責務を持つ)
-//   - 新規なら INSERT 2 本を実行し created=true を返す
+// insertOneTimePurchaseAndToken は one_time_purchases と対応する token テーブルへの挿入を同一 tx で行う。
+// 既存 token があれば created=false で existing purchase_id を埋めて返す。
 func insertOneTimePurchaseAndToken(ctx context.Context, tx pgx.Tx, purchase *domain.OneTimePurchase, platform, purchaseToken string) (created bool, err error) {
 	table, err := purchaseTokenTableForPlatform(platform)
 	if err != nil {

@@ -10,9 +10,7 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
 )
 
-// New は shop の HTTP ルーターを構築する。
-// appleWH / googleWH は IAP_MODE=local のとき nil になり得る。その場合該当する
-// `/webhook/*` ルートは登録されず、未認証 POST が nil notifier パスに到達することはない。
+// New は shop の HTTP ルーターを構築する。appleWH / googleWH が nil なら該当 webhook ルートを登録しない。
 func New(shopH *rest.ShopHandler, appleWH *rest.AppleWebhookHandler, googleWH *rest.GoogleWebhookHandler) *gin.Engine {
 	r := gin.New()
 	r.Use(requestLogger(), gin.Recovery())
@@ -39,9 +37,7 @@ func New(shopH *rest.ShopHandler, appleWH *rest.AppleWebhookHandler, googleWH *r
 	return r
 }
 
-// requestLogger は HTTP リクエストの構造化ログを出力するミドルウェア。
-// ステータスコードに応じてログレベルを切り替え、Cloud Logging 上でのフィルタリングを
-// 容易にする。
+// requestLogger はステータスコードに応じてログレベルを切り替える HTTP リクエストロガー。
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

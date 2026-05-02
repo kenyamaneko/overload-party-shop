@@ -14,8 +14,7 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 )
 
-// fakeOutboxStore は port.OutboxStore の簡易モック。claim 系の返り値と各メソッド
-// 呼び出しを記録し、RunOnce が claim → publish → mark/fail の順序で呼ぶことを観察する。
+// fakeOutboxStore は port.OutboxStore の簡易モック。
 type fakeOutboxStore struct {
 	claimed          []port.ClaimedOutboxEvent
 	claimErr         error
@@ -55,8 +54,7 @@ func (f *fakeOutboxStore) RecordFailure(_ context.Context, eventID uuid.UUID, er
 	return f.failErr
 }
 
-// fakeRawPublisher は eventType 単位の publish 結果を制御できるモック。
-// デフォルトは全 eventType 成功、errByEventType で個別に失敗を指示する。
+// fakeRawPublisher は eventType 単位で publish 結果を制御できるモック。
 type fakeRawPublisher struct {
 	calls          []string // eventType:payload
 	errByEventType map[string]error
@@ -123,8 +121,7 @@ func TestNew_Validation(t *testing.T) {
 	}
 }
 
-// RunOnce の各ケースを claim 返却 + publish 結果指定 + 期待する mark/fail 呼び出し
-// で表現する。各ケースは自己完結 (runner に if を入れない)。
+// RunOnce の claim → publish → mark/fail のフローを各ケースで固定する。
 func TestRelay_RunOnce(t *testing.T) {
 	okID := uuid.New()
 	ngID := uuid.New()
@@ -194,8 +191,7 @@ func TestRelay_RunOnce(t *testing.T) {
 	}
 }
 
-// RunOnce は store が返したエラーだけを上位に伝播する (ticker 側で ERROR ログ化されるため)。
-// publish 単独の失敗は RunOnce の戻り値に影響しない。
+// RunOnce は store エラーのみ上位に伝播する (publish 失敗は戻り値に影響しない)。
 func TestRelay_RunOnce_ClaimErrorSurfaces(t *testing.T) {
 	store := &fakeOutboxStore{claimErr: errors.New("db down")}
 	pub := &fakeRawPublisher{}
@@ -212,8 +208,7 @@ func TestRelay_RunOnce_ClaimErrorSurfaces(t *testing.T) {
 	assert.Empty(t, store.failures)
 }
 
-// Config の BatchSize / VisibilityTimeout は store.ClaimUnpublished にそのまま渡される
-// (env 可変設定の到達検証)。
+// Config の BatchSize / VisibilityTimeout / FailureThreshold は store.ClaimUnpublished にそのまま渡される。
 func TestRelay_RunOnce_PassesConfigToStore(t *testing.T) {
 	store := &fakeOutboxStore{}
 	pub := &fakeRawPublisher{}

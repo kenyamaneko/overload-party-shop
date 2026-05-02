@@ -38,13 +38,11 @@ const (
 
 // GoogleNotifier は Google Play RTDN webhook を処理する。
 // RTDN payload には expiry が含まれないため expiryFetcher (Play Developer API) で取得する。
-// Apple 側の依存は持たない。
 type GoogleNotifier struct {
 	subRepo       port.SubscriptionRepo
 	expiryFetcher port.GoogleSubVerifier
 }
 
-// NewGoogleNotifier は依存を受け取り GoogleNotifier を構築する。
 func NewGoogleNotifier(
 	subRepo port.SubscriptionRepo,
 	expiryFetcher port.GoogleSubVerifier,

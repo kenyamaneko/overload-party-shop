@@ -12,9 +12,7 @@ import (
 
 var _ port.ItemPurchaseRepo = (*ItemPurchaseRepository)(nil)
 
-// ItemPurchaseRepository は cosmetic 購入 aggregate を扱う。
-// 書き込みは shop.one_time_purchases + shop.{apple,google}_purchase_tokens +
-// shop.player_items の 3 テーブルを同一 tx で更新する。
+// ItemPurchaseRepository は cosmetic 購入 aggregate (purchase + token + player_item) を扱う。
 type ItemPurchaseRepository struct {
 	pool *pgxpool.Pool
 }

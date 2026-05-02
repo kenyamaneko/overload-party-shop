@@ -14,8 +14,7 @@ import (
 
 var _ port.PurchaseLookupRepo = (*PurchaseLookupRepository)(nil)
 
-// PurchaseLookupRepository は token から一回きり購入を引く cross-cutting 読み取り repo。
-// faction / item どちらの aggregate にも属さず、webhook 冪等性チェック用の早期 short-circuit に使う。
+// PurchaseLookupRepository は token から一回きり購入を引く読み取り専用 repo。
 type PurchaseLookupRepository struct {
 	pool *pgxpool.Pool
 }

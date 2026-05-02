@@ -56,7 +56,6 @@ func encodeRTDN(t *testing.T, payload map[string]interface{}) GoogleRTDNMessage 
 }
 
 // publish するケース: status 遷移と premium-updated イベント発火を確認する。
-// publish が起きない notifType は TestHandleGoogleNotification_NoPublish 側。
 func TestHandleGoogleNotification_PublishesEvent(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -123,8 +122,7 @@ func TestHandleGoogleNotification_PublishesEvent(t *testing.T) {
 	}
 }
 
-// publish しないケース: status 遷移のみ確認し、premium-updated が enqueue されない
-// ことを契約として固定する (canceled は期間内 entitlement 維持 / 未対応 type は no-op)。
+// publish しないケース: status 遷移のみ確認し、premium-updated が enqueue されないことを固定する。
 func TestHandleGoogleNotification_NoPublish(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -173,8 +171,6 @@ func TestHandleGoogleNotification_NoPublish(t *testing.T) {
 }
 
 // HandleNotification が DB write / publish 前に早期 return する非 decode 系入力を網羅する。
-// (decode 失敗は TestHandleGoogleNotification_DecodeErrors 側、message 構造そのものが
-// 壊れているケースをカバー)
 func TestHandleGoogleNotification_EarlyReturn(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -214,9 +210,7 @@ func TestHandleGoogleNotification_EarlyReturn(t *testing.T) {
 	}
 }
 
-// Google Renewed/Recovered は expiryFetcher への到達が必須。
-// nil verifier (設定漏れ) と verifier error (Google API 障害) を分岐ごとに検証する。
-// case 固有の env 差し替えは configure で受ける — if 分岐をテスト内に入れない。
+// Google Renewed/Recovered で expiryFetcher の nil/エラーを各ケースで検証する。
 func TestHandleGoogleNotification_VerifierPaths(t *testing.T) {
 	withNilVerifier := func(env *googleTestEnv) {
 		env.notifier = NewGoogleNotifier(env.subRepo, nil)

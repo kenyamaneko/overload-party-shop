@@ -13,8 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Fn 未設定の endpoint は既定応答を返す。consumer テストが setup を書かなくても
-// 最低限の HTTP 応答が得られる契約を固定する。
+// Fn 未設定の endpoint は既定応答を返す。
 func TestServer_DefaultResponses(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -69,8 +68,7 @@ func TestServer_DefaultResponses(t *testing.T) {
 	}
 }
 
-// SelectFactionFn は request body をそのまま受け取れる。Fn で status=409 を
-// 返して faction-already-selected を擬似する想定のテスト。
+// SelectFactionFn は playerID と request body を typed で受け取れる。
 func TestServer_SelectFactionFn_ReceivesRequest(t *testing.T) {
 	srv := apishopserverfake.NewServer()
 	defer srv.Close()
@@ -118,8 +116,7 @@ func TestServer_PurchaseFn_ReceivesTypedRequest(t *testing.T) {
 	assert.Equal(t, "tok-1", gotReq.PurchaseToken)
 }
 
-// SubscribeResponse は ExpiresAt を *time.Time で返せ、shopclient 側が
-// RFC 3339 として decode できる形になっている。
+// SubscribeResponse は ExpiresAt を *time.Time として shopclient が decode できる形で返す。
 func TestServer_SubscribeFn_ReturnsTypedExpiry(t *testing.T) {
 	srv := apishopserverfake.NewServer()
 	defer srv.Close()

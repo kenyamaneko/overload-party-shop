@@ -11,8 +11,7 @@ import (
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
-// shopServicer は shop handler が依存するサービス層の狭い contract。
-// カタログ・購入・サブスクリプションのドメインロジックを handler から隠蔽する。
+// shopServicer は shop handler が依存する usecase の狭い contract。
 type shopServicer interface {
 	GetProducts(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error)
 	Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error
@@ -24,7 +23,6 @@ type ShopHandler struct {
 	shopService shopServicer
 }
 
-// NewShopHandler は ShopService を受け取り ShopHandler を構築する。
 func NewShopHandler(shopService shopServicer) *ShopHandler {
 	return &ShopHandler{shopService: shopService}
 }
@@ -97,8 +95,7 @@ func (h *ShopHandler) Subscribe(c *gin.Context) {
 	})
 }
 
-// toProductResponses は domain の ProductWithOwnership を REST wire の
-// ProductResponse へ詰め替える。delivery 層の境界変換。
+// toProductResponses は domain の ProductWithOwnership を REST wire の ProductResponse に詰め替える。
 func toProductResponses(items []domain.ProductWithOwnership) []apishop.ProductResponse {
 	out := make([]apishop.ProductResponse, 0, len(items))
 	for _, it := range items {
