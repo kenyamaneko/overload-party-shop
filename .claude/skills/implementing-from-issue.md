@@ -23,7 +23,8 @@ GitHub Issue を起点に、feature ブランチを切り、テストファー�
    - 受け入れ基準を Given/When/Then に落としてテストを書いてから実装する
    - テスト方針・設計思想・コーディング方針は [CLAUDE.md](../../CLAUDE.md) に従う
 5. コミット・プッシュする
-   - コミットメッセージ規則は [CLAUDE.md](../../CLAUDE.md) の「ブランチ・Issue 運用」に従う
+   - コミットメッセージ形式: `{type}: {要約}` (Conventional Commits)
+   - type: `feat` / `fix` / `refactor` / `docs` / `chore` / `test` / `perf` / `ci` のいずれか
    - **コミット前にユーザーの承認を得る**: 変更内容(`git diff` の要点)とコミットメッセージ案をユーザーに提示し、修正内容が妥当か・メッセージが適切かを確認してから `git commit` を実行する
    - `git push -u origin feature/{n}-{summary}`
 6. `develop` への PR を作成する

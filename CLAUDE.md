@@ -39,16 +39,15 @@
 - エンドポイント・イベント名・ヘッダ名・トピック名はリテラルで書かず
   共通パッケージの定数を使う
 
+## 実装フロー
+- 実装を変更したら、単体テストと統合テストが通過することを確認する
+
 ## ブランチ・Issue 運用
 - 開発は GitHub Issue を起点に行う
-- Issue / コミットメッセージの type は以下のいずれかを使う:
-  `feat` / `fix` / `refactor` / `docs` / `chore` / `test` / `perf` / `ci`
-  - Issue タイトル: `[{type}] {要約}` (日本語・50 文字以内)
-  - コミットメッセージ: `{type}: {要約}` (Conventional Commits)
-- feature ブランチは develop から切る(命名: `feature/{issue番号}-{概要}`)
-- hotfix は main から切る(develop ではない)
+- Issue 起票・コミット作成時の type / タイトル / メッセージ形式は対応する skill を参照
+  ([creating-issue-from-request](.claude/skills/creating-issue-from-request.md) /
+  [implementing-from-issue](.claude/skills/implementing-from-issue.md))
 - ブランチ戦略の詳細は [BRANCHING.md](docs/BRANCHING.md) を参照
-- 詳細手順はSkillsを参照
 
 ## 禁止事項
 - git tagの手動打ちは禁止（CIが自動生成）
