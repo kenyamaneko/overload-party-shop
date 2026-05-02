@@ -49,4 +49,7 @@
 
 - git tag の手動打ちは禁止（CI が自動生成）
 - Google Cloud のことを GCP と表現してはいけない（GCP は旧名称のため）
-- common から同期されたファイル (`.claude-common/` 配下、および `.claude/skills/` の同期対象) を Claude が書き換えない。ルール変更は `overload-party-common` 側で人間が明示的に指示した場合のみ
+- 生成済みコードを手で書き換えない。型・スキーマ・定数等は SSoT を変更してから生成スクリプトを再実行する（該当する SSoT がある場合に適用）
+- 以下のファイルを Claude が書き換えない:
+  - common から同期されたファイル (`.claude-common/` 配下、および `.claude/skills/` の同期対象) — ルール変更は `overload-party-common` 側で人間が明示的に指示した場合のみ
+  - 各リポルートの `CLAUDE.md` — ルール変更は当該リポで人間が明示的に指示した場合のみ
