@@ -1,8 +1,8 @@
 # Overload Party Shop
 
-@.claude/common/base/CLAUDE.md
-@.claude/common/flow/gitflow/CLAUDE.md
-@.claude/common/lang/go/CLAUDE.md
+@.claude/docs/base/CLAUDE.md
+@.claude/docs/flow/CLAUDE.md
+@.claude/docs/lang/CLAUDE.md
 
 # このリポ固有
 

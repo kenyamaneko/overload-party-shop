@@ -1,0 +1,7 @@
+# overload-party-common から取り込むレイヤを宣言する。
+# common の claude-config-sync workflow がこの宣言に従って .claude/docs/ と .claude/skills/ を更新する PR を作成する。
+
+layers:
+  - base
+  - flow/gitflow
+  - lang/go
