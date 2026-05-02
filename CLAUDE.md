@@ -48,6 +48,7 @@
   ([creating-issue-from-request](.claude/skills/creating-issue-from-request.md) /
   [implementing-from-issue](.claude/skills/implementing-from-issue.md))
 - ブランチ戦略の詳細は [BRANCHING.md](docs/BRANCHING.md) を参照
+- 本リポ固有の CI/CD と release tag 自動生成は [CI_AND_RELEASE.md](docs/CI_AND_RELEASE.md) を参照
 
 ## 禁止事項
 - git tagの手動打ちは禁止（CIが自動生成）
