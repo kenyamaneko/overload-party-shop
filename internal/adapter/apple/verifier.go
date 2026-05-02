@@ -227,7 +227,7 @@ type appleRenewalInfo struct {
 // TODO: 本番前に Apple root cert に対する署名検証を追加する。
 // 現在は App Store Server API への認証済み HTTPS 呼び出し（JWT bearer auth）に
 // 信頼を委譲している。App Store Server Notifications V2 webhook パスでは
-// x5c + ECDSA 検証を行う（internal/service/jws_verify.go 参照）。
+// x5c + ECDSA 検証を行う（internal/usecase/subscription/apple.go 参照）。
 func decodeJWSPayload(jws string) (*appleTransactionInfo, error) {
 	parts := strings.Split(jws, ".")
 	if len(parts) != 3 {

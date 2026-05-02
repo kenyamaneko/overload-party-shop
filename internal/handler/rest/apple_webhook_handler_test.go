@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
 type fakeAppleNotifier struct {
@@ -25,10 +25,10 @@ func (f *fakeAppleNotifier) HandleNotification(_ context.Context, _ string) erro
 	return f.err
 }
 
-// webhook handler は service 層の「何が起きたか」を HTTP リトライプロトコルに
+// webhook handler は usecase 層の「何が起きたか」を HTTP リトライプロトコルに
 // 変換する責務のみを持つ。確定的エラーは ack (200) してストア側のリトライを
-// 止め、一時的エラーは 5xx で返してリトライを促す。service のエラー分類は
-// service 側でテストされているので、ここでは 1 sentinel ずつで代表する。
+// 止め、一時的エラーは 5xx で返してリトライを促す。usecase のエラー分類は
+// usecase 側でテストされているので、ここでは 1 sentinel ずつで代表する。
 func TestAppleWebhookHandler(t *testing.T) {
 	validBody := []byte(`{"signedPayload":"fake-jws"}`)
 

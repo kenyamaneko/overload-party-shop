@@ -24,9 +24,9 @@ import (
 	shopfirestore "github.com/kenyamaneko/overload-party-shop/internal/repository/firestore"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/router"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/outbox"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/purchase"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/outbox"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/purchase"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
 func main() {
@@ -81,7 +81,7 @@ func newCloudLoggingHandler() slog.Handler {
 }
 
 // verifiers は IAP_MODE=production のときだけ初期化される verifier をまとめる。
-// local モードでは全て nil のまま返り、shop_service 側で ErrUnsupportedPlatform を返す。
+// local モードでは全て nil のまま返り、purchase usecase 側で ErrUnsupportedPlatform を返す。
 type verifiers struct {
 	apple     port.ReceiptVerifier
 	google    port.ReceiptVerifier
@@ -180,7 +180,7 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 	return verifiers{apple: av, google: gv, googleSub: gsv, appleJWS: ajws}, nil
 }
 
-// buildHTTPHandler は repo / service / handler の配線を一箇所にまとめる。
+// buildHTTPHandler は repo / usecase / handler の配線を一箇所にまとめる。
 // run() の肥大を避けるための分割であり、起動順には依存していない。
 func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) http.Handler {
 	productRepo := postgres.NewProductRepository(pool)
@@ -210,8 +210,8 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) htt
 	return router.New(shopH, appleWH, googleWH)
 }
 
-// buildOutboxTicker は outbox 消費フローを構成する 2 コンポーネント (service の
-// use case + handler/worker の ticker) を組み立てる。依存方向は worker → service → port。
+// buildOutboxTicker は outbox 消費フローを構成する 2 コンポーネント (usecase
+// + handler/worker の ticker) を組み立てる。依存方向は worker → usecase → port。
 func buildOutboxTicker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *config.Config) (*worker.OutboxTicker, error) {
 	outboxRepo := postgres.NewOutboxRepository(pool)
 	relay, err := outbox.New(outboxRepo, pub, outbox.Config{

@@ -167,7 +167,7 @@ Google RTDN は `expiresAt` をペイロードに含まないため、`active` �
 
 ## 7. エラーセマンティクス
 
-サービス層は HTTP ステータスを知らない。エラーはセンチネルとして返し、handler が `errors.Is` ベースの分類関数で transport 層のステータスに変換する（既存の振る舞いは [errors.go](../internal/service/errors.go) 参照）。
+usecase 層は HTTP ステータスを知らない。エラーはセンチネルとして返し、handler が `errors.Is` ベースの分類関数で transport 層のステータスに変換する（既存の振る舞いは [errors.go](../internal/handler/rest/errors.go) 参照）。
 
 ### 7.1 分類
 

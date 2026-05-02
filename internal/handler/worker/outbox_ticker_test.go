@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeRunner は outboxRunner (service.OutboxPublisher のテスト代替)。
+// fakeRunner は outboxRunner (outbox.Relay のテスト代替)。
 // RunOnce の呼び出し回数を原子的にカウントし、指定エラーを返す。
 type fakeRunner struct {
 	calls int32

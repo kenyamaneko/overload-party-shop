@@ -7,12 +7,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/purchase"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/purchase"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
 // errorStatus はドメインエラーを HTTP ステータスコードに変換する。
-// service 層が返す sentinel をここで「conflict / validation / payment failed / not found」
+// usecase 層が返す sentinel をここで「conflict / validation / payment failed / not found」
 // のいずれに翻訳するかを決定する責務は transport (handler) 側に閉じる。
 //
 // 分類対象に該当しないエラー (DB 一時障害等) は default の 500 にフォールバックし、

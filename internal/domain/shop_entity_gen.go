@@ -58,7 +58,7 @@ type PlayerItem struct {
 	AcquiredAt time.Time
 }
 
-// ProductWithOwnership は Product にリクエスト元プレイヤーの所有状態を付与した service 層のビュー。
+// ProductWithOwnership は Product にリクエスト元プレイヤーの所有状態を付与した usecase 層のビュー。
 type ProductWithOwnership struct {
 	Product Product
 	IsOwned bool
