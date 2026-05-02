@@ -143,7 +143,10 @@ jobs:
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
         run: .github/scripts/ci/configure-go-private-modules.sh
       - name: Install dependencies
-        run: pip install pyyaml "overload-party-doc-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/doc-tools"
+        run: |
+          pip install pyyaml \
+            "overload-party-doc-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/doc-tools" \
+            "overload-party-codegen-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/codegen-tools"
       - name: Run codegen
         run: python3 scripts/generate_types.py
       - name: Run schema-doc codegen
