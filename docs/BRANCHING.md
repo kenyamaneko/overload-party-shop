@@ -1,12 +1,12 @@
 # Branching Strategy
 
-本リポジトリのブランチ戦略とリリース運用を定義する。
+本リポジトリのブランチ戦略を定義する。Git flow を採用する全リポで共通の方針。
 
-> **Note**: このドキュメントは将来 `overload-party-common` に移動する予定。他リポジトリの main ブランチの品質が安定した段階で、共通ルールとして参照される形にする。
+> **Note**: このドキュメントは将来 `overload-party-common` に移動する予定。Git flow を採用する全サービス・ジョブリポで共通のブランチ戦略として参照される形にする。本リポ固有の CI/CD・タグ自動生成の実装は [CI_AND_RELEASE.md](CI_AND_RELEASE.md) を参照。
 
 ## 概要
 
-GitFlow をベースに、環境とブランチを対応付けた運用を採用する。shop のような課金を扱うサービスでは、本番事故が返金対応に直結するため、stg 環境での実機検証を挟む昇格モデルが必須となる。
+GitFlow をベースに、環境とブランチを対応付けた運用を採用する。本番品質を担保するため、stg 環境での実機検証を挟む昇格モデルを必須とする。
 
 ## ブランチ一覧
 
@@ -26,7 +26,7 @@ GitFlow をベースに、環境とブランチを対応付けた運用を採用
 - 直 push 禁止。PR 経由のマージのみ
 - マージ元として許可するのは `release/*` と `hotfix/*` のみ
 - `develop` や `feature/*` を直接 main にマージしない
-- タグは CI が自動で打つ。手動タグ付けは禁止(既存の `publish.yaml` と整合)
+- タグは CI が自動で打つ。手動タグ付けは禁止
 - force push 禁止、履歴書き換え禁止
 
 ### develop
@@ -50,7 +50,7 @@ GitFlow をベースに、環境とブランチを対応付けた運用を採用
 
 - 新機能・改善の作業ブランチ
 - `develop` から切って `develop` にマージ
-- 命名例: `feature/add-subscription-refund-flow`, `feature/shop/issue-123`
+- 命名: `feature/{issue番号}-{概要}` (例: `feature/39-split-branching-md`)
 - PR マージ時にブランチ削除
 
 ### hotfix/xxx
@@ -59,7 +59,7 @@ GitFlow をベースに、環境とブランチを対応付けた運用を採用
 - `main` から切る(develop からではない — develop には未リリース変更が混ざっているため)
 - main と develop の両方にマージする(back-merge 必須)
 - release ブランチが存在する場合は、release にもマージする
-- 命名例: `hotfix/fix-apple-webhook-signature`, `hotfix/critical-payment-bug`
+- 命名例: `hotfix/fix-webhook-signature`, `hotfix/critical-payment-bug`
 
 ## リリースフロー
 
@@ -74,7 +74,7 @@ GitFlow をベースに、環境とブランチを対応付けた運用を採用
    └─ push → stg 環境に自動デプロイ
 
 3. stg 環境で検証
-   └─ 実機 IAP 検証、Apple/Google webhook 疎通確認など
+   └─ 実機検証、外部システムとの疎通確認など
    └─ バグ発見時は PR 経由で release ブランチに修正を入れる
 
 4. main にマージ
@@ -116,7 +116,7 @@ hotfix を main にマージしたが develop に戻し忘れると、次のリ�
 対策:
 
 - PR テンプレートに back-merge チェックリストを入れる
-- main に hotfix が入ったら、CI で develop への back-merge PR を自動生成する workflow を用意する(未作成)
+- main に hotfix が入ったら、CI で develop への back-merge PR を自動生成する workflow を用意する(各リポの実装状況による)
 
 ## バージョニング
 
@@ -126,21 +126,11 @@ Semantic Versioning (SemVer) を採用する。
 - **MINOR**: 後方互換のある機能追加
 - **PATCH**: バグ修正、ドキュメント修正、内部リファクタ
 
-サービス本体のタグは `release-tag.yaml` が自動で打つ。
-
-- release マージ時: ブランチ名からバージョンを取得（`release/v1.2.0` → `v1.2.0`）
-- hotfix マージ時: 最新タグから patch を自動 bump（`v1.2.0` → `v1.2.1`）
-
-`packages/api-shop` のタグは `publish.yaml` で手動発行する（`workflow_dispatch`）。
-バージョンを上げるタイミングは人が判断する。
-
-### バージョンと Go module の関係
-
-`packages/api-shop` は Go module として独立のバージョンを持つ。サービス本体のバージョンと必ずしも一致しないが、破壊的変更を含む release では api-shop も major bump することを推奨する。
+具体的なタグ自動生成ワークフローおよびサブパッケージのバージョニングは、各リポの CI/CD ドキュメントを参照。本リポでは [CI_AND_RELEASE.md](CI_AND_RELEASE.md) を参照。
 
 ## ブランチ保護設定
 
-GitHub Rulesets で以下を設定する。
+GitHub Rulesets で以下を設定する。必須ステータスチェックの具体名は各リポの CI/CD ドキュメントを参照。
 
 ### main
 
@@ -148,40 +138,23 @@ GitHub Rulesets で以下を設定する。
 - PR マージのみ許可(linear history)
 - force push 禁止、削除禁止
 - 履歴書き換え禁止
-- 必須ステータスチェック: CI / lint, CI / test, CI / check-source-branch が green
+- 必須ステータスチェック: CI の lint / test / マージ元ブランチ制限が green
 - required reviews: 1(self-approve 不可)
-- マージ元ブランチ制限: `release/*` と `hotfix/*` のみ (CI / check-source-branch で機械的に強制)
+- マージ元ブランチ制限: `release/*` と `hotfix/*` のみ
 
 ### release/*
 
 - 直 push 禁止。PR 経由のマージのみ
 - force push 禁止、削除は手動で可
-- 必須ステータスチェック: CI / lint, CI / test が green
+- 必須ステータスチェック: CI の lint / test が green
 
 ### develop
 
 - 直 push 禁止
 - PR マージのみ許可
-- 必須ステータスチェック: CI / lint, CI / test が green
+- 必須ステータスチェック: CI の lint / test が green
 - required reviews: 不要(一人開発での速度優先)
 
-## CI/CD パイプライン
+## 関連ドキュメント
 
-| ワークフロー | トリガー | 役割 |
-|---|---|---|
-| `ci.yaml` | PR: main, develop, release/* | lint + test + 脆弱性スキャン + コード生成ドリフト検出 + (main のみ) マージ元ブランチ制限 |
-| `deploy.yaml` | push: main, develop, release/* | Docker イメージのビルド・push |
-| `release-tag.yaml` | PR close (→ main) | release/hotfix ブランチから SemVer タグを自動生成 |
-| `publish.yaml` | workflow_dispatch (手動) | api-shop Go モジュールのタグ付け・公開 |
-
-### CI と CD の連携
-
-CI (lint/test) の成功は、各ブランチの保護ルール (required status check) で担保する。
-deploy.yaml は CI と独立して push 時に発火するが、保護ブランチへの push は
-CI が通った PR のマージ経由でしか行えないため、CI を経由しないデプロイは発生しない。
-
-### feature / hotfix ブランチの CI
-
-feature/* や hotfix/* ブランチへの push では CI は走らない。
-これらのブランチで CI を実行するには、対象ブランチ (develop / main) 宛の PR を作成する。
-PR 更新時 (追加 push) にも CI が再実行される。
+- 本リポ固有の CI/CD ワークフロー詳細・タグ自動生成の仕組み・必須ステータスチェック実体: [CI_AND_RELEASE.md](CI_AND_RELEASE.md)
