@@ -9,8 +9,7 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
-// appleNotifier は Apple webhook handler が依存するサービス層の狭い contract。
-// handler は JWS 検証や状態遷移を知らず、payload を渡して成否だけ受け取る。
+// appleNotifier は Apple webhook handler が依存する usecase の狭い contract。
 type appleNotifier interface {
 	HandleNotification(ctx context.Context, signedPayload string) error
 }
@@ -20,7 +19,6 @@ type AppleWebhookHandler struct {
 	notifier appleNotifier
 }
 
-// NewAppleWebhookHandler は AppleNotifier を受け取り handler を構築する。
 func NewAppleWebhookHandler(n appleNotifier) *AppleWebhookHandler {
 	return &AppleWebhookHandler{notifier: n}
 }

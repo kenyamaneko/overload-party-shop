@@ -11,9 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Expect → Publish → Wait の round-trip: shop 送信側の typed publish と
-// consumer 側の typed 受信が矛盾なく繋がる基本契約。consumer サービス
-// (account / card / gateway) が subscribe テストを書く際の最小使用例でもある。
+// Expect → Publish → Wait の round-trip で typed publish/受信が繋がることを固定する。
 func TestFactionPurchased_ExpectPublishWaitRoundTrip(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -33,9 +31,7 @@ func TestFactionPurchased_ExpectPublishWaitRoundTrip(t *testing.T) {
 	assert.Equal(t, "Tenki", got.Faction)
 }
 
-// PublishFactionPurchased は、caller が省略したフィールドに契約上のデフォルトを
-// 埋める。テスト側は検証したい PlayerID / Faction のみ書けばよい、という
-// ergonomic の契約。
+// PublishFactionPurchased は EventType / EventID / Timestamp の省略時にデフォルトを補完する。
 func TestFactionPurchased_PublishFillsDefaults(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -56,9 +52,7 @@ func TestFactionPurchased_PublishFillsDefaults(t *testing.T) {
 	assert.False(t, got.Timestamp.Before(before), "Timestamp は未指定なら現在時刻以降")
 }
 
-// Expect で subscribe していない状態 (publish が先) では Wait が message を
-// 拾わず timeout error を返す。consumer 側テストが「subscribe を忘れた」
-// ケースを fake 側で黙って成功させない契約を fix する。
+// Expect より先に publish されたメッセージは Wait で拾えず timeout になる。
 func TestFactionPurchased_WaitTimesOutWhenPublishedBeforeExpect(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -74,9 +68,7 @@ func TestFactionPurchased_WaitTimesOutWhenPublishedBeforeExpect(t *testing.T) {
 	require.ErrorContains(t, err, "timeout")
 }
 
-// PremiumUpdated 側も round-trip + defaults + Source 補完が効くことを確認する。
-// faction 側と独立した topic/type のため、1 方が壊れてもう 1 方が動くケースを
-// 生まないようそれぞれでテストを持つ。
+// PremiumUpdated 側の round-trip + defaults + Source 補完を固定する。
 func TestPremiumUpdated_ExpectPublishWaitRoundTrip(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -103,9 +95,7 @@ func TestPremiumUpdated_ExpectPublishWaitRoundTrip(t *testing.T) {
 	assert.NotEmpty(t, got.EventID)
 }
 
-// Publisher.Published() は typed helper 経由の publish でも同じ記録 API を提供する。
-// 送信側サービスが「TopicFactionPurchased に正しく発行されたか」を低レベル API
-// からでも確認できることで、typed helper の追加で観測性が落ちないことを固定する。
+// Publisher.Published() は typed helper 経由の publish でも記録に残る。
 func TestTyped_PublishedRecordsTopicAndPayload(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -122,8 +112,6 @@ func TestTyped_PublishedRecordsTopicAndPayload(t *testing.T) {
 	require.Len(t, history, 2)
 	assert.Equal(t, apishop.TopicFactionPurchased, history[0].Topic)
 	assert.Equal(t, apishop.TopicPremiumUpdated, history[1].Topic)
-	// payload は json bytes。decode テストは round-trip 系で既に担保済みのため
-	// ここでは topic 配線が意図通りであることまで固定する。
 	assert.NotEmpty(t, history[0].Data)
 	assert.NotEmpty(t, history[1].Data)
 }

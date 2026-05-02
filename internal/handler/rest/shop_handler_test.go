@@ -46,7 +46,6 @@ func newShopTestServer(svc shopServicer) *gin.Engine {
 }
 
 // GetProducts の成功パスは usecase の戻り値を {"products":[...]} で wrap する。
-// body shape 検証が本テストの主目的。
 func TestGetProducts_Success(t *testing.T) {
 	svc := &fakeShopServicer{
 		getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
@@ -69,9 +68,7 @@ func TestGetProducts_Success(t *testing.T) {
 	assert.True(t, resp.Products[0].IsOwned)
 }
 
-// GetProducts の usecase エラーは errorStatus マッピング経由で HTTP ステータスに
-// 変換される (分類 → ステータスの網羅は rest/errors_test.go 側)。ここは
-// 「handler が usecase のエラーを respondError 経由で流すこと」を代表ケースで固定する。
+// GetProducts の usecase エラーは respondError 経由で HTTP ステータスに変換される。
 func TestGetProducts_PropagatesServiceError(t *testing.T) {
 	svc := &fakeShopServicer{
 		getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
@@ -108,8 +105,7 @@ func TestPurchase_Success(t *testing.T) {
 	assert.Equal(t, "faction_tenki", resp["product_id"])
 }
 
-// Purchase は usecase のエラー分類と body bind 失敗をそれぞれの HTTP ステータスに
-// 変換する。body shape は検証対象外 (status 変換の契約を固定する)。
+// Purchase は usecase エラー分類と body bind 失敗をそれぞれの HTTP ステータスに変換する。
 func TestPurchase_ErrorResponses(t *testing.T) {
 	validBody, _ := json.Marshal(apishop.PurchaseRequest{
 		ProductID:     "faction_tenki",

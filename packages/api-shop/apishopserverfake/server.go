@@ -1,15 +1,5 @@
-// Package apishopserverfake は shop サービスの HTTP 契約を実装する
-// httptest.Server ラッパー。consumer (gateway 等) が shopclient を使う
-// handler テストで、実 shop サービスを起動せずに REST 呼び出しを検証するための
-// テストダブルを提供する。
-//
-// 各 endpoint は Fn field (func callback) で status + response body を制御する。
-// Fn が nil の endpoint は既定値を返す (happy-path を仮定した最低限の応答)。
-//
-// JSON request / response shape は shopclient が送受する形式に合わせる。
-// shopclient が private に保持している Request / Response 型は本パッケージでも
-// 独立に定義しなおし、テスト側が typed でデータを組み立てられるようにする
-// (api-shop 本体の公開型を増やさないための pragmatic な選択)。
+// Package apishopserverfake は shop の HTTP 契約を実装する httptest.Server ラッパー。
+// 各 endpoint は Fn field (func callback) で応答を制御し、Fn=nil なら既定値を返す。
 package apishopserverfake
 
 import (
@@ -23,7 +13,6 @@ import (
 )
 
 // SelectFactionRequest は shopclient.SelectFactionRequest と同形のリクエスト型。
-// 本パッケージのテスト側で typed にリクエストボディを扱うために独立定義している。
 type SelectFactionRequest struct {
 	Faction string `json:"faction"`
 }
@@ -41,38 +30,30 @@ type ProductsResponse struct {
 }
 
 // SubscribeResponse は shopclient.subscribeResponse と同形のレスポンス型。
-// ExpiresAt は *time.Time で shopclient 側と同じ RFC 3339 JSON 文字列としてシリアライズされる。
 type SubscribeResponse struct {
 	Message   string     `json:"message"`
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
-// Server は shop HTTP 契約を実装する httptest.Server wrapper。テスト側は NewServer
-// で起動し、Fn field で endpoint 毎の応答を設定し、shopclient.New(server.URL()) を
-// 通じて検証を行う。
+// Server は shop HTTP 契約を実装する httptest.Server wrapper。
 type Server struct {
 	mu  sync.Mutex
 	srv *httptest.Server
 
-	// SelectFactionFn は POST /internal/v1/players/{playerID}/select-faction の応答を決定する。
-	// nil の場合は既定値 200 + 空の SelectFactionResponse を返す。
+	// SelectFactionFn は POST /internal/v1/players/{playerID}/select-faction の応答を決定する (nil は 200 + 空 body)。
 	SelectFactionFn func(playerID string, req SelectFactionRequest) (int, any)
 
-	// GetProductsFn は GET /internal/v1/players/{playerID}/products の応答を決定する。
-	// nil の場合は既定値 200 + 空 Products を返す。
+	// GetProductsFn は GET /internal/v1/players/{playerID}/products の応答を決定する (nil は 200 + 空 Products)。
 	GetProductsFn func(playerID string) (int, any)
 
-	// PurchaseFn は POST /internal/v1/players/{playerID}/purchase の応答を決定する。
-	// nil の場合は既定値 204 No Content を返す。
+	// PurchaseFn は POST /internal/v1/players/{playerID}/purchase の応答を決定する (nil は 204)。
 	PurchaseFn func(playerID string, req apishop.PurchaseRequest) (int, any)
 
-	// SubscribeFn は POST /internal/v1/players/{playerID}/subscribe の応答を決定する。
-	// nil の場合は既定値 200 + 空の SubscribeResponse を返す。
+	// SubscribeFn は POST /internal/v1/players/{playerID}/subscribe の応答を決定する (nil は 200 + 空 body)。
 	SubscribeFn func(playerID string, req apishop.PurchaseRequest) (int, any)
 }
 
-// NewServer は起動済み Server を返す。URL() で base URL を取得し
-// shopclient.New(server.URL()) に渡して利用する。テスト終了時に Close() すること。
+// NewServer は起動済み Server を返す。テスト終了時に Close() すること。
 func NewServer() *Server {
 	s := &Server{}
 	mux := http.NewServeMux()
@@ -92,8 +73,7 @@ func (s *Server) Close() { s.srv.Close() }
 
 func (s *Server) handleSelectFaction(w http.ResponseWriter, r *http.Request) {
 	var req SelectFactionRequest
-	// body が壊れていても Fn にはそのまま空構造体を渡す。bad request を擬似する
-	// テストは Fn 内で status=400 を返すことで表現可能。
+	// body 不正でも Fn には空構造体を渡し、bad request の擬似は Fn 側で表現する。
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	s.mu.Lock()
@@ -157,9 +137,7 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, body)
 }
 
-// writeJSON は status code を書き、body が非 nil なら Content-Type: application/json
-// で JSON encode して送る。body が nil の場合は body 無しでレスポンスを終わる
-// (shopclient は 4xx/5xx のエラー body を一部しか読まないため、body=nil でも応答は成立する)。
+// writeJSON は status と body を書く (body=nil なら status のみ)。
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	if body == nil {
 		w.WriteHeader(status)

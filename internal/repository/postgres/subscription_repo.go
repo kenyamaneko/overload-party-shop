@@ -14,9 +14,7 @@ import (
 
 var _ port.SubscriptionRepo = (*SubscriptionRepository)(nil)
 
-// SubscriptionRepository は pgxpool 経由の PostgreSQL で SubscriptionRepo を実装する。
-// shop.subscriptions (純粋ドメイン) と shop.{apple,google}_subscription_tokens
-// (外部識別マッピング) の 2 系統を同一 tx で協調操作する。
+// SubscriptionRepository は subscriptions と {apple,google}_subscription_tokens の CRUD。
 type SubscriptionRepository struct {
 	pool *pgxpool.Pool
 }
@@ -76,7 +74,6 @@ func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *do
 }
 
 // GetLatestSubscription は player の最新サブスクリプション 1 行を返す。
-// 純粋ドメインなので token テーブルは引かない (status / 期間判定のみが必要なため)。
 func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, playerID string) (*domain.Subscription, error) {
 	row := r.pool.QueryRow(ctx,
 		`SELECT subscription_id, player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at
@@ -96,7 +93,7 @@ func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, play
 	return s, nil
 }
 
-// FindSubscriptionByToken は platform に応じた token テーブル → subscriptions の JOIN で引く。
+// FindSubscriptionByToken は platform に応じた token テーブル経由で subscription を引く。
 func (r *SubscriptionRepository) FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*domain.Subscription, error) {
 	table, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
@@ -133,9 +130,7 @@ func scanSubscription(row pgx.Row) (*domain.Subscription, error) {
 	return &s, nil
 }
 
-// UpdateSubscription は解約 (cancelled) 遷移用。エンタイトルメント維持契約に
-// より subscriber に is_premium=false を伝えてはいけないため、premium-updated
-// は発行しない。
+// UpdateSubscription は subscriptions 行のみを更新する (outbox 行を伴わない)。
 func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *domain.Subscription) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -153,8 +148,7 @@ func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *do
 	return nil
 }
 
-// UpdateSubscriptionWithEvent は webhook 駆動の状態遷移 (renew/expire/revoke)
-// で DB 更新と publish を atomic に揃えるためのもの。
+// UpdateSubscriptionWithEvent は subscriptions 更新と outbox 行 INSERT を同一 tx で行う。
 func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context, sub *domain.Subscription, event port.OutboxEvent) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

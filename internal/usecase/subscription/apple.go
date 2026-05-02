@@ -41,13 +41,11 @@ type appleNotificationTxn struct {
 }
 
 // AppleNotifier は Apple App Store Server Notifications V2 の webhook を処理する。
-// signed JWS の検証は jwsVerifier port に委譲する。Google 側の依存は持たない。
 type AppleNotifier struct {
 	subRepo     port.SubscriptionRepo
 	jwsVerifier port.AppleJWSVerifier
 }
 
-// NewAppleNotifier は依存を受け取り AppleNotifier を構築する。
 func NewAppleNotifier(
 	subRepo port.SubscriptionRepo,
 	jwsVerifier port.AppleJWSVerifier,
@@ -125,7 +123,6 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 }
 
 // decodeAppleJWS は Apple JWS を verifier で検証してから payload を T に unmarshal する。
-// verifier は port 経由で注入されており、テストではモックに差し替え可能。
 func decodeAppleJWS[T any](v port.AppleJWSVerifier, jws string) (*T, error) {
 	payload, err := v.Verify(jws)
 	if err != nil {

@@ -9,11 +9,8 @@ import (
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
-// PublishFactionPurchased は shop publisher の role を演じて
-// TopicFactionPurchased へ FactionPurchasedEvent を 1 件発行する。
-// EventID / Timestamp が未設定なら UUIDv4 / 現在時刻を自動付与し、EventType は
-// 常に EventTypeFactionPurchased に固定する — テスト側で手書きする必要があるのは
-// PlayerID / Faction など検証対象のフィールドのみ。
+// PublishFactionPurchased は TopicFactionPurchased へ FactionPurchasedEvent を 1 件発行する。
+// EventID / Timestamp 未設定なら UUIDv4 / 現在時刻を補完、EventType は常に上書きする。
 func PublishFactionPurchased(ctx context.Context, p *Publisher, ev apishop.FactionPurchasedEvent) error {
 	ev = fillFactionDefaults(ev)
 	data, err := json.Marshal(ev)
@@ -23,9 +20,8 @@ func PublishFactionPurchased(ctx context.Context, p *Publisher, ev apishop.Facti
 	return p.Publish(ctx, apishop.TopicFactionPurchased, data)
 }
 
-// PublishPremiumUpdated は shop publisher の role を演じて TopicPremiumUpdated へ
-// PremiumUpdatedEvent を 1 件発行する。デフォルト補完は PublishFactionPurchased
-// と同様で、加えて Source が空なら PremiumUpdatedSourceShop を埋める。
+// PublishPremiumUpdated は TopicPremiumUpdated へ PremiumUpdatedEvent を 1 件発行する。
+// PublishFactionPurchased と同じ補完に加え、Source 空なら PremiumUpdatedSourceShop を埋める。
 func PublishPremiumUpdated(ctx context.Context, p *Publisher, ev apishop.PremiumUpdatedEvent) error {
 	ev = fillPremiumDefaults(ev)
 	data, err := json.Marshal(ev)
@@ -36,23 +32,18 @@ func PublishPremiumUpdated(ctx context.Context, p *Publisher, ev apishop.Premium
 }
 
 // FactionPurchasedExpecter は TopicFactionPurchased に subscribe 済みの待受器。
-// ExpectFactionPurchased で subscribe を確定 → publish → Wait で型付き payload
-// を受け取る順序を API レベルで強制することで、Broker が新規 subscriber に過去
-// メッセージを配信しない制約 (実 Pub/Sub の subscription 新規作成挙動に揃える
-// 意図) を破らない構造にしている。
+// publish より前に subscribe を確定する必要があるため (Broker は過去メッセージを配信しない)、
+// API は ExpectFactionPurchased → publish → Wait の順序を強制する形に分割している。
 type FactionPurchasedExpecter struct {
 	ch <-chan []byte
 }
 
-// ExpectFactionPurchased は TopicFactionPurchased に即時 subscribe し、
-// Wait 可能な Expecter を返す。publish より前に呼び出す必要がある。
+// ExpectFactionPurchased は即時 subscribe して Expecter を返す (publish より前に呼ぶこと)。
 func ExpectFactionPurchased(s *Subscriber) *FactionPurchasedExpecter {
 	return &FactionPurchasedExpecter{ch: s.Messages(apishop.TopicFactionPurchased)}
 }
 
-// Wait は Expecter が subscribe 開始した以降に publish された最初の
-// FactionPurchasedEvent を timeout 付きで取り出す。timeout 超過や
-// payload デコード失敗は error で返し、zero 値 + error の契約とする。
+// Wait は subscribe 後に publish された最初の event を timeout 付きで取り出す。
 func (e *FactionPurchasedExpecter) Wait(timeout time.Duration) (apishop.FactionPurchasedEvent, error) {
 	return waitTypedFromChan[apishop.FactionPurchasedEvent](e.ch, apishop.TopicFactionPurchased, timeout)
 }
@@ -73,7 +64,6 @@ func (e *PremiumUpdatedExpecter) Wait(timeout time.Duration) (apishop.PremiumUpd
 }
 
 // waitTypedFromChan は payload bytes を timeout 付きで受信し型 T にデコードする。
-// 受信・timeout・json.Unmarshal の 3 責務を Expecter 実装に共通化するための helper。
 func waitTypedFromChan[T any](ch <-chan []byte, topic string, timeout time.Duration) (T, error) {
 	var zero T
 	select {
@@ -91,9 +81,7 @@ func waitTypedFromChan[T any](ch <-chan []byte, topic string, timeout time.Durat
 	}
 }
 
-// fillFactionDefaults は FactionPurchasedEvent の定型フィールドを補完する。
-// EventType は契約固定のため既存値に関わらず上書きし、EventID / Timestamp は
-// caller が事前に意図的にセットした値があればそれを尊重する。
+// fillFactionDefaults は EventType を上書きし、EventID / Timestamp 未設定なら補完する。
 func fillFactionDefaults(ev apishop.FactionPurchasedEvent) apishop.FactionPurchasedEvent {
 	ev.EventType = apishop.EventTypeFactionPurchased
 	if ev.EventID == "" {
@@ -105,8 +93,7 @@ func fillFactionDefaults(ev apishop.FactionPurchasedEvent) apishop.FactionPurcha
 	return ev
 }
 
-// fillPremiumDefaults は PremiumUpdatedEvent 版の fillFactionDefaults。
-// Source は shop 単独 publish のため PremiumUpdatedSourceShop を既定値とする。
+// fillPremiumDefaults は fillFactionDefaults の PremiumUpdatedEvent 版 (Source 未設定なら shop)。
 func fillPremiumDefaults(ev apishop.PremiumUpdatedEvent) apishop.PremiumUpdatedEvent {
 	ev.EventType = apishop.EventTypePremiumUpdated
 	if ev.EventID == "" {

@@ -10,8 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Publisher に投げた payload は、同一 broker で Messages(topic) を事前に呼んだ
-// Subscriber に届く — pub/sub の最も基本的な契約。
+// Publisher に投げた payload は事前 subscribe している Subscriber に届く。
 func TestBroker_DeliversPayloadToSubscriber(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -49,8 +48,7 @@ func TestBroker_DeliversPayloadToSubscriber(t *testing.T) {
 	}
 }
 
-// topic 別 isolation: 他 topic への publish は、別 topic の subscriber には届かない。
-// 実 Pub/Sub の topic-based routing を fake でも保つための契約。
+// topic 別 isolation: 他 topic への publish は別 topic の subscriber には届かない。
 func TestBroker_IsolatesByTopic(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -65,9 +63,7 @@ func TestBroker_IsolatesByTopic(t *testing.T) {
 	assertNoMessageWithin(t, chB, 50*time.Millisecond)
 }
 
-// fan-out: 同一 topic に複数 subscriber がある場合、全員に独立に配信される。
-// gateway / account / card が同じ topic を consume する構成を 1 テスト内で
-// 表現するため必要な性質。
+// 同一 topic に複数 subscriber がいる場合は全員に独立に fan-out される。
 func TestBroker_FansOutToMultipleSubscribers(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -83,9 +79,7 @@ func TestBroker_FansOutToMultipleSubscribers(t *testing.T) {
 	}
 }
 
-// publish は subscribe より先に起こると subscriber に届かない — 実 Pub/Sub の
-// 新規 subscription 挙動に揃えた意図的な仕様。この契約を破ると過去メッセージの
-// 意図しない再生が subscriber 側テストで起きる。
+// publish より後に subscribe した subscriber には過去メッセージは届かない。
 func TestBroker_DoesNotDeliverToLateSubscriber(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -97,9 +91,7 @@ func TestBroker_DoesNotDeliverToLateSubscriber(t *testing.T) {
 	assertNoMessageWithin(t, chLate, 50*time.Millisecond)
 }
 
-// Publisher.Published() は publish した全メッセージを発行順に返す。送信側
-// サービスの publisher 境界テストで「意図した topic/payload で publish したか」
-// をアサートするための中核 API。
+// Publisher.Published() は publish した全メッセージを発行順に返す。
 func TestPublisher_PublishedRecordsInOrder(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -119,9 +111,7 @@ func TestPublisher_PublishedRecordsInOrder(t *testing.T) {
 	assert.Equal(t, `c`, string(history[2].Data))
 }
 
-// Published() の戻り値は内部状態から切り離された snapshot で、caller が mutate
-// しても Publisher 内部 / 次回呼び出し結果には影響しない。テスト間で共有状態を
-// 誤って持ち越さないための契約。
+// Published() の戻り値は snapshot で、caller の mutation は内部状態に影響しない。
 func TestPublisher_PublishedSnapshotIsIndependent(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
@@ -136,8 +126,7 @@ func TestPublisher_PublishedSnapshotIsIndependent(t *testing.T) {
 	assert.Equal(t, `orig`, string(again[0].Data))
 }
 
-// receiveWithin は channel からメッセージを timeout 付きで受信する。timeout 時は
-// 即 t.Fatal。テスト内で select+time.After を書き散らさないための helper。
+// receiveWithin は channel からメッセージを timeout 付きで受信する (timeout 時は t.Fatal)。
 func receiveWithin(t *testing.T, ch <-chan []byte, timeout time.Duration) []byte {
 	t.Helper()
 	select {
@@ -149,8 +138,7 @@ func receiveWithin(t *testing.T, ch <-chan []byte, timeout time.Duration) []byte
 	}
 }
 
-// assertNoMessageWithin は within 内は channel にメッセージが来ないことを確認する。
-// isolation / late-subscribe 系のネガティブ確認で使う。
+// assertNoMessageWithin は within 内に channel へメッセージが来ないことを確認する。
 func assertNoMessageWithin(t *testing.T, ch <-chan []byte, within time.Duration) {
 	t.Helper()
 	select {

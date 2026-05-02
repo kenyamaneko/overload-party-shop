@@ -249,8 +249,7 @@ func TestOutboxRepository_ClaimUnpublished_RespectsLimit(t *testing.T) {
 	assert.Equal(t, totalSeeded-limit, remaining, "claim されなかった行は未試行のまま残る")
 }
 
-// ClaimUnpublished は side-effect として last_attempted_at を更新する。これが
-// 他 worker からの in-flight 扱いに必要な不変条件なので、独立テストとして固定。
+// ClaimUnpublished は last_attempted_at を更新する (visibility timeout の不変条件)。
 func TestOutboxRepository_ClaimUnpublished_UpdatesLastAttemptedAt(t *testing.T) {
 	sharedPg.Truncate(t)
 	ctx := context.Background()

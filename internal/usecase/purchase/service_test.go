@@ -25,9 +25,7 @@ type testShopEnv struct {
 	subRepo             *postgres.SubscriptionRepository
 }
 
-// shopEnvOption は newTestShopEnv に渡す依存差し替えオプション。verifier 等
-// テストごとに変えたい依存はここから注入し、Service 生成後の field 上書き
-// は禁止（DI 経由のみで構築する設計を保つため）。
+// shopEnvOption は newTestShopEnv に渡す依存差し替えオプション。
 type shopEnvOption func(*shopEnvDeps)
 
 type shopEnvDeps struct {
@@ -115,7 +113,6 @@ func selectPremiumUpdatedEvents(t *testing.T) []domain.PremiumUpdatedEvent {
 }
 
 // insertProduct はテスト用に商品を shop.products に直接 INSERT する。
-// PgShopRepository には商品作成 API がないため SQL で書き込む。
 func insertProduct(t *testing.T, p *domain.Product) {
 	t.Helper()
 	_, err := sharedPg.Pool.Exec(context.Background(),
@@ -520,8 +517,7 @@ func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 	assert.True(t, products[0].IsOwned)
 }
 
-// 解約済み・支払い猶予中・期限切れ・revoke の各状態で IsOwned が
-// 特典有効性に従って判定されることを検証する。
+// 各 subscription status で IsOwned が特典有効性に従って判定される。
 func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 	now := time.Now()
 	future := now.Add(30 * 24 * time.Hour)
@@ -677,8 +673,7 @@ func TestPurchase_SubscriptionTypeViaPurchase(t *testing.T) {
 	assert.ErrorIs(t, err, ErrUnsupportedProductType)
 }
 
-// Purchase の defensive 分岐 — verifier 到達前に弾かれる入力検証エラー。
-// 型 / 内容バリデーションが repo 層を呼ぶ前に return することを確認する。
+// Purchase の入力検証エラーは verifier / repo 到達前に return する。
 func TestPurchase_DefensivePaths(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -855,9 +850,7 @@ func TestGetProducts_CosmeticOwnership(t *testing.T) {
 	}
 }
 
-// GetProducts は壊れた content JSON を error として伝播する（log だけで握りつぶさない）。
-// DB 列が json 型のため構文エラーは insert 時点で弾かれる。ここでは「JSON としては
-// valid だが struct フィールド型と不一致」のケースを検証する。
+// GetProducts は content JSON の型不一致を error として伝播する。
 func TestGetProducts_MalformedContent(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -2,8 +2,7 @@ package port
 
 import "context"
 
-// RawEventPublisher は outbox worker が呼ぶ Pub/Sub 送出の低レベル interface。
-// eventType (domain.EventType*) → 物理 topic への解決は adapter 内部で行う。
+// RawEventPublisher は eventType を物理 topic に解決して送出する。
 type RawEventPublisher interface {
 	Publish(ctx context.Context, eventType string, payload []byte) error
 }

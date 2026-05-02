@@ -1,9 +1,4 @@
-// Package testutil は DB を用いるテスト全般のヘルパを提供する。
-//
-// postgres:16-alpine の Testcontainers を起動して実 PostgreSQL に対してテストを
-// 実行する。コンテナはパッケージ単位で 1 回だけ起動し（RunMain）、テスト関数間の
-// 状態リセットは Truncate（登録された schema 配下の全テーブルを動的に列挙して
-// TRUNCATE）で行う。
+// Package postgrestest は postgres:16-alpine Testcontainer を起動するテストヘルパ。
 package postgrestest
 
 import (
@@ -39,24 +34,21 @@ type config struct {
 // Option は Start の振る舞いを構成する。
 type Option func(*config)
 
-// WithSchemaFile は repo-root 起点の相対パスでスキーマ SQL を登録する。
-// 順序通りに pool.Exec で適用される。複数指定可（gateway のように
-// 他サービススキーマに app-level FK を持つケースで使う）。
+// WithSchemaFile は repo-root 起点の相対パスでスキーマ SQL を登録する (順次適用、複数指定可)。
 func WithSchemaFile(repoRelativePath string) Option {
 	return func(c *config) {
 		c.schemaFiles = append(c.schemaFiles, repoRelativePath)
 	}
 }
 
-// WithSchema は Truncate 対象スキーマを登録する。複数指定可。
+// WithSchema は Truncate 対象スキーマを登録する (複数指定可)。
 func WithSchema(name string) Option {
 	return func(c *config) {
 		c.schemas = append(c.schemas, name)
 	}
 }
 
-// Start は postgres:16-alpine コンテナを起動し、登録された schema SQL を順に
-// 適用したうえで接続プールを返す。終了時は Close を呼ぶ（RunMain が代行）。
+// Start は postgres:16-alpine コンテナを起動し、schema SQL を順に適用した接続プールを返す。
 func Start(ctx context.Context, opts ...Option) (*Postgres, error) {
 	cfg := &config{}
 	for _, opt := range opts {
@@ -115,7 +107,7 @@ func Start(ctx context.Context, opts ...Option) (*Postgres, error) {
 	return &Postgres{Container: container, Pool: pool, schemas: cfg.schemas}, nil
 }
 
-// Close は pool をクローズしコンテナを終了する。両方のエラーを集約して返す。
+// Close は pool をクローズしコンテナを終了する。
 func (p *Postgres) Close(ctx context.Context) error {
 	p.Pool.Close()
 	if err := p.Container.Terminate(ctx); err != nil {
@@ -125,8 +117,6 @@ func (p *Postgres) Close(ctx context.Context) error {
 }
 
 // Truncate は登録 schema 配下の全 BASE TABLE を動的に列挙して TRUNCATE する。
-// テーブル追加時に testutil 側を更新せずに済ませることが目的（横展開時の
-// 更新漏れバグを防ぐ）。
 func (p *Postgres) Truncate(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -163,10 +153,7 @@ func (p *Postgres) Truncate(t *testing.T) {
 	}
 }
 
-// RunMain は TestMain のボイラープレートを集約する。コンテナ起動 → m.Run →
-// クリーンアップを保証する。各テストパッケージは
-// `os.Exit(testutil.RunMain(m, &sharedPg, opts...))` と書き、`sharedPg.Pool`
-// と `sharedPg.Truncate(t)` を使う。
+// RunMain は TestMain のボイラープレート (コンテナ起動 → m.Run → クリーンアップ) を集約する。
 func RunMain(m *testing.M, out **Postgres, opts ...Option) int {
 	ctx := context.Background()
 
@@ -185,9 +172,7 @@ func RunMain(m *testing.M, out **Postgres, opts ...Option) int {
 	return m.Run()
 }
 
-// repoRoot は本ファイルの位置 (testutil パッケージは internal/repository/testutil
-// 配下に置かれる規約) から go.mod を持つディレクトリを探索して返す。
-// build tag やソースキャッシュに左右されないよう runtime.Caller を anchor とする。
+// repoRoot は本ファイルの位置から go.mod を持つディレクトリを探索して返す。
 func repoRoot() (string, error) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
