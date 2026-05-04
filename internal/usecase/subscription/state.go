@@ -11,6 +11,7 @@ import (
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	"github.com/kenyamaneko/overload-party-shop/internal/presenter"
 )
 
 // IsEntitled はサブスクリプションが指定時刻に特典有効かを返す。未知の status はエラー。
@@ -54,15 +55,7 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 		return port.OutboxEvent{}, errors.New("subscription: playerID is empty")
 	}
 	eventID := uuid.New()
-	ev := domain.PremiumUpdatedEvent{
-		EventType:        domain.EventTypePremiumUpdated,
-		EventID:          eventID.String(),
-		Timestamp:        time.Now().UTC(),
-		PlayerID:         playerID,
-		IsPremium:        isPremium,
-		PremiumExpiresAt: expiresAt,
-		Source:           domain.PremiumUpdatedSourceShop,
-	}
+	ev := presenter.ToPremiumUpdatedEvent(eventID.String(), playerID, isPremium, expiresAt, time.Now().UTC())
 	payload, err := json.Marshal(ev)
 	if err != nil {
 		return port.OutboxEvent{}, fmt.Errorf("marshal premium-updated: %w", err)

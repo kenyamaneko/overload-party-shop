@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
+	"github.com/kenyamaneko/overload-party-shop/internal/presenter"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
@@ -41,7 +42,7 @@ func (h *ShopHandler) GetProducts(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"products": toProductResponses(products)})
+	c.JSON(http.StatusOK, gin.H{"products": presenter.ToProductResponses(products)})
 }
 
 // Purchase は単発購入リクエストを処理する。
@@ -95,22 +96,3 @@ func (h *ShopHandler) Subscribe(c *gin.Context) {
 	})
 }
 
-// toProductResponses は domain の ProductWithOwnership を REST wire の ProductResponse に詰め替える。
-func toProductResponses(items []domain.ProductWithOwnership) []apishop.ProductResponse {
-	out := make([]apishop.ProductResponse, 0, len(items))
-	for _, it := range items {
-		p := it.Product
-		out = append(out, apishop.ProductResponse{
-			ProductID:   p.ProductID,
-			Name:        p.Name,
-			Type:        p.Type,
-			Price:       p.Price,
-			Content:     p.Content,
-			Description: p.Description,
-			ImageURL:    p.ImageURL,
-			IsActive:    p.IsActive,
-			IsOwned:     it.IsOwned,
-		})
-	}
-	return out
-}
