@@ -11,8 +11,6 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/presenter"
 )
 
-func ptr[T any](v T) *T { return &v }
-
 func TestToProductResponse(t *testing.T) {
 	desc := "説明"
 	img := "https://example.com/p.png"
