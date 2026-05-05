@@ -35,7 +35,7 @@ CREATE TABLE shop.products (
 );
 
 -- type='faction_set' 商品の付帯属性。type と本副表の存在/不在の整合は application 層で担保する。
-CREATE TABLE shop.product_faction_grants (
+CREATE TABLE shop.product_faction (
   product_id VARCHAR(50) NOT NULL,                          -- shop.products への FK
   faction    VARCHAR(20) NOT NULL CHECK (faction IN ('SHE', 'Tenki', 'Sugar', 'Tuners')), -- 配布対象 faction
   PRIMARY KEY (product_id),
@@ -133,7 +133,7 @@ CREATE TABLE shop.player_items (
 );
 
 -- type='cosmetic' 商品の付帯属性。cosmetic_items への DB レベル FK が成立する。
-CREATE TABLE shop.product_cosmetics (
+CREATE TABLE shop.product_cosmetic (
   product_id VARCHAR(50) NOT NULL,                          -- shop.products への FK
   item_type  VARCHAR(20) NOT NULL,                          -- アイテム種別 (cosmetic_items 参照)
   item_no    BIGINT NOT NULL,                               -- アイテム番号 (cosmetic_items 参照)

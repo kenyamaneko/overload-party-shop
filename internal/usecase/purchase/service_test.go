@@ -122,17 +122,17 @@ func insertCommonProduct(t *testing.T, productID, name, productType string, pric
 	require.NoError(t, err)
 }
 
-// insertFactionSetProduct は faction_set 商品 (products + product_faction_grants) を seed する。
+// insertFactionSetProduct は faction_set 商品 (products + product_faction) を seed する。
 func insertFactionSetProduct(t *testing.T, productID, name string, price int64, faction string, isActive bool) {
 	t.Helper()
 	insertCommonProduct(t, productID, name, domain.ProductTypeFactionSet, price, isActive)
 	_, err := sharedPg.Pool.Exec(context.Background(),
-		`INSERT INTO shop.product_faction_grants (product_id, faction) VALUES ($1,$2)`,
+		`INSERT INTO shop.product_faction (product_id, faction) VALUES ($1,$2)`,
 		productID, faction)
 	require.NoError(t, err)
 }
 
-// insertCosmeticProduct は cosmetic 商品 (products + cosmetic_items + product_cosmetics) を seed する。
+// insertCosmeticProduct は cosmetic 商品 (products + cosmetic_items + product_cosmetic) を seed する。
 // cosmetic_items は ON CONFLICT DO NOTHING で多重 seed を許容する。
 func insertCosmeticProduct(t *testing.T, productID, name string, price int64, itemType string, itemNo int64, isActive bool) {
 	t.Helper()
@@ -143,7 +143,7 @@ func insertCosmeticProduct(t *testing.T, productID, name string, price int64, it
 		itemType, itemNo, name)
 	require.NoError(t, err)
 	_, err = sharedPg.Pool.Exec(context.Background(),
-		`INSERT INTO shop.product_cosmetics (product_id, item_type, item_no) VALUES ($1,$2,$3)`,
+		`INSERT INTO shop.product_cosmetic (product_id, item_type, item_no) VALUES ($1,$2,$3)`,
 		productID, itemType, itemNo)
 	require.NoError(t, err)
 }

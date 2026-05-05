@@ -127,7 +127,7 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 }
 
 func (s *Service) purchaseFactionSet(ctx context.Context, playerID string, product domain.FactionSetProduct, pf, purchaseToken string, verifier port.ReceiptVerifier) error {
-	// product_faction_grants の DB CHECK が selectable faction のみを許容するため、ここでの値域検査は不要。
+	// product_faction の DB CHECK が selectable faction のみを許容するため、ここでの値域検査は不要。
 	ownedFactions, err := s.factionPurchaseRepo.ListOwnedFactions(ctx, playerID)
 	if err != nil {
 		return fmt.Errorf("check owned factions: %w", err)

@@ -28,7 +28,7 @@ func seedProduct(t *testing.T, productID, name, productType string, price int64,
 	switch productType {
 	case domain.ProductTypeFactionSet:
 		_, err = sharedPg.Pool.Exec(context.Background(),
-			`INSERT INTO shop.product_faction_grants (product_id, faction) VALUES ($1, $2)`,
+			`INSERT INTO shop.product_faction (product_id, faction) VALUES ($1, $2)`,
 			productID, "SHE")
 		require.NoError(t, err)
 	case domain.ProductTypeCosmetic:
@@ -37,7 +37,7 @@ func seedProduct(t *testing.T, productID, name, productType string, price int64,
 			 VALUES ('stamp', 1, 'default stamp', true, true) ON CONFLICT DO NOTHING`)
 		require.NoError(t, err)
 		_, err = sharedPg.Pool.Exec(context.Background(),
-			`INSERT INTO shop.product_cosmetics (product_id, item_type, item_no) VALUES ($1, 'stamp', 1)`,
+			`INSERT INTO shop.product_cosmetic (product_id, item_type, item_no) VALUES ($1, 'stamp', 1)`,
 			productID)
 		require.NoError(t, err)
 	}

@@ -30,8 +30,8 @@ shop は **shop スキーマの DB 行を唯一の真実とし**、他サービ�
 
 | Type | type 固有属性の所在 | 所有判定 |
 |---|---|---|
-| `faction_set` | `shop.product_faction_grants(faction)` | `player_owned_factions` に該当 faction が存在 |
-| `cosmetic` | `shop.product_cosmetics(item_type, item_no)` | `player_items` に (item_type, item_no) が存在 |
+| `faction_set` | `shop.product_faction(faction)` | `player_owned_factions` に該当 faction が存在 |
+| `cosmetic` | `shop.product_cosmetic(item_type, item_no)` | `player_items` に (item_type, item_no) が存在 |
 | `subscription` | （副表なし、共通属性のみ） | 現在 entitled なサブスクリプションが存在（§5 参照） |
 
 `Product.IsActive = false` の商品は購入不可で、`GetProducts` でも返さない。
@@ -66,7 +66,7 @@ shop は **shop スキーマの DB 行を唯一の真実とし**、他サービ�
 2. **冪等性チェック**: `(pf, purchaseToken)` で既存購入を検索。ヒットすれば `nil` で即 return（成功扱い、副作用なし）
 3. **商品存在・有効性**: `productID` で取得 → `ErrNotFound` / `ErrProductNotActive`
 4. **種別固有バリデーション**:
-   - `faction_set`: 未所有（`ErrAlreadyOwned`）。faction の値域は `product_faction_grants.faction` の DB CHECK 制約で担保される (selectable faction のみ)
+   - `faction_set`: 未所有（`ErrAlreadyOwned`）。faction の値域は `product_faction.faction` の DB CHECK 制約で担保される (selectable faction のみ)
    - `cosmetic`: (item_type, item_no) が未所有（`ErrAlreadyOwned`）
    - `subscription` または不明種別: `ErrUnsupportedProductType`（subscription は `Subscribe` を使う）
 5. **レシート検証**: verifier 呼び出し

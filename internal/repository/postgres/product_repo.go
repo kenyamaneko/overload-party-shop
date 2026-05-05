@@ -29,8 +29,8 @@ const productSelectColumns = `
 
 const productJoinClause = `
 		FROM shop.products p
-		LEFT JOIN shop.product_faction_grants fg ON fg.product_id = p.product_id
-		LEFT JOIN shop.product_cosmetics       c  ON c.product_id  = p.product_id`
+		LEFT JOIN shop.product_faction fg ON fg.product_id = p.product_id
+		LEFT JOIN shop.product_cosmetic       c  ON c.product_id  = p.product_id`
 
 // GetActiveProducts は販売中商品を type 別 ProductView に詰めて返す。
 // 副表 LEFT JOIN で得た optional 列はそのまま domain.NewProductView に渡し、
