@@ -1,7 +1,6 @@
 package presenter_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,43 +13,92 @@ import (
 func TestToProductResponse(t *testing.T) {
 	desc := "説明"
 	img := "https://example.com/p.png"
-	in := domain.ProductWithOwnership{
-		Product: domain.Product{
-			ProductID:   "faction_tenki",
-			Name:        "天気",
-			Type:        domain.ProductTypeFactionSet,
-			Price:       980,
-			Content:     json.RawMessage(`{"faction":"tenki"}`),
-			Description: &desc,
-			ImageURL:    &img,
-			IsActive:    true,
+	tests := []struct {
+		name        string
+		view        domain.ProductView
+		isOwned     bool
+		wantContent string
+	}{
+		{
+			name: "faction_set は faction を content にエンコード",
+			view: domain.FactionSetProduct{
+				Product: domain.Product{
+					ProductID:   "faction_tenki",
+					Name:        "天気",
+					Type:        domain.ProductTypeFactionSet,
+					Price:       980,
+					Description: &desc,
+					ImageURL:    &img,
+					IsActive:    true,
+				},
+				Faction: "Tenki",
+			},
+			isOwned:     true,
+			wantContent: `{"faction":"Tenki"}`,
 		},
-		IsOwned: true,
+		{
+			name: "cosmetic は item_type / item_no を content にエンコード",
+			view: domain.CosmeticProduct{
+				Product: domain.Product{
+					ProductID: "stamp_001",
+					Name:      "スタンプ",
+					Type:      domain.ProductTypeCosmetic,
+					Price:     120,
+					IsActive:  true,
+				},
+				ItemType: domain.ItemTypeStamp,
+				ItemNo:   1,
+			},
+			isOwned:     false,
+			wantContent: `{"item_type":"stamp","item_no":1}`,
+		},
+		{
+			name: "subscription は空オブジェクトを content として返す",
+			view: domain.SubscriptionProduct{
+				Product: domain.Product{
+					ProductID: "premium_monthly",
+					Type:      domain.ProductTypeSubscription,
+				},
+			},
+			wantContent: `{}`,
+		},
 	}
 
-	got := presenter.ToProductResponse(in)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := domain.ProductWithOwnership{ProductView: tt.view, IsOwned: tt.isOwned}
 
-	assert.Equal(t, "faction_tenki", got.ProductID)
-	assert.Equal(t, "天気", got.Name)
-	assert.Equal(t, domain.ProductTypeFactionSet, got.Type)
-	assert.Equal(t, int64(980), got.Price)
-	assert.JSONEq(t, `{"faction":"tenki"}`, string(got.Content))
-	assert.Equal(t, &desc, got.Description)
-	assert.Equal(t, &img, got.ImageURL)
-	assert.True(t, got.IsActive)
-	assert.True(t, got.IsOwned)
+			got, err := presenter.ToProductResponse(in)
+			require.NoError(t, err)
+
+			common := tt.view.Common()
+			assert.Equal(t, common.ProductID, got.ProductID)
+			assert.Equal(t, common.Name, got.Name)
+			assert.Equal(t, common.Type, got.Type)
+			assert.Equal(t, common.Price, got.Price)
+			assert.JSONEq(t, tt.wantContent, string(got.Content))
+			assert.Equal(t, common.Description, got.Description)
+			assert.Equal(t, common.ImageURL, got.ImageURL)
+			assert.Equal(t, common.IsActive, got.IsActive)
+			assert.Equal(t, tt.isOwned, got.IsOwned)
+		})
+	}
 }
 
 func TestToProductResponse_NilOptionalFieldsPropagate(t *testing.T) {
 	in := domain.ProductWithOwnership{
-		Product: domain.Product{
-			ProductID:   "p1",
-			Description: nil,
-			ImageURL:    nil,
+		ProductView: domain.SubscriptionProduct{
+			Product: domain.Product{
+				ProductID:   "premium",
+				Type:        domain.ProductTypeSubscription,
+				Description: nil,
+				ImageURL:    nil,
+			},
 		},
 	}
 
-	got := presenter.ToProductResponse(in)
+	got, err := presenter.ToProductResponse(in)
+	require.NoError(t, err)
 
 	assert.Nil(t, got.Description, "下書き等で description=null は wire でも nil で透過する")
 	assert.Nil(t, got.ImageURL)
@@ -59,11 +107,25 @@ func TestToProductResponse_NilOptionalFieldsPropagate(t *testing.T) {
 
 func TestToProductResponses(t *testing.T) {
 	in := []domain.ProductWithOwnership{
-		{Product: domain.Product{ProductID: "p1"}, IsOwned: true},
-		{Product: domain.Product{ProductID: "p2"}, IsOwned: false},
+		{
+			ProductView: domain.FactionSetProduct{
+				Product: domain.Product{ProductID: "p1", Type: domain.ProductTypeFactionSet},
+				Faction: "SHE",
+			},
+			IsOwned: true,
+		},
+		{
+			ProductView: domain.CosmeticProduct{
+				Product:  domain.Product{ProductID: "p2", Type: domain.ProductTypeCosmetic},
+				ItemType: domain.ItemTypeStamp,
+				ItemNo:   1,
+			},
+			IsOwned: false,
+		},
 	}
 
-	got := presenter.ToProductResponses(in)
+	got, err := presenter.ToProductResponses(in)
+	require.NoError(t, err)
 
 	require.Len(t, got, 2)
 	assert.Equal(t, "p1", got[0].ProductID)
@@ -73,7 +135,8 @@ func TestToProductResponses(t *testing.T) {
 }
 
 func TestToProductResponses_EmptyInputReturnsEmptySlice(t *testing.T) {
-	got := presenter.ToProductResponses(nil)
+	got, err := presenter.ToProductResponses(nil)
+	require.NoError(t, err)
 	assert.NotNil(t, got, "JSON エンコード時に null ではなく [] にするため空 slice を返す")
 	assert.Empty(t, got)
 }

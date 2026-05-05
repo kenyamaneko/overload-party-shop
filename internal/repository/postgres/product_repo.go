@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -23,24 +22,37 @@ func NewProductRepository(pool *pgxpool.Pool) *ProductRepository {
 	return &ProductRepository{pool: pool}
 }
 
-func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]*domain.Product, error) {
+const productSelectColumns = `
+		p.product_id, p.name, p.type, p.price, p.description, p.image_url, p.is_active,
+		f.faction,
+		c.item_type, c.item_no,
+		s.period_months`
+
+const productJoinClause = `
+		FROM shop.products p
+		LEFT JOIN shop.product_faction      f ON f.product_id = p.product_id
+		LEFT JOIN shop.product_cosmetic     c ON c.product_id = p.product_id
+		LEFT JOIN shop.product_subscription s ON s.product_id = p.product_id`
+
+// GetActiveProducts は販売中商品を type 別 ProductView に詰めて返す。
+// 副表 LEFT JOIN で得た optional 列はそのまま domain.NewProductView に渡し、
+// 型 dispatch / 不変条件検査は domain 層に委譲する。
+func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]domain.ProductView, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT product_id, name, type, price, content, description, image_url, is_active
-		 FROM shop.products WHERE is_active = true`)
+		`SELECT`+productSelectColumns+productJoinClause+`
+		 WHERE p.is_active = true`)
 	if err != nil {
 		return nil, fmt.Errorf("query products: %w", err)
 	}
 	defer rows.Close()
 
-	var products []*domain.Product
+	var products []domain.ProductView
 	for rows.Next() {
-		var p domain.Product
-		var content []byte
-		if err := rows.Scan(&p.ProductID, &p.Name, &p.Type, &p.Price, &content, &p.Description, &p.ImageURL, &p.IsActive); err != nil {
-			return nil, fmt.Errorf("scan product: %w", err)
+		pv, err := scanProductRow(rows)
+		if err != nil {
+			return nil, err
 		}
-		p.Content = json.RawMessage(content)
-		products = append(products, &p)
+		products = append(products, pv)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate products: %w", err)
@@ -48,21 +60,38 @@ func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]*domain.Pr
 	return products, nil
 }
 
-func (r *ProductRepository) GetProductByID(ctx context.Context, productID string) (*domain.Product, error) {
+// GetProductByID は指定 ID の商品を type 別 ProductView として返す。
+func (r *ProductRepository) GetProductByID(ctx context.Context, productID string) (domain.ProductView, error) {
 	row := r.pool.QueryRow(ctx,
-		`SELECT product_id, name, type, price, content, description, image_url, is_active
-		 FROM shop.products WHERE product_id = $1`,
+		`SELECT`+productSelectColumns+productJoinClause+`
+		 WHERE p.product_id = $1`,
 		productID)
 
-	var p domain.Product
-	var content []byte
-	err := row.Scan(&p.ProductID, &p.Name, &p.Type, &p.Price, &content, &p.Description, &p.ImageURL, &p.IsActive)
+	pv, err := scanProductRow(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("product %s: %w", productID, port.ErrNotFound)
 		}
-		return nil, fmt.Errorf("read product: %w", err)
+		return nil, err
 	}
-	p.Content = json.RawMessage(content)
-	return &p, nil
+	return pv, nil
+}
+
+// scanProductRow は LEFT JOIN 結果 1 行を Scan して domain factory に委譲する。
+// 型 dispatch / 不変条件検査は持たず、純粋に DB 行 → primitive の取り出しのみを行う。
+func scanProductRow(row pgx.Row) (domain.ProductView, error) {
+	var common domain.Product
+	var faction, itemType *string
+	var itemNo, periodMonths *int64
+
+	if err := row.Scan(
+		&common.ProductID, &common.Name, &common.Type, &common.Price,
+		&common.Description, &common.ImageURL, &common.IsActive,
+		&faction,
+		&itemType, &itemNo,
+		&periodMonths,
+	); err != nil {
+		return nil, err
+	}
+	return domain.NewProductView(common, faction, itemType, itemNo, periodMonths)
 }

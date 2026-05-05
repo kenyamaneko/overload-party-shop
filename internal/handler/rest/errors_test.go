@@ -47,11 +47,6 @@ func TestErrorClassificationToStatus(t *testing.T) {
 			wantStatus: http.StatusConflict,
 		},
 		{
-			name:       "ErrInvalidFaction は Validation → 400",
-			err:        purchase.ErrInvalidFaction,
-			wantStatus: http.StatusBadRequest,
-		},
-		{
 			name:       "ErrProductNotActive は Validation → 400",
 			err:        purchase.ErrProductNotActive,
 			wantStatus: http.StatusBadRequest,

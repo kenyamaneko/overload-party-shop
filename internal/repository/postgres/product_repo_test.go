@@ -65,7 +65,7 @@ func TestProductRepository_GetActiveProducts(t *testing.T) {
 
 			gotIDs := make([]string, len(got))
 			for i, p := range got {
-				gotIDs[i] = p.ProductID
+				gotIDs[i] = p.Common().ProductID
 			}
 			assert.ElementsMatch(t, tt.wantIDs, gotIDs)
 		})
@@ -110,7 +110,7 @@ func TestProductRepository_GetProductByID(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantName, got.Name)
+			assert.Equal(t, tt.wantName, got.Common().Name)
 		})
 	}
 }

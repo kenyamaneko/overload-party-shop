@@ -50,7 +50,12 @@ func TestGetProducts_Success(t *testing.T) {
 	svc := &fakeShopServicer{
 		getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
 			return []domain.ProductWithOwnership{
-				{Product: domain.Product{ProductID: "p1", Name: "商品1"}, IsOwned: true},
+				{
+					ProductView: domain.SubscriptionProduct{
+						Product: domain.Product{ProductID: "p1", Name: "商品1", Type: domain.ProductTypeSubscription},
+					},
+					IsOwned: true,
+				},
 			}, nil
 		},
 	}

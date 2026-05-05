@@ -3,31 +3,37 @@
 package domain
 
 import (
-	"encoding/json"
 	"time"
 )
 
-// Product は shop カタログの購入可能商品。
+// Product は shop カタログの購入可能商品の共通属性。type 固有属性は FactionSetProduct / CosmeticProduct / SubscriptionProduct 等の per-type 型が保持する。
 type Product struct {
 	ProductID   string
 	Name        string
 	Type        string
 	Price       int64
-	Content     json.RawMessage
 	Description *string
 	ImageURL    *string
 	IsActive    bool
 }
 
-// FactionSetContent は ProductTypeFactionSet の Product.Content を parse した結果。
-type FactionSetContent struct {
-	Faction string `json:"faction"`
+// FactionSetProduct は ProductTypeFactionSet の per-type ビュー。Product 共通属性 + faction 配布対象を保持する。
+type FactionSetProduct struct {
+	Product Product
+	Faction string
 }
 
-// CosmeticContent は ProductTypeCosmetic の Product.Content を parse した結果。
-type CosmeticContent struct {
-	ItemType string `json:"item_type"`
-	ItemNo   int64  `json:"item_no"`
+// CosmeticProduct は ProductTypeCosmetic の per-type ビュー。Product 共通属性 + cosmetic_items への参照を保持する。
+type CosmeticProduct struct {
+	Product  Product
+	ItemType string
+	ItemNo   int64
+}
+
+// SubscriptionProduct は ProductTypeSubscription の per-type ビュー。Product 共通属性 + 課金周期 (月数) を保持する。
+type SubscriptionProduct struct {
+	Product      Product
+	PeriodMonths int64
 }
 
 // OneTimePurchase は単発 (非サブスクリプション) の購入レコード。
@@ -58,9 +64,9 @@ type PlayerItem struct {
 	AcquiredAt time.Time
 }
 
-// ProductWithOwnership は Product にリクエスト元プレイヤーの所有状態を付与した usecase 層のビュー。
+// ProductWithOwnership は per-type ProductView (FactionSetProduct / CosmeticProduct / SubscriptionProduct のいずれか) にリクエスト元プレイヤーの所有状態を付与した usecase 層のビュー。
 type ProductWithOwnership struct {
-	Product Product
-	IsOwned bool
+	ProductView ProductView
+	IsOwned     bool
 }
 

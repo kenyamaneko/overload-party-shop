@@ -44,8 +44,7 @@ func isConflict(err error) bool {
 
 // isValidation はクライアント入力 / 商品状態の妥当性違反によるエラーか判定する。
 func isValidation(err error) bool {
-	return errors.Is(err, purchase.ErrInvalidFaction) ||
-		errors.Is(err, purchase.ErrProductNotActive) ||
+	return errors.Is(err, purchase.ErrProductNotActive) ||
 		errors.Is(err, purchase.ErrProductNotSubscription) ||
 		errors.Is(err, purchase.ErrUnsupportedProductType) ||
 		errors.Is(err, purchase.ErrUnsupportedPlatform)

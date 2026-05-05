@@ -13,27 +13,34 @@ files:
     target: domain
     types:
       - name: Product
-        comment: "Product は shop カタログの購入可能商品。"
+        comment: "Product は shop カタログの購入可能商品の共通属性。type 固有属性は FactionSetProduct / CosmeticProduct / SubscriptionProduct 等の per-type 型が保持する。"
         fields:
           - {name: ProductID, type: string}
           - {name: Name, type: string}
           - {name: Type, type: string}
           - {name: Price, type: int64}
-          - {name: Content, type: json.RawMessage}
           - {name: Description, type: "*string"}
           - {name: ImageURL, type: "*string"}
           - {name: IsActive, type: bool}
 
-      - name: FactionSetContent
-        comment: "FactionSetContent は ProductTypeFactionSet の Product.Content を parse した結果。"
+      - name: FactionSetProduct
+        comment: "FactionSetProduct は ProductTypeFactionSet の per-type ビュー。Product 共通属性 + faction 配布対象を保持する。"
         fields:
-          - {name: Faction, type: string, json: "faction"}
+          - {name: Product, type: Product}
+          - {name: Faction, type: string}
 
-      - name: CosmeticContent
-        comment: "CosmeticContent は ProductTypeCosmetic の Product.Content を parse した結果。"
+      - name: CosmeticProduct
+        comment: "CosmeticProduct は ProductTypeCosmetic の per-type ビュー。Product 共通属性 + cosmetic_items への参照を保持する。"
         fields:
-          - {name: ItemType, type: string, json: "item_type"}
-          - {name: ItemNo, type: int64, json: "item_no"}
+          - {name: Product, type: Product}
+          - {name: ItemType, type: string}
+          - {name: ItemNo, type: int64}
+
+      - name: SubscriptionProduct
+        comment: "SubscriptionProduct は ProductTypeSubscription の per-type ビュー。Product 共通属性 + 課金周期 (月数) を保持する。"
+        fields:
+          - {name: Product, type: Product}
+          - {name: PeriodMonths, type: int64}
 
       - name: OneTimePurchase
         comment: "OneTimePurchase は単発 (非サブスクリプション) の購入レコード。"
@@ -64,9 +71,9 @@ files:
           - {name: AcquiredAt, type: time.Time}
 
       - name: ProductWithOwnership
-        comment: "ProductWithOwnership は Product にリクエスト元プレイヤーの所有状態を付与した usecase 層のビュー。"
+        comment: "ProductWithOwnership は per-type ProductView (FactionSetProduct / CosmeticProduct / SubscriptionProduct のいずれか) にリクエスト元プレイヤーの所有状態を付与した usecase 層のビュー。"
         fields:
-          - {name: Product, type: Product}
+          - {name: ProductView, type: ProductView}
           - {name: IsOwned, type: bool}
 
   # ─── Domain enums (status machine / type discriminators) ──────────────
