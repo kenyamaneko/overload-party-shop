@@ -24,8 +24,7 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 | `name` | VARCHAR(100) | No | 商品名 |
 | `type` | VARCHAR(20) | No | 商品タイプ (faction_set / cosmetic / subscription) |
 | `price` | BIGINT | No | 価格 (JPY) |
-| `content` | JSONB | No | 商品内容 |
-| `faction_id` | VARCHAR(20) | Yes | 陣営（faction_set 商品のみ、それ以外は NULL） |
+| `content` | JSONB | No | 商品内容 (type ごとの構造: faction_set={"faction":...} / cosmetic={"item_type":...,"item_no":...} / subscription={}) |
 | `requires_product_id` | VARCHAR(50) | Yes | 購入前提の商品ID（拡張セット用、NULL: なし） |
 | `description` | VARCHAR(500) | Yes | 商品説明 |
 | `image_url` | VARCHAR(200) | Yes | 画像URL |
