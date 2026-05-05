@@ -26,8 +26,7 @@ CREATE TABLE shop.products (
   name                VARCHAR(100) NOT NULL,                 -- 商品名
   type                VARCHAR(20) NOT NULL,                  -- 商品タイプ (faction_set / cosmetic / subscription)
   price               BIGINT NOT NULL,                       -- 価格 (JPY)
-  content             JSONB NOT NULL,                        -- 商品内容
-  faction_id          VARCHAR(20) CHECK (faction_id IS NULL OR faction_id IN ('SHE', 'Tenki', 'Sugar', 'Tuners', 'Neutral')), -- 陣営（faction_set 商品のみ、それ以外は NULL）
+  content             JSONB NOT NULL,                        -- 商品内容 (type ごとの構造: faction_set={"faction":...} / cosmetic={"item_type":...,"item_no":...} / subscription={})
   requires_product_id VARCHAR(50),                           -- 購入前提の商品ID（拡張セット用、NULL: なし）
   description         VARCHAR(500),                          -- 商品説明
   image_url           VARCHAR(200),                          -- 画像URL
