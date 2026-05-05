@@ -32,7 +32,7 @@ shop は **shop スキーマの DB 行を唯一の真実とし**、他サービ�
 |---|---|---|
 | `faction_set` | `shop.product_faction(faction)` | `player_owned_factions` に該当 faction が存在 |
 | `cosmetic` | `shop.product_cosmetic(item_type, item_no)` | `player_items` に (item_type, item_no) が存在 |
-| `subscription` | （副表なし、共通属性のみ） | 現在 entitled なサブスクリプションが存在（§5 参照） |
+| `subscription` | `shop.product_subscription(period_months)` | 現在 entitled なサブスクリプションが存在（§5 参照） |
 
 `Product.IsActive = false` の商品は購入不可で、`GetProducts` でも返さない。
 

@@ -32,7 +32,7 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 
 **設計判断:**
 - `requires_product_id` の自己参照 FK により、拡張セットの購入前提チェックを DB 層で整合性保証する
-- type 固有属性は副表 (`product_faction` / `product_cosmetic`) に分離し、`products` 共通表は全 type で意味を持つ列のみ保持する。詳細は [ADR-031](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/031-shop-products-normalization-and-faction-purchased-decomposition.md)
+- type 固有属性は副表 (`product_faction` / `product_cosmetic` / `product_subscription`) に分離し、`products` 共通表は全 type で意味を持つ列のみ保持する。詳細は [ADR-031](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/031-shop-products-normalization-and-faction-purchased-decomposition.md)
 
 ### product_faction
 
@@ -64,6 +64,21 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 | `item_type` | VARCHAR(20) | No | アイテム種別 (cosmetic_items 参照) |
 | `item_no` | BIGINT | No | アイテム番号 (cosmetic_items 参照) |
 <!-- END GENERATED: product_cosmetic -->
+
+### product_subscription
+
+`type='subscription'` 商品の付帯属性。課金周期等の variant 属性を保持する。
+
+- **PK:** `product_id`
+- **FK:** `product_id` → `products(product_id)` ON DELETE CASCADE
+- **CHECK:** `period_months > 0`
+
+<!-- BEGIN GENERATED: product_subscription -->
+| カラム名 | 型 | Nullable | 説明 |
+|---|---|---|---|
+| `product_id` | VARCHAR(50) | No | shop.products への FK |
+| `period_months` | INT | No | 課金周期 (月数。e.g. 1=monthly, 12=yearly) |
+<!-- END GENERATED: product_subscription -->
 
 ### subscriptions
 
@@ -175,8 +190,9 @@ shop 購入経由で付与されたファクション所有状況の shop ロー
 products (PK: product_id)
   │
   ├── FK: requires_product_id → products (自己参照、拡張セットの前提商品)
-  ├── 1:0..1 ── product_faction (FK: product_id, type='faction_set' のみ)
-  └── 1:0..1 ── product_cosmetic      (FK: product_id, type='cosmetic'    のみ)
+  ├── 1:0..1 ── product_faction      (FK: product_id, type='faction_set'  のみ)
+  ├── 1:0..1 ── product_cosmetic     (FK: product_id, type='cosmetic'     のみ)
+  └── 1:0..1 ── product_subscription (FK: product_id, type='subscription' のみ)
 
 [account.players] ─ ─ ─ (cross-schema, app-level)
   │

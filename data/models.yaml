@@ -37,9 +37,10 @@ files:
           - {name: ItemNo, type: int64}
 
       - name: SubscriptionProduct
-        comment: "SubscriptionProduct は ProductTypeSubscription の per-type ビュー。type 固有属性は持たないが ProductView の sum 型を埋めるため定義する。"
+        comment: "SubscriptionProduct は ProductTypeSubscription の per-type ビュー。Product 共通属性 + 課金周期 (月数) を保持する。"
         fields:
           - {name: Product, type: Product}
+          - {name: PeriodMonths, type: int64}
 
       - name: OneTimePurchase
         comment: "OneTimePurchase は単発 (非サブスクリプション) の購入レコード。"

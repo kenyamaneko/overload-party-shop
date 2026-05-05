@@ -42,6 +42,14 @@ CREATE TABLE shop.product_faction (
   FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
 );
 
+-- type='subscription' 商品の付帯属性。課金周期等の variant 属性をここに保持する。
+CREATE TABLE shop.product_subscription (
+  product_id    VARCHAR(50) NOT NULL,                        -- shop.products への FK
+  period_months INT NOT NULL CHECK (period_months > 0),      -- 課金周期 (月数。e.g. 1=monthly, 12=yearly)
+  PRIMARY KEY (product_id),
+  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
+);
+
 -- ドメイン (Subscription / OneTimePurchase) と外部識別 (Apple/Google トークン) を
 -- 分離する。ドメインテーブルは外部仕様に依存せず、トークンテーブルだけが Apple/Google の
 -- 識別子を保持する。Apple/Google のトークン仕様変更（例: 更新ごとに新トークン発行）が

@@ -40,6 +40,11 @@ func seedProduct(t *testing.T, productID, name, productType string, price int64,
 			`INSERT INTO shop.product_cosmetic (product_id, item_type, item_no) VALUES ($1, 'stamp', 1)`,
 			productID)
 		require.NoError(t, err)
+	case domain.ProductTypeSubscription:
+		_, err = sharedPg.Pool.Exec(context.Background(),
+			`INSERT INTO shop.product_subscription (product_id, period_months) VALUES ($1, $2)`,
+			productID, 1)
+		require.NoError(t, err)
 	}
 }
 

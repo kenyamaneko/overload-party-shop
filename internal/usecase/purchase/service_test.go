@@ -148,10 +148,15 @@ func insertCosmeticProduct(t *testing.T, productID, name string, price int64, it
 	require.NoError(t, err)
 }
 
-// insertSubscriptionProduct は subscription 商品 (products のみ、副表なし) を seed する。
+// insertSubscriptionProduct は subscription 商品 (products + product_subscription) を seed する。
+// 既存テストでは課金周期を 1 か月固定で扱う。
 func insertSubscriptionProduct(t *testing.T, productID, name string, price int64, isActive bool) {
 	t.Helper()
 	insertCommonProduct(t, productID, name, domain.ProductTypeSubscription, price, isActive)
+	_, err := sharedPg.Pool.Exec(context.Background(),
+		`INSERT INTO shop.product_subscription (product_id, period_months) VALUES ($1, $2)`,
+		productID, 1)
+	require.NoError(t, err)
 }
 
 // insertSubscription は業務アクションを経由せず subscription 行と token 行を seed する。

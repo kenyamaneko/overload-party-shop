@@ -30,9 +30,10 @@ type CosmeticProduct struct {
 	ItemNo   int64
 }
 
-// SubscriptionProduct は ProductTypeSubscription の per-type ビュー。type 固有属性は持たないが ProductView の sum 型を埋めるため定義する。
+// SubscriptionProduct は ProductTypeSubscription の per-type ビュー。Product 共通属性 + 課金周期 (月数) を保持する。
 type SubscriptionProduct struct {
-	Product Product
+	Product      Product
+	PeriodMonths int64
 }
 
 // OneTimePurchase は単発 (非サブスクリプション) の購入レコード。

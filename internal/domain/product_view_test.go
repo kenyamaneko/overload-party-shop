@@ -15,12 +15,13 @@ func ptrInt64(n int64) *int64    { return &n }
 // 正常系: type discriminator と整合する optional 入力が揃っているとき、対応する per-type 型を返す。
 func TestNewProductView_Success(t *testing.T) {
 	tests := []struct {
-		name     string
-		common   domain.Product
-		faction  *string
-		itemType *string
-		itemNo   *int64
-		want     domain.ProductView
+		name         string
+		common       domain.Product
+		faction      *string
+		itemType     *string
+		itemNo       *int64
+		periodMonths *int64
+		want         domain.ProductView
 	}{
 		{
 			name:    "faction_set は FactionSetProduct を返す",
@@ -43,17 +44,19 @@ func TestNewProductView_Success(t *testing.T) {
 			},
 		},
 		{
-			name:   "subscription は SubscriptionProduct を返す",
-			common: domain.Product{ProductID: "premium_monthly", Type: domain.ProductTypeSubscription},
+			name:         "subscription は SubscriptionProduct を返す",
+			common:       domain.Product{ProductID: "premium_monthly", Type: domain.ProductTypeSubscription},
+			periodMonths: ptrInt64(1),
 			want: domain.SubscriptionProduct{
-				Product: domain.Product{ProductID: "premium_monthly", Type: domain.ProductTypeSubscription},
+				Product:      domain.Product{ProductID: "premium_monthly", Type: domain.ProductTypeSubscription},
+				PeriodMonths: 1,
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := domain.NewProductView(tt.common, tt.faction, tt.itemType, tt.itemNo)
+			got, err := domain.NewProductView(tt.common, tt.faction, tt.itemType, tt.itemNo, tt.periodMonths)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -63,12 +66,13 @@ func TestNewProductView_Success(t *testing.T) {
 // 異常系: type と入力の不整合 / 未知 type は error を返す。
 func TestNewProductView_Error(t *testing.T) {
 	tests := []struct {
-		name      string
-		common    domain.Product
-		faction   *string
-		itemType  *string
-		itemNo    *int64
-		errSubstr string
+		name         string
+		common       domain.Product
+		faction      *string
+		itemType     *string
+		itemNo       *int64
+		periodMonths *int64
+		errSubstr    string
 	}{
 		{
 			name:      "faction_set だが faction が nil",
@@ -88,6 +92,11 @@ func TestNewProductView_Error(t *testing.T) {
 			errSubstr: "item_type/item_no missing",
 		},
 		{
+			name:      "subscription だが period_months が nil",
+			common:    domain.Product{ProductID: "premium_monthly", Type: domain.ProductTypeSubscription},
+			errSubstr: "period_months missing",
+		},
+		{
 			name:      "未知の type",
 			common:    domain.Product{ProductID: "p1", Type: "totally_unknown_type"},
 			errSubstr: "unknown type",
@@ -96,7 +105,7 @@ func TestNewProductView_Error(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := domain.NewProductView(tt.common, tt.faction, tt.itemType, tt.itemNo)
+			got, err := domain.NewProductView(tt.common, tt.faction, tt.itemType, tt.itemNo, tt.periodMonths)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errSubstr)
 			assert.Nil(t, got)
@@ -122,7 +131,7 @@ func TestPerTypeConstructors_ImplementProductView(t *testing.T) {
 		},
 		{
 			name: "SubscriptionProduct",
-			view: domain.NewSubscriptionProduct(common),
+			view: domain.NewSubscriptionProduct(common, 1),
 		},
 	}
 
