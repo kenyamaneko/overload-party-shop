@@ -22,9 +22,8 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 |---|---|---|---|
 | `product_id` | VARCHAR(50) | No | 商品ID |
 | `name` | VARCHAR(100) | No | 商品名 |
-| `type` | VARCHAR(20) | No | 商品タイプ (faction_set / cosmetic / subscription) |
+| `type` | VARCHAR(20) | No | 商品タイプ discriminator (faction_set / cosmetic / subscription) |
 | `price` | BIGINT | No | 価格 (JPY) |
-| `content` | JSONB | No | 商品内容 (type ごとの構造: faction_set={"faction":...} / cosmetic={"item_type":...,"item_no":...} / subscription={}) |
 | `requires_product_id` | VARCHAR(50) | Yes | 購入前提の商品ID（拡張セット用、NULL: なし） |
 | `description` | VARCHAR(500) | Yes | 商品説明 |
 | `image_url` | VARCHAR(200) | Yes | 画像URL |
@@ -33,7 +32,38 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 
 **設計判断:**
 - `requires_product_id` の自己参照 FK により、拡張セットの購入前提チェックを DB 層で整合性保証する
-- `content` を JSONB にしているのは、商品タイプごとに含まれる内容の構造が異なるため
+- type 固有属性は副表 (`product_faction_grants` / `product_cosmetics`) に分離し、`products` 共通表は全 type で意味を持つ列のみ保持する。詳細は [ADR-031](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/031-shop-products-normalization-and-faction-purchased-decomposition.md)
+
+### product_faction_grants
+
+`type='faction_set'` 商品の付帯属性。`shop.products` 1 行に対して 1 行が必ず存在する (整合性は application 層で担保)。
+
+- **PK:** `product_id`
+- **FK:** `product_id` → `products(product_id)` ON DELETE CASCADE
+- **CHECK:** `faction IN ('SHE', 'Tenki', 'Sugar', 'Tuners')` (selectable faction のみ)
+
+<!-- BEGIN GENERATED: product_faction_grants -->
+| カラム名 | 型 | Nullable | 説明 |
+|---|---|---|---|
+| `product_id` | VARCHAR(50) | No | shop.products への FK |
+| `faction` | VARCHAR(20) | No | 配布対象 faction |
+<!-- END GENERATED: product_faction_grants -->
+
+### product_cosmetics
+
+`type='cosmetic'` 商品の付帯属性。`cosmetic_items` への DB レベル FK が成立する。
+
+- **PK:** `product_id`
+- **FK:** `product_id` → `products(product_id)` ON DELETE CASCADE
+- **FK:** `(item_type, item_no)` → `cosmetic_items(item_type, item_no)`
+
+<!-- BEGIN GENERATED: product_cosmetics -->
+| カラム名 | 型 | Nullable | 説明 |
+|---|---|---|---|
+| `product_id` | VARCHAR(50) | No | shop.products への FK |
+| `item_type` | VARCHAR(20) | No | アイテム種別 (cosmetic_items 参照) |
+| `item_no` | BIGINT | No | アイテム番号 (cosmetic_items 参照) |
+<!-- END GENERATED: product_cosmetics -->
 
 ### subscriptions
 
@@ -144,7 +174,9 @@ shop 購入経由で付与されたファクション所有状況の shop ロー
 ```
 products (PK: product_id)
   │
-  └── FK: requires_product_id → products (自己参照、拡張セットの前提商品)
+  ├── FK: requires_product_id → products (自己参照、拡張セットの前提商品)
+  ├── 1:0..1 ── product_faction_grants (FK: product_id, type='faction_set' のみ)
+  └── 1:0..1 ── product_cosmetics      (FK: product_id, type='cosmetic'    のみ)
 
 [account.players] ─ ─ ─ (cross-schema, app-level)
   │
@@ -154,7 +186,8 @@ products (PK: product_id)
   └── 1:N ── player_owned_factions (PK: player_id, faction)
 
 cosmetic_items (PK: item_type, item_no)
-  （player_items が参照するが FK は張らない）
+  ├── product_cosmetics (FK: item_type, item_no)
+  └── （player_items も参照するが FK は張らない）
 ```
 
 ---

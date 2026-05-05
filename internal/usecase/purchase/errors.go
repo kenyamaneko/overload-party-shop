@@ -5,8 +5,6 @@ import "errors"
 var (
 	// ErrFactionAlreadySelected は faction が既に選択済みの場合に返される。
 	ErrFactionAlreadySelected = errors.New("faction already selected")
-	// ErrInvalidFaction は無効な faction が指定された場合に返される。
-	ErrInvalidFaction = errors.New("invalid faction")
 	// ErrAlreadyOwned は商品が既に所有されている場合に返される。
 	ErrAlreadyOwned = errors.New("product already owned")
 	// ErrProductNotActive は非アクティブ商品への操作で返される。

@@ -112,14 +112,46 @@ func selectPremiumUpdatedEvents(t *testing.T) []domain.PremiumUpdatedEvent {
 	return events
 }
 
-// insertProduct はテスト用に商品を shop.products に直接 INSERT する。
-func insertProduct(t *testing.T, p *domain.Product) {
+// insertCommonProduct は shop.products に共通行を直接 INSERT する (副表は呼び元が入れる)。
+func insertCommonProduct(t *testing.T, productID, name, productType string, price int64, isActive bool) {
 	t.Helper()
 	_, err := sharedPg.Pool.Exec(context.Background(),
-		`INSERT INTO shop.products (product_id, name, type, price, content, description, image_url, is_active)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		p.ProductID, p.Name, p.Type, p.Price, p.Content, p.Description, p.ImageURL, p.IsActive)
+		`INSERT INTO shop.products (product_id, name, type, price, description, image_url, is_active)
+		 VALUES ($1,$2,$3,$4,NULL,NULL,$5)`,
+		productID, name, productType, price, isActive)
 	require.NoError(t, err)
+}
+
+// insertFactionSetProduct は faction_set 商品 (products + product_faction_grants) を seed する。
+func insertFactionSetProduct(t *testing.T, productID, name string, price int64, faction string, isActive bool) {
+	t.Helper()
+	insertCommonProduct(t, productID, name, domain.ProductTypeFactionSet, price, isActive)
+	_, err := sharedPg.Pool.Exec(context.Background(),
+		`INSERT INTO shop.product_faction_grants (product_id, faction) VALUES ($1,$2)`,
+		productID, faction)
+	require.NoError(t, err)
+}
+
+// insertCosmeticProduct は cosmetic 商品 (products + cosmetic_items + product_cosmetics) を seed する。
+// cosmetic_items は ON CONFLICT DO NOTHING で多重 seed を許容する。
+func insertCosmeticProduct(t *testing.T, productID, name string, price int64, itemType string, itemNo int64, isActive bool) {
+	t.Helper()
+	insertCommonProduct(t, productID, name, domain.ProductTypeCosmetic, price, isActive)
+	_, err := sharedPg.Pool.Exec(context.Background(),
+		`INSERT INTO shop.cosmetic_items (item_type, item_no, item_name, is_purchasable, is_active)
+		 VALUES ($1,$2,$3,true,true) ON CONFLICT DO NOTHING`,
+		itemType, itemNo, name)
+	require.NoError(t, err)
+	_, err = sharedPg.Pool.Exec(context.Background(),
+		`INSERT INTO shop.product_cosmetics (product_id, item_type, item_no) VALUES ($1,$2,$3)`,
+		productID, itemType, itemNo)
+	require.NoError(t, err)
+}
+
+// insertSubscriptionProduct は subscription 商品 (products のみ、副表なし) を seed する。
+func insertSubscriptionProduct(t *testing.T, productID, name string, price int64, isActive bool) {
+	t.Helper()
+	insertCommonProduct(t, productID, name, domain.ProductTypeSubscription, price, isActive)
 }
 
 // insertSubscription は業務アクションを経由せず subscription 行と token 行を seed する。
@@ -153,14 +185,7 @@ func TestPurchase_FactionSet_Success(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &domain.Product{
-		ProductID: "faction_tenki",
-		Name:      "Tenkiカードセット",
-		Type:      domain.ProductTypeFactionSet,
-		Price:     980,
-		Content:   json.RawMessage(`{"faction":"Tenki"}`),
-		IsActive:  true,
-	})
+	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
 
 	err := env.svc.Purchase(context.Background(), "11111111-1111-1111-1111-111111111111", "faction_tenki", "ios", "receipt-token-1")
 	require.NoError(t, err)
@@ -186,14 +211,7 @@ func TestPurchase_Idempotent(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &domain.Product{
-		ProductID: "faction_tenki",
-		Name:      "Tenkiカードセット",
-		Type:      domain.ProductTypeFactionSet,
-		Price:     980,
-		Content:   json.RawMessage(`{"faction":"Tenki"}`),
-		IsActive:  true,
-	})
+	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
 
 	playerID := "22222222-2222-2222-2222-222222222222"
 	ctx := context.Background()
@@ -213,14 +231,7 @@ func TestPurchase_ReceiptFailed(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &domain.Product{
-		ProductID: "faction_tenki",
-		Name:      "Tenkiカードセット",
-		Type:      domain.ProductTypeFactionSet,
-		Price:     980,
-		Content:   json.RawMessage(`{"faction":"Tenki"}`),
-		IsActive:  true,
-	})
+	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
 
 	err := env.svc.Purchase(context.Background(), "33333333-3333-3333-3333-333333333333", "faction_tenki", "ios", "bad-receipt")
 	assert.ErrorIs(t, err, ErrReceiptVerificationFailed)
@@ -234,14 +245,7 @@ func TestPurchase_CosmeticItem(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &domain.Product{
-		ProductID: "playmat_01",
-		Name:      "プレイマット: サイバー",
-		Type:      domain.ProductTypeCosmetic,
-		Price:     320,
-		Content:   json.RawMessage(`{"item_type":"playmat","item_no":1}`),
-		IsActive:  true,
-	})
+	insertCosmeticProduct(t, "playmat_01", "プレイマット: サイバー", 320, "playmat", 1, true)
 
 	err := env.svc.Purchase(context.Background(), "44444444-4444-4444-4444-444444444444", "playmat_01", "android", "cosmetic-receipt")
 	require.NoError(t, err)
@@ -255,14 +259,7 @@ func TestPurchase_AlreadyOwned_FactionSet(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &domain.Product{
-		ProductID: "faction_tenki",
-		Name:      "Tenkiカードセット",
-		Type:      domain.ProductTypeFactionSet,
-		Price:     980,
-		Content:   json.RawMessage(`{"faction":"Tenki"}`),
-		IsActive:  true,
-	})
+	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
 
 	playerID := "55555555-5555-5555-5555-555555555555"
 	err := env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", "receipt-token-1")
@@ -280,14 +277,7 @@ func TestPurchase_AlreadyOwned_Cosmetic(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &domain.Product{
-		ProductID: "playmat_01",
-		Name:      "プレイマット: サイバー",
-		Type:      domain.ProductTypeCosmetic,
-		Price:     320,
-		Content:   json.RawMessage(`{"item_type":"playmat","item_no":1}`),
-		IsActive:  true,
-	})
+	insertCosmeticProduct(t, "playmat_01", "プレイマット: サイバー", 320, "playmat", 1, true)
 
 	playerID := "66666666-6666-6666-6666-666666666666"
 	err := env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt-1")
@@ -300,14 +290,7 @@ func TestPurchase_AlreadyOwned_Cosmetic(t *testing.T) {
 func TestPurchase_InactiveProduct(t *testing.T) {
 	env := newTestShopEnv(t)
 
-	insertProduct(t, &domain.Product{
-		ProductID: "old_product",
-		Name:      "旧商品",
-		Type:      domain.ProductTypeFactionSet,
-		Price:     100,
-		Content:   json.RawMessage(`{"faction":"SHE"}`),
-		IsActive:  false,
-	})
+	insertFactionSetProduct(t, "old_product", "旧商品", 100, "SHE", false)
 
 	err := env.svc.Purchase(context.Background(), "77777777-7777-7777-7777-777777777777", "old_product", "ios", "receipt-1")
 	assert.ErrorIs(t, err, ErrProductNotActive)
@@ -316,14 +299,7 @@ func TestPurchase_InactiveProduct(t *testing.T) {
 func TestPurchase_UnsupportedPlatform(t *testing.T) {
 	env := newTestShopEnv(t)
 
-	insertProduct(t, &domain.Product{
-		ProductID: "faction_she",
-		Name:      "SHEカードセット",
-		Type:      domain.ProductTypeFactionSet,
-		Price:     980,
-		Content:   json.RawMessage(`{"faction":"SHE"}`),
-		IsActive:  true,
-	})
+	insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
 
 	err := env.svc.Purchase(context.Background(), "88888888-8888-8888-8888-888888888888", "faction_she", "windows", "receipt-1")
 	assert.ErrorIs(t, err, ErrUnsupportedPlatform)
@@ -341,14 +317,7 @@ func TestSubscribe_Success(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &domain.Product{
-		ProductID: "premium_monthly",
-		Name:      "プレミアム月額",
-		Type:      domain.ProductTypeSubscription,
-		Price:     480,
-		Content:   json.RawMessage(`{}`),
-		IsActive:  true,
-	})
+	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 
 	playerID := "99999999-9999-9999-9999-999999999999"
 	result, err := env.svc.Subscribe(context.Background(), playerID, "premium_monthly", "ios", "sub-token-1")
@@ -381,7 +350,7 @@ func TestSubscribe_Errors(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		product       *domain.Product
+		seedProduct   func(t *testing.T)
 		appleVerifier port.ReceiptVerifier
 		productID     string
 		platform      string
@@ -390,13 +359,8 @@ func TestSubscribe_Errors(t *testing.T) {
 	}{
 		{
 			name: "サブスク以外の商品を Subscribe",
-			product: &domain.Product{
-				ProductID: "faction_she",
-				Name:      "SHEカードセット",
-				Type:      domain.ProductTypeFactionSet,
-				Price:     980,
-				Content:   json.RawMessage(`{"faction":"SHE"}`),
-				IsActive:  true,
+			seedProduct: func(t *testing.T) {
+				insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
 			},
 			appleVerifier: defaultVerifier,
 			productID:     "faction_she",
@@ -406,13 +370,8 @@ func TestSubscribe_Errors(t *testing.T) {
 		},
 		{
 			name: "レシート検証失敗（IsValid=false）",
-			product: &domain.Product{
-				ProductID: "premium_monthly",
-				Name:      "プレミアム月額",
-				Type:      domain.ProductTypeSubscription,
-				Price:     480,
-				Content:   json.RawMessage(`{}`),
-				IsActive:  true,
+			seedProduct: func(t *testing.T) {
+				insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 			},
 			appleVerifier: invalidSubVerifier,
 			productID:     "premium_monthly",
@@ -422,13 +381,8 @@ func TestSubscribe_Errors(t *testing.T) {
 		},
 		{
 			name: "未対応 platform",
-			product: &domain.Product{
-				ProductID: "premium_monthly",
-				Name:      "プレミアム月額",
-				Type:      domain.ProductTypeSubscription,
-				Price:     480,
-				Content:   json.RawMessage(`{}`),
-				IsActive:  true,
+			seedProduct: func(t *testing.T) {
+				insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 			},
 			appleVerifier: defaultVerifier,
 			productID:     "premium_monthly",
@@ -440,7 +394,7 @@ func TestSubscribe_Errors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newTestShopEnv(t, withAppleVerifier(tt.appleVerifier))
-			insertProduct(t, tt.product)
+			tt.seedProduct(t)
 
 			_, err := env.svc.Subscribe(context.Background(), "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", tt.productID, tt.platform, tt.token)
 			assert.ErrorIs(t, err, tt.wantErr)
@@ -451,22 +405,8 @@ func TestSubscribe_Errors(t *testing.T) {
 func TestGetProducts_WithOwnership(t *testing.T) {
 	env := newTestShopEnv(t)
 
-	insertProduct(t, &domain.Product{
-		ProductID: "faction_she",
-		Name:      "SHEカードセット",
-		Type:      domain.ProductTypeFactionSet,
-		Price:     980,
-		Content:   json.RawMessage(`{"faction":"SHE"}`),
-		IsActive:  true,
-	})
-	insertProduct(t, &domain.Product{
-		ProductID: "faction_tenki",
-		Name:      "Tenkiカードセット",
-		Type:      domain.ProductTypeFactionSet,
-		Price:     980,
-		Content:   json.RawMessage(`{"faction":"Tenki"}`),
-		IsActive:  true,
-	})
+	insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
+	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
 
 	playerID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 	// shop 購入で SHE faction を所有している状態をシミュレート
@@ -481,7 +421,7 @@ func TestGetProducts_WithOwnership(t *testing.T) {
 
 	byID := map[string]domain.ProductWithOwnership{}
 	for _, p := range products {
-		byID[p.Product.ProductID] = p
+		byID[p.ProductView.Common().ProductID] = p
 	}
 	assert.True(t, byID["faction_she"].IsOwned)
 	assert.False(t, byID["faction_tenki"].IsOwned)
@@ -490,14 +430,7 @@ func TestGetProducts_WithOwnership(t *testing.T) {
 func TestGetProducts_SubscriptionOwnership(t *testing.T) {
 	env := newTestShopEnv(t)
 
-	insertProduct(t, &domain.Product{
-		ProductID: "premium_monthly",
-		Name:      "プレミアム月額",
-		Type:      domain.ProductTypeSubscription,
-		Price:     480,
-		Content:   json.RawMessage(`{}`),
-		IsActive:  true,
-	})
+	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 
 	playerID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
 	now := time.Now()
@@ -571,14 +504,7 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newTestShopEnv(t)
-			insertProduct(t, &domain.Product{
-				ProductID: "premium_monthly",
-				Name:      "プレミアム月額",
-				Type:      domain.ProductTypeSubscription,
-				Price:     480,
-				Content:   json.RawMessage(`{}`),
-				IsActive:  true,
-			})
+			insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 			playerID := fmt.Sprintf("dddddddd-%04d-dddd-dddd-dddddddddddd", i)
 			insertSubscription(t, &domain.Subscription{
 				PlayerID:           playerID,
@@ -640,14 +566,7 @@ func TestPurchase_VerifierReturnsError(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &domain.Product{
-		ProductID: "faction_she",
-		Name:      "SHEカードセット",
-		Type:      domain.ProductTypeFactionSet,
-		Price:     980,
-		Content:   json.RawMessage(`{"faction":"SHE"}`),
-		IsActive:  true,
-	})
+	insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
 
 	err := env.svc.Purchase(context.Background(), "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", "faction_she", "ios", "receipt-err")
 	assert.ErrorIs(t, err, ErrVerifyReceipt)
@@ -660,81 +579,10 @@ func TestPurchase_SubscriptionTypeViaPurchase(t *testing.T) {
 		},
 	}))
 
-	insertProduct(t, &domain.Product{
-		ProductID: "premium_monthly",
-		Name:      "プレミアム月額",
-		Type:      domain.ProductTypeSubscription,
-		Price:     480,
-		Content:   json.RawMessage(`{}`),
-		IsActive:  true,
-	})
+	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 
 	err := env.svc.Purchase(context.Background(), "ffffffff-ffff-ffff-ffff-ffffffffffff", "premium_monthly", "ios", "receipt-sub")
 	assert.ErrorIs(t, err, ErrUnsupportedProductType)
-}
-
-// Purchase の入力検証エラーは verifier / repo 到達前に return する。
-func TestPurchase_DefensivePaths(t *testing.T) {
-	tests := []struct {
-		name     string
-		product  *domain.Product
-		wantErr  error
-		wantSubs string
-	}{
-		{
-			name: "選択不可 faction が content に入っている",
-			product: &domain.Product{
-				ProductID: "faction_unknown",
-				Name:      "未知 faction",
-				Type:      domain.ProductTypeFactionSet,
-				Price:     980,
-				Content:   json.RawMessage(`{"faction":"NotARealFaction"}`),
-				IsActive:  true,
-			},
-			wantErr: ErrInvalidFaction,
-		},
-		{
-			name: "faction content の JSON 型不一致",
-			product: &domain.Product{
-				ProductID: "faction_broken",
-				Name:      "壊れた faction",
-				Type:      domain.ProductTypeFactionSet,
-				Price:     980,
-				Content:   json.RawMessage(`{"faction":123}`),
-				IsActive:  true,
-			},
-			wantSubs: "parse faction set content",
-		},
-		{
-			name: "cosmetic content の JSON 型不一致",
-			product: &domain.Product{
-				ProductID: "cosmetic_broken",
-				Name:      "壊れた cosmetic",
-				Type:      domain.ProductTypeCosmetic,
-				Price:     320,
-				Content:   json.RawMessage(`{"item_type":123,"item_no":1}`),
-				IsActive:  true,
-			},
-			wantSubs: "parse cosmetic content",
-		},
-	}
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := newTestShopEnv(t)
-			insertProduct(t, tt.product)
-
-			playerID := fmt.Sprintf("eeeeeeee-%04d-eeee-eeee-eeeeeeeeeeee", i)
-			err := env.svc.Purchase(context.Background(), playerID, tt.product.ProductID, "ios", fmt.Sprintf("token-%d", i))
-			require.Error(t, err)
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-			}
-			if tt.wantSubs != "" {
-				assert.Contains(t, err.Error(), tt.wantSubs)
-			}
-			assert.Empty(t, selectFactionPurchasedEvents(t), "no publish on defensive failure")
-		})
-	}
 }
 
 // 同一トークンでの再 Subscribe は既存 CurrentPeriodEnd を返し publish しない。
@@ -745,14 +593,7 @@ func TestSubscribe_Idempotent(t *testing.T) {
 			return &port.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
 		},
 	}))
-	insertProduct(t, &domain.Product{
-		ProductID: "premium_monthly",
-		Name:      "プレミアム月額",
-		Type:      domain.ProductTypeSubscription,
-		Price:     480,
-		Content:   json.RawMessage(`{}`),
-		IsActive:  true,
-	})
+	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 
 	playerID := "22222222-aaaa-bbbb-cccc-dddddddddddd"
 	ctx := context.Background()
@@ -774,14 +615,7 @@ func TestSubscribe_VerifierReturnsError(t *testing.T) {
 			return nil, fmt.Errorf("network timeout")
 		},
 	}))
-	insertProduct(t, &domain.Product{
-		ProductID: "premium_monthly",
-		Name:      "プレミアム月額",
-		Type:      domain.ProductTypeSubscription,
-		Price:     480,
-		Content:   json.RawMessage(`{}`),
-		IsActive:  true,
-	})
+	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 
 	_, err := env.svc.Subscribe(context.Background(), "33333333-aaaa-bbbb-cccc-dddddddddddd", "premium_monthly", "ios", "sub-token-err")
 	require.Error(t, err)
@@ -825,18 +659,15 @@ func TestGetProducts_CosmeticOwnership(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newTestShopEnv(t)
-			insertProduct(t, &domain.Product{
-				ProductID: "playmat_01",
-				Name:      "プレイマット",
-				Type:      domain.ProductTypeCosmetic,
-				Price:     320,
-				Content:   json.RawMessage(`{"item_type":"playmat","item_no":1}`),
-				IsActive:  true,
-			})
+			insertCosmeticProduct(t, "playmat_01", "プレイマット", 320, "playmat", 1, true)
 
 			playerID := fmt.Sprintf("55555555-%04d-bbbb-cccc-dddddddddddd", i)
 			if tt.insertItem {
 				_, err := sharedPg.Pool.Exec(context.Background(),
+					`INSERT INTO shop.cosmetic_items (item_type, item_no, item_name, is_purchasable, is_active) VALUES ($1,$2,'extra',true,true) ON CONFLICT DO NOTHING`,
+					tt.itemType, tt.itemNo)
+				require.NoError(t, err)
+				_, err = sharedPg.Pool.Exec(context.Background(),
 					`INSERT INTO shop.player_items (player_id, item_type, item_no, acquired_at) VALUES ($1,$2,$3,now())`,
 					playerID, tt.itemType, tt.itemNo)
 				require.NoError(t, err)
@@ -846,44 +677,6 @@ func TestGetProducts_CosmeticOwnership(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, products, 1)
 			assert.Equal(t, tt.wantIsOwned, products[0].IsOwned)
-		})
-	}
-}
-
-// GetProducts は content JSON の型不一致を error として伝播する。
-func TestGetProducts_MalformedContent(t *testing.T) {
-	tests := []struct {
-		name        string
-		productType string
-		content     json.RawMessage
-	}{
-		{
-			name:        "faction_set で faction の JSON 型不一致",
-			productType: domain.ProductTypeFactionSet,
-			content:     json.RawMessage(`{"faction":123}`),
-		},
-		{
-			name:        "cosmetic で item_type の JSON 型不一致",
-			productType: domain.ProductTypeCosmetic,
-			content:     json.RawMessage(`{"item_type":123,"item_no":1}`),
-		},
-	}
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := newTestShopEnv(t)
-			insertProduct(t, &domain.Product{
-				ProductID: fmt.Sprintf("broken_%d", i),
-				Name:      "broken",
-				Type:      tt.productType,
-				Price:     100,
-				Content:   tt.content,
-				IsActive:  true,
-			})
-
-			playerID := fmt.Sprintf("66666666-%04d-bbbb-cccc-dddddddddddd", i)
-			_, err := env.svc.GetProducts(context.Background(), playerID)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "parse product content for")
 		})
 	}
 }

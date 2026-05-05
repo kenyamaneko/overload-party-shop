@@ -42,7 +42,12 @@ func (h *ShopHandler) GetProducts(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"products": presenter.ToProductResponses(products)})
+	resp, err := presenter.ToProductResponses(products)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"products": resp})
 }
 
 // Purchase は単発購入リクエストを処理する。

@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 
-	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/presenter"
@@ -76,27 +75,19 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]domain.Pr
 	}
 
 	result := make([]domain.ProductWithOwnership, 0, len(products))
-	for _, p := range products {
+	for _, pv := range products {
 		owned := false
-		switch p.Type {
-		case domain.ProductTypeFactionSet:
-			var content domain.FactionSetContent
-			if err := json.Unmarshal(p.Content, &content); err != nil {
-				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
-			}
-			owned = slices.Contains(ownedFactions, content.Faction)
-		case domain.ProductTypeSubscription:
+		switch p := pv.(type) {
+		case domain.FactionSetProduct:
+			owned = slices.Contains(ownedFactions, p.Faction)
+		case domain.SubscriptionProduct:
 			owned = subEntitled
-		case domain.ProductTypeCosmetic:
-			var content domain.CosmeticContent
-			if err := json.Unmarshal(p.Content, &content); err != nil {
-				return nil, fmt.Errorf("parse product content for %s: %w", p.ProductID, err)
-			}
+		case domain.CosmeticProduct:
 			owned = slices.ContainsFunc(ownedItems, func(it *domain.PlayerItem) bool {
-				return it.ItemType == content.ItemType && it.ItemNo == content.ItemNo
+				return it.ItemType == p.ItemType && it.ItemNo == p.ItemNo
 			})
 		}
-		result = append(result, domain.ProductWithOwnership{Product: *p, IsOwned: owned})
+		result = append(result, domain.ProductWithOwnership{ProductView: pv, IsOwned: owned})
 	}
 	return result, nil
 }
@@ -117,49 +108,84 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 		return nil
 	}
 
-	product, err := s.productRepo.GetProductByID(ctx, productID)
+	pv, err := s.productRepo.GetProductByID(ctx, productID)
 	if err != nil {
 		return fmt.Errorf("get product: %w", err)
 	}
-	if !product.IsActive {
+	if !pv.Common().IsActive {
 		return ErrProductNotActive
 	}
 
-	var (
-		factionContent  domain.FactionSetContent
-		cosmeticContent domain.CosmeticContent
-	)
-
-	switch product.Type {
-	case domain.ProductTypeFactionSet:
-		if err := json.Unmarshal(product.Content, &factionContent); err != nil {
-			return fmt.Errorf("parse faction set content: %w", err)
-		}
-		if !slices.Contains(gamedesign.SelectableFactions, factionContent.Faction) {
-			return fmt.Errorf("%w: %s", ErrInvalidFaction, factionContent.Faction)
-		}
-		ownedFactions, err := s.factionPurchaseRepo.ListOwnedFactions(ctx, playerID)
-		if err != nil {
-			return fmt.Errorf("check owned factions: %w", err)
-		}
-		if slices.Contains(ownedFactions, factionContent.Faction) {
-			return ErrAlreadyOwned
-		}
-	case domain.ProductTypeCosmetic:
-		if err := json.Unmarshal(product.Content, &cosmeticContent); err != nil {
-			return fmt.Errorf("parse cosmetic content: %w", err)
-		}
-		owned, err := s.itemPurchaseRepo.HasPlayerItem(ctx, playerID, cosmeticContent.ItemType, cosmeticContent.ItemNo)
-		if err != nil {
-			return fmt.Errorf("check owned item: %w", err)
-		}
-		if owned {
-			return ErrAlreadyOwned
-		}
+	switch p := pv.(type) {
+	case domain.FactionSetProduct:
+		return s.purchaseFactionSet(ctx, playerID, p, pf, purchaseToken, verifier)
+	case domain.CosmeticProduct:
+		return s.purchaseCosmetic(ctx, playerID, p, pf, purchaseToken, verifier)
 	default:
-		return fmt.Errorf("%w: %s", ErrUnsupportedProductType, product.Type)
+		return fmt.Errorf("%w: %s", ErrUnsupportedProductType, pv.Common().Type)
+	}
+}
+
+func (s *Service) purchaseFactionSet(ctx context.Context, playerID string, product domain.FactionSetProduct, pf, purchaseToken string, verifier port.ReceiptVerifier) error {
+	// product_faction_grants の DB CHECK が selectable faction のみを許容するため、ここでの値域検査は不要。
+	ownedFactions, err := s.factionPurchaseRepo.ListOwnedFactions(ctx, playerID)
+	if err != nil {
+		return fmt.Errorf("check owned factions: %w", err)
+	}
+	if slices.Contains(ownedFactions, product.Faction) {
+		return ErrAlreadyOwned
 	}
 
+	if err := verifyPurchase(ctx, verifier, purchaseToken); err != nil {
+		return err
+	}
+
+	purchase := &domain.OneTimePurchase{
+		PlayerID:    playerID,
+		ProductID:   product.Product.ProductID,
+		PurchasedAt: time.Now(),
+	}
+	ev, err := buildFactionPurchasedEvent(playerID, product.Faction)
+	if err != nil {
+		return fmt.Errorf("build faction-purchased: %w", err)
+	}
+	if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, product.Faction, pf, purchaseToken, ev); err != nil {
+		return fmt.Errorf("create faction purchase: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) purchaseCosmetic(ctx context.Context, playerID string, product domain.CosmeticProduct, pf, purchaseToken string, verifier port.ReceiptVerifier) error {
+	owned, err := s.itemPurchaseRepo.HasPlayerItem(ctx, playerID, product.ItemType, product.ItemNo)
+	if err != nil {
+		return fmt.Errorf("check owned item: %w", err)
+	}
+	if owned {
+		return ErrAlreadyOwned
+	}
+
+	if err := verifyPurchase(ctx, verifier, purchaseToken); err != nil {
+		return err
+	}
+
+	purchase := &domain.OneTimePurchase{
+		PlayerID:    playerID,
+		ProductID:   product.Product.ProductID,
+		PurchasedAt: time.Now(),
+	}
+	item := &domain.PlayerItem{
+		PlayerID:   playerID,
+		ItemType:   product.ItemType,
+		ItemNo:     product.ItemNo,
+		AcquiredAt: time.Now(),
+	}
+	if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, pf, purchaseToken); err != nil {
+		return fmt.Errorf("create item purchase: %w", err)
+	}
+	return nil
+}
+
+func verifyPurchase(ctx context.Context, verifier port.ReceiptVerifier, purchaseToken string) error {
 	result, err := verifier.VerifyPurchase(ctx, purchaseToken)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrVerifyReceipt, err)
@@ -167,34 +193,6 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 	if !result.IsValid {
 		return ErrReceiptVerificationFailed
 	}
-
-	purchase := &domain.OneTimePurchase{
-		PlayerID:    playerID,
-		ProductID:   productID,
-		PurchasedAt: time.Now(),
-	}
-
-	switch product.Type {
-	case domain.ProductTypeFactionSet:
-		ev, err := buildFactionPurchasedEvent(playerID, factionContent.Faction)
-		if err != nil {
-			return fmt.Errorf("build faction-purchased: %w", err)
-		}
-		if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, factionContent.Faction, pf, purchaseToken, ev); err != nil {
-			return fmt.Errorf("create faction purchase: %w", err)
-		}
-	case domain.ProductTypeCosmetic:
-		item := &domain.PlayerItem{
-			PlayerID:   playerID,
-			ItemType:   cosmeticContent.ItemType,
-			ItemNo:     cosmeticContent.ItemNo,
-			AcquiredAt: time.Now(),
-		}
-		if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, pf, purchaseToken); err != nil {
-			return fmt.Errorf("create item purchase: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -214,11 +212,11 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, pf, purcha
 		return &existing.CurrentPeriodEnd, nil
 	}
 
-	product, err := s.productRepo.GetProductByID(ctx, productID)
+	pv, err := s.productRepo.GetProductByID(ctx, productID)
 	if err != nil {
 		return nil, fmt.Errorf("get product: %w", err)
 	}
-	if product.Type != domain.ProductTypeSubscription {
+	if _, ok := pv.(domain.SubscriptionProduct); !ok {
 		return nil, ErrProductNotSubscription
 	}
 	info, err := verifier.VerifySubscription(ctx, purchaseToken)

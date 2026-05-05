@@ -6,10 +6,11 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 )
 
-// ProductRepo は shop.products の読み取り専用 repo。
+// ProductRepo は shop.products および付帯副表 (product_faction_grants / product_cosmetics) の読み取り専用 repo。
+// 戻り値は type 別 per-type 型を束ねる ProductView interface。
 type ProductRepo interface {
-	GetActiveProducts(ctx context.Context) ([]*domain.Product, error)
-	GetProductByID(ctx context.Context, productID string) (*domain.Product, error)
+	GetActiveProducts(ctx context.Context) ([]domain.ProductView, error)
+	GetProductByID(ctx context.Context, productID string) (domain.ProductView, error)
 }
 
 // FactionPurchaseRepo は faction_set 購入 aggregate を扱う。
