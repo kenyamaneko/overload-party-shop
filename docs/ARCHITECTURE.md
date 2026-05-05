@@ -16,6 +16,8 @@
 
 `packages/api-shop` は別 Go module で `internal/domain` を import できないため依存方向は物理強制される。inter-service event (`FactionPurchasedEvent` / `PremiumUpdatedEvent`) のみ両レイヤに同形状で生成する (producer は domain、外部 subscriber は wire)。重複は [data/models.yaml](../data/models.yaml) からの codegen に閉じ込めている。
 
+domain ↔ wire の境界変換は [internal/presenter/](../internal/presenter/) に集約する。
+
 ## Shop の責務境界 (SSoT と read model)
 
 Shop は **IAP 取引そのもの** の single source of truth だが、**プレイヤーの所有状態** の authoritative owner ではない。

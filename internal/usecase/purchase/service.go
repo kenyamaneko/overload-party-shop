@@ -14,6 +14,7 @@ import (
 	gamedesign "github.com/kenyamaneko/overload-party-common/packages/game-design-constants"
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	"github.com/kenyamaneko/overload-party-shop/internal/presenter"
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
@@ -269,13 +270,7 @@ func buildFactionPurchasedEvent(playerID, faction string) (port.OutboxEvent, err
 		return port.OutboxEvent{}, errors.New("purchase: faction is empty")
 	}
 	eventID := uuid.New()
-	ev := domain.FactionPurchasedEvent{
-		EventType: domain.EventTypeFactionPurchased,
-		EventID:   eventID.String(),
-		Timestamp: time.Now().UTC(),
-		PlayerID:  playerID,
-		Faction:   faction,
-	}
+	ev := presenter.ToFactionPurchasedEvent(eventID.String(), playerID, faction, time.Now().UTC())
 	payload, err := json.Marshal(ev)
 	if err != nil {
 		return port.OutboxEvent{}, fmt.Errorf("marshal faction-purchased: %w", err)
@@ -292,15 +287,7 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
 	}
 	eventID := uuid.New()
-	ev := domain.PremiumUpdatedEvent{
-		EventType:        domain.EventTypePremiumUpdated,
-		EventID:          eventID.String(),
-		Timestamp:        time.Now().UTC(),
-		PlayerID:         playerID,
-		IsPremium:        isPremium,
-		PremiumExpiresAt: expiresAt,
-		Source:           domain.PremiumUpdatedSourceShop,
-	}
+	ev := presenter.ToPremiumUpdatedEvent(eventID.String(), playerID, isPremium, expiresAt, time.Now().UTC())
 	payload, err := json.Marshal(ev)
 	if err != nil {
 		return port.OutboxEvent{}, fmt.Errorf("marshal premium-updated: %w", err)
