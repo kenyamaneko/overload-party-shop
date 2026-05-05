@@ -17,11 +17,20 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
-func newFactionEvent() port.OutboxEvent {
-	return port.OutboxEvent{
-		EventID:   uuid.New(),
-		EventType: domain.EventTypeFactionPurchased,
-		Payload:   []byte(`{}`),
+// newFactionPurchaseEvents は faction_set 購入時に shop が enqueue する
+// outbox events 2 行 (card-pack-purchased + faction-acquired) を作る。
+func newFactionPurchaseEvents() []port.OutboxEvent {
+	return []port.OutboxEvent{
+		{
+			EventID:   uuid.New(),
+			EventType: domain.EventTypeCardPackPurchased,
+			Payload:   []byte(`{}`),
+		},
+		{
+			EventID:   uuid.New(),
+			EventType: domain.EventTypeFactionAcquired,
+			Payload:   []byte(`{}`),
+		},
 	}
 }
 
@@ -43,7 +52,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 	}
 
 	type seed struct {
-		playerID, faction, platform, token string
+		playerID, faction, cardPackID, platform, token string
 	}
 
 	tests := []struct {
@@ -51,6 +60,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		seeds              []seed
 		playerID           string
 		faction            string
+		cardPackID         string
 		platform           string
 		token              string
 		wantErr            bool
@@ -58,79 +68,91 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		wantCreated        bool
 		expectPurchaseRows int
 		expectOwnedRows    int
+		expectCardPackRows int
 	}{
 		{
-			name:               "新規トークン: purchase + token + owned_faction作成",
+			name:               "新規トークン: purchase + token + owned_faction + owned_card_pack 作成",
 			playerID:           user1,
 			faction:            "Tenki",
+			cardPackID:         "faction_set_tenki",
 			platform:           domain.PlatformIOS,
 			token:              "apple-new",
 			wantCreated:        true,
 			expectPurchaseRows: 1,
 			expectOwnedRows:    1,
+			expectCardPackRows: 1,
 		},
 		{
-			name: "同一ユーザー既存トークンはべき等 (created=false, owned_factionも追加されない)",
+			name: "同一ユーザー既存トークンはべき等 (created=false、owned 系も追加されない)",
 			seeds: []seed{
-				{user1, "Tenki", domain.PlatformIOS, "dup-token"},
+				{user1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "dup-token"},
 			},
 			playerID:           user1,
 			faction:            "Tenki",
+			cardPackID:         "faction_set_tenki",
 			platform:           domain.PlatformIOS,
 			token:              "dup-token",
 			wantCreated:        false,
 			expectPurchaseRows: 1,
 			expectOwnedRows:    1,
+			expectCardPackRows: 1,
 		},
 		{
 			name: "別ユーザー既存トークンもべき等 (first purchaseに紐付いたまま)",
 			seeds: []seed{
-				{user1, "Tenki", domain.PlatformIOS, "shared-token"},
+				{user1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "shared-token"},
 			},
 			playerID:           user2,
 			faction:            "Tenki",
+			cardPackID:         "faction_set_tenki",
 			platform:           domain.PlatformIOS,
 			token:              "shared-token",
 			wantCreated:        false,
 			expectPurchaseRows: 1,
 			expectOwnedRows:    1,
+			expectCardPackRows: 1,
 		},
 		{
 			name: "異なるユーザーに同じfaction新規トークンで追加可",
 			seeds: []seed{
-				{user1, "Tenki", domain.PlatformIOS, "tok-u1"},
+				{user1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "tok-u1"},
 			},
 			playerID:           user2,
 			faction:            "Tenki",
+			cardPackID:         "faction_set_tenki",
 			platform:           domain.PlatformIOS,
 			token:              "tok-u2",
 			wantCreated:        true,
 			expectPurchaseRows: 2,
 			expectOwnedRows:    2,
+			expectCardPackRows: 2,
 		},
 		{
-			name:      "unsupported platformはErrUnsupportedPlatform",
-			playerID:  user1,
-			faction:   "Tenki",
-			platform:  "windows",
-			token:     "tok",
-			wantErrIs: port.ErrUnsupportedPlatform,
+			name:       "unsupported platformはErrUnsupportedPlatform",
+			playerID:   user1,
+			faction:    "Tenki",
+			cardPackID: "faction_set_tenki",
+			platform:   "windows",
+			token:      "tok",
+			wantErrIs:  port.ErrUnsupportedPlatform,
 		},
 		{
-			name:     "player_IDが空文字(UUID不正)はエラー",
-			playerID: "",
-			faction:  "Tenki",
-			platform: domain.PlatformIOS,
-			token:    "tok",
-			wantErr:  true,
+			name:       "player_IDが空文字(UUID不正)はエラー",
+			playerID:   "",
+			faction:    "Tenki",
+			cardPackID: "faction_set_tenki",
+			platform:   domain.PlatformIOS,
+			token:      "tok",
+			wantErr:    true,
 		},
 		{
-			name:     "不正なfaction文字列はCHECK制約でエラー",
-			playerID: user1,
-			faction:  "InvalidFaction",
-			platform: domain.PlatformIOS,
-			token:    "tok",
-			wantErr:  true,
+			name:       "不正なfaction文字列はCHECK制約でエラー",
+			playerID:   user1,
+			faction:    "InvalidFaction",
+			cardPackID: "faction_set_tenki",
+			platform:   domain.PlatformIOS,
+			token:      "tok",
+			wantErr:    true,
 		},
 	}
 
@@ -138,11 +160,11 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			sharedPg.Truncate(t)
 			for _, s := range tt.seeds {
-				_, err := repo.CreatePurchase(ctx, newPurchase(s.playerID), s.faction, s.platform, s.token, newFactionEvent())
+				_, err := repo.CreatePurchase(ctx, newPurchase(s.playerID), s.faction, s.cardPackID, s.platform, s.token, newFactionPurchaseEvents())
 				require.NoError(t, err)
 			}
 
-			created, err := repo.CreatePurchase(ctx, newPurchase(tt.playerID), tt.faction, tt.platform, tt.token, newFactionEvent())
+			created, err := repo.CreatePurchase(ctx, newPurchase(tt.playerID), tt.faction, tt.cardPackID, tt.platform, tt.token, newFactionPurchaseEvents())
 
 			if tt.wantErrIs != nil {
 				assert.ErrorIs(t, err, tt.wantErrIs)
@@ -155,13 +177,16 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCreated, created)
 
-			var purchases, owned int
+			var purchases, owned, cardPacks int
 			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
 				`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
 			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
 				`SELECT COUNT(*) FROM shop.player_owned_factions`).Scan(&owned)) //nolint
+			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+				`SELECT COUNT(*) FROM shop.player_owned_card_packs`).Scan(&cardPacks))
 			assert.Equal(t, tt.expectPurchaseRows, purchases)
 			assert.Equal(t, tt.expectOwnedRows, owned)
+			assert.Equal(t, tt.expectCardPackRows, cardPacks)
 		})
 	}
 }
@@ -179,7 +204,7 @@ func TestFactionPurchaseRepository_CreatePurchase_AtomicRollback_OwnedFaction(t 
 		ProductID:   "faction_tenki",
 		PurchasedAt: time.Now().UTC(),
 	}
-	created, err := repo.CreatePurchase(ctx, purchase, "Tenki", domain.PlatformIOS, "new-token", newFactionEvent())
+	created, err := repo.CreatePurchase(ctx, purchase, "Tenki", "faction_set_tenki", domain.PlatformIOS, "new-token", newFactionPurchaseEvents())
 	require.Error(t, err, "player_owned_factions PK違反で失敗するはず")
 	require.Contains(t, err.Error(), "insert owned faction",
 		"owned_faction INSERTで落ちている (purchase/token INSERT後の失敗)")
@@ -211,7 +236,7 @@ func TestFactionPurchaseRepository_CreatePurchase_AtomicRollback_Token(t *testin
 		ProductID:   "faction_sugar",
 		PurchasedAt: time.Now().UTC(),
 	}
-	created, err := repo.CreatePurchase(ctx, purchase, "Sugar", domain.PlatformIOS, tooLongToken, newFactionEvent())
+	created, err := repo.CreatePurchase(ctx, purchase, "Sugar", "faction_set_sugar", domain.PlatformIOS, tooLongToken, newFactionPurchaseEvents())
 	require.Error(t, err, "VARCHAR(256)超えでtoken INSERTが失敗するはず")
 	require.Contains(t, err.Error(), "insert purchase token",
 		"token INSERTで落ちている (purchase INSERT後の失敗)")

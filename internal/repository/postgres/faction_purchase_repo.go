@@ -12,7 +12,8 @@ import (
 
 var _ port.FactionPurchaseRepo = (*FactionPurchaseRepository)(nil)
 
-// FactionPurchaseRepository は faction_set 購入 aggregate (purchase + token + owned_faction + outbox) を扱う。
+// FactionPurchaseRepository は faction_set 購入 aggregate を扱う。
+// purchase + token + player_owned_factions + player_owned_card_packs + outbox events (2 行) を単一 tx で書く。
 type FactionPurchaseRepository struct {
 	pool *pgxpool.Pool
 }
@@ -21,7 +22,7 @@ func NewFactionPurchaseRepository(pool *pgxpool.Pool) *FactionPurchaseRepository
 	return &FactionPurchaseRepository{pool: pool}
 }
 
-func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, faction, platform, purchaseToken string, eventOnCreate port.OutboxEvent) (created bool, err error) {
+func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, faction, cardPackID, platform, purchaseToken string, eventsOnCreate []port.OutboxEvent) (created bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin tx: %w", err)
@@ -44,8 +45,18 @@ func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase
 		return false, fmt.Errorf("insert owned faction: %w", err)
 	}
 
-	if err := writeOutboxEvent(ctx, tx, eventOnCreate); err != nil {
-		return false, err
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id)
+		 VALUES ($1, $2)`,
+		purchase.PlayerID, cardPackID,
+	); err != nil {
+		return false, fmt.Errorf("insert owned card pack: %w", err)
+	}
+
+	for _, ev := range eventsOnCreate {
+		if err := writeOutboxEvent(ctx, tx, ev); err != nil {
+			return false, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

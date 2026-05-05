@@ -24,10 +24,17 @@ files:
           - {name: IsActive, type: bool}
 
       - name: FactionSetProduct
-        comment: "FactionSetProduct は ProductTypeFactionSet の per-type ビュー。Product 共通属性 + faction 配布対象を保持する。"
+        comment: "FactionSetProduct は ProductTypeFactionSet の per-type ビュー。Product 共通属性 + 配布する card_pack 参照 + 付与する faction を保持する。"
         fields:
           - {name: Product, type: Product}
+          - {name: CardPackID, type: string}
           - {name: Faction, type: string}
+
+      - name: CardPackProduct
+        comment: "CardPackProduct は ProductTypeCardPack の per-type ビュー。Product 共通属性 + 配布する card_pack 参照を保持する。"
+        fields:
+          - {name: Product, type: Product}
+          - {name: CardPackID, type: string}
 
       - name: CosmeticProduct
         comment: "CosmeticProduct は ProductTypeCosmetic の per-type ビュー。Product 共通属性 + cosmetic_items への参照を保持する。"
@@ -83,6 +90,7 @@ files:
       - type: string
         values:
           - {name: ProductTypeFactionSet, value: "faction_set"}
+          - {name: ProductTypeCardPack, value: "card_pack"}
           - {name: ProductTypeCosmetic, value: "cosmetic"}
           - {name: ProductTypeSubscription, value: "subscription"}
           - {name: PlatformIOS, value: "ios"}
@@ -100,18 +108,39 @@ files:
   # ─── Inter-service events (need both domain and wire copies) ──────────
   # Service が生成するときは domain 版を使う。gateway 等の外部 subscriber は
   # packages/api-shop の wire 版を import する。両者は同じ JSON 形状で生成。
-  - name: shop_event_faction_purchased
+  - name: shop_event_card_pack_purchased
     targets: [domain, wire]
     constants:
       - type: string
         values:
-          - {name: TopicFactionPurchased, value: "faction-purchased"}
-          - {name: EventTypeFactionPurchased, value: "faction_purchased"}
+          - {name: TopicCardPackPurchased, value: "card-pack-purchased"}
+          - {name: EventTypeCardPackPurchased, value: "card_pack_purchased"}
     types:
-      - name: FactionPurchasedEvent
+      - name: CardPackPurchasedEvent
         comment: |
-          FactionPurchasedEvent はプレイヤーが faction を購入した際に shop が発行するイベント。
-          subscriber: account (player_factions に INSERT) / card (faction 固有カード付与) / gateway (WS 通知)。
+          CardPackPurchasedEvent はプレイヤーが card_pack を含む商品 (faction_set / card_pack 等) を購入した際に shop が発行するイベント。
+          subscriber: card (GrantPack(card_pack_id) でカード配布) / gateway (WS 副次通知)。
+          subscriber は EventID で冪等性を担保する (at-least-once)。
+        fields:
+          - {name: EventType, type: string, json: "event_type"}
+          - {name: EventID, type: string, json: "event_id"}
+          - {name: Timestamp, type: time.Time, json: "timestamp"}
+          - {name: PlayerID, type: string, json: "player_id"}
+          - {name: CardPackID, type: string, json: "card_pack_id"}
+
+  - name: shop_event_faction_acquired
+    targets: [domain, wire]
+    constants:
+      - type: string
+        values:
+          - {name: TopicFactionAcquired, value: "faction-acquired"}
+          - {name: EventTypeFactionAcquired, value: "faction_acquired"}
+    types:
+      - name: FactionAcquiredEvent
+        comment: |
+          FactionAcquiredEvent はプレイヤーが faction を獲得した業務事実を表す shop 発行イベント。
+          subscriber: account (player_factions に INSERT、authoritative 所有権) / gateway (WS 一次通知)。
+          card は購読しない (card の関心は CardPackPurchasedEvent 経由の pack 配布のみ)。
           subscriber は EventID で冪等性を担保する (at-least-once)。
         fields:
           - {name: EventType, type: string, json: "event_type"}

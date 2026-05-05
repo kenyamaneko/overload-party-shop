@@ -14,7 +14,7 @@
 | wire | [packages/api-shop/](../packages/api-shop/) | REST request/response、webhook payload、Pub/Sub event の wire 契約 |
 | persistence | repository 実装内部 | DB 行マッピング (専用の row 型は持たず pgx の positional `Scan` で domain 型へ直接読み書き) |
 
-`packages/api-shop` は別 Go module で `internal/domain` を import できないため依存方向は物理強制される。inter-service event (`FactionPurchasedEvent` / `PremiumUpdatedEvent`) のみ両レイヤに同形状で生成する (producer は domain、外部 subscriber は wire)。重複は [data/models.yaml](../data/models.yaml) からの codegen に閉じ込めている。
+`packages/api-shop` は別 Go module で `internal/domain` を import できないため依存方向は物理強制される。inter-service event (`CardPackPurchasedEvent` / `FactionAcquiredEvent` / `PremiumUpdatedEvent`) のみ両レイヤに同形状で生成する (producer は domain、外部 subscriber は wire)。重複は [data/models.yaml](../data/models.yaml) からの codegen に閉じ込めている。
 
 domain ↔ wire の境界変換は [internal/presenter/](../internal/presenter/) に集約する。
 
@@ -29,9 +29,14 @@ Shop は **IAP 取引そのもの** の single source of truth だが、**プレ
 | ファクション所有権 | `account.player_factions` (account) | `shop.player_owned_factions` は shop ローカルの read model |
 | コスメティクス所有権 | `shop.player_items` (shop) | ドメインとして shop 配下 |
 
-`shop.player_owned_factions` は **cross-schema 読み込みを禁じた制約下で GetProducts の IsOwned を判定するための shop ローカル射影**。authoritative なのは account 側で、イベント駆動で最終的整合する。faction 購入時の書き込みは両サービスで独立に起きる (shop は自 read model を書き、account は faction-purchased イベントで書く)。
+`shop.player_owned_factions` / `shop.player_owned_card_packs` は **cross-schema 読み込みを禁じた制約下で GetProducts の IsOwned 判定および再購入禁止チェックのための shop ローカル射影**。authoritative なのは account 側 (faction) / card 側 (card_pack の中身) で、イベント駆動で最終的整合する。faction 購入時の書き込みは両サービスで独立に起きる (shop は自 read model を書き、account は faction-acquired イベントで書く、card は card-pack-purchased イベントで配布する)。
 
-subscriber (account / card / gateway) は `faction-purchased` / `premium-updated` イベントを消費して各自の read model を構築する。shop は他サービスを直接呼ばない。
+subscriber は業務事実ごとに分離された ([ADR-031](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/031-shop-products-normalization-and-faction-purchased-decomposition.md)):
+- `card-pack-purchased`: card (`GrantPack(card_pack_id)` で配布) / gateway (副次通知)
+- `faction-acquired`: account (`player_factions` INSERT、authoritative) / gateway (一次通知)
+- `premium-updated`: account / gateway
+
+shop は他サービスを直接呼ばない。
 
 ## イベント配信モデル (Transactional Outbox)
 
@@ -140,7 +145,8 @@ webhook の deterministic error (decode 失敗 / unknown subscription 等) は *
 
 | トピック | 発行契機 | subscriber |
 |---|---|---|
-| `faction-purchased` | `faction_set` 購入の DB commit 後 (worker が outbox 消費) | account, card, gateway |
+| `card-pack-purchased` | `faction_set` / `card_pack` 商品購入の DB commit 後 (worker が outbox 消費) | card, gateway |
+| `faction-acquired` | `faction_set` 商品購入の DB commit 後 (worker が outbox 消費) | account, gateway |
 | `premium-updated` | サブスクリプション状態変化時 (解約時は除く、上述の契約) | account, gateway |
 
 subscriber 列はこのリポジトリからは導けないので、変更時は各サービスの購読状況も確認すること。

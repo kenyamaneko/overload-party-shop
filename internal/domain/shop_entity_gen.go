@@ -17,10 +17,17 @@ type Product struct {
 	IsActive    bool
 }
 
-// FactionSetProduct は ProductTypeFactionSet の per-type ビュー。Product 共通属性 + faction 配布対象を保持する。
+// FactionSetProduct は ProductTypeFactionSet の per-type ビュー。Product 共通属性 + 配布する card_pack 参照 + 付与する faction を保持する。
 type FactionSetProduct struct {
-	Product Product
-	Faction string
+	Product    Product
+	CardPackID string
+	Faction    string
+}
+
+// CardPackProduct は ProductTypeCardPack の per-type ビュー。Product 共通属性 + 配布する card_pack 参照を保持する。
+type CardPackProduct struct {
+	Product    Product
+	CardPackID string
 }
 
 // CosmeticProduct は ProductTypeCosmetic の per-type ビュー。Product 共通属性 + cosmetic_items への参照を保持する。

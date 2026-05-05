@@ -24,15 +24,17 @@ func NewProductRepository(pool *pgxpool.Pool) *ProductRepository {
 
 const productSelectColumns = `
 		p.product_id, p.name, p.type, p.price, p.description, p.image_url, p.is_active,
+		cp.card_pack_id,
 		f.faction,
 		c.item_type, c.item_no,
 		s.period_months`
 
 const productJoinClause = `
 		FROM shop.products p
-		LEFT JOIN shop.product_faction      f ON f.product_id = p.product_id
-		LEFT JOIN shop.product_cosmetic     c ON c.product_id = p.product_id
-		LEFT JOIN shop.product_subscription s ON s.product_id = p.product_id`
+		LEFT JOIN shop.product_card_pack    cp ON cp.product_id = p.product_id
+		LEFT JOIN shop.product_faction      f  ON f.product_id  = p.product_id
+		LEFT JOIN shop.product_cosmetic     c  ON c.product_id  = p.product_id
+		LEFT JOIN shop.product_subscription s  ON s.product_id  = p.product_id`
 
 // GetActiveProducts は販売中商品を type 別 ProductView に詰めて返す。
 // 副表 LEFT JOIN で得た optional 列はそのまま domain.NewProductView に渡し、
@@ -81,17 +83,18 @@ func (r *ProductRepository) GetProductByID(ctx context.Context, productID string
 // 型 dispatch / 不変条件検査は持たず、純粋に DB 行 → primitive の取り出しのみを行う。
 func scanProductRow(row pgx.Row) (domain.ProductView, error) {
 	var common domain.Product
-	var faction, itemType *string
+	var cardPackID, faction, itemType *string
 	var itemNo, periodMonths *int64
 
 	if err := row.Scan(
 		&common.ProductID, &common.Name, &common.Type, &common.Price,
 		&common.Description, &common.ImageURL, &common.IsActive,
+		&cardPackID,
 		&faction,
 		&itemType, &itemNo,
 		&periodMonths,
 	); err != nil {
 		return nil, err
 	}
-	return domain.NewProductView(common, faction, itemType, itemNo, periodMonths)
+	return domain.NewProductView(common, cardPackID, faction, itemType, itemNo, periodMonths)
 }

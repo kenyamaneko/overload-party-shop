@@ -17,6 +17,7 @@ func TestNewProductView_Success(t *testing.T) {
 	tests := []struct {
 		name         string
 		common       domain.Product
+		cardPackID   *string
 		faction      *string
 		itemType     *string
 		itemNo       *int64
@@ -24,12 +25,23 @@ func TestNewProductView_Success(t *testing.T) {
 		want         domain.ProductView
 	}{
 		{
-			name:    "faction_set は FactionSetProduct を返す",
-			common:  domain.Product{ProductID: "faction_she", Type: domain.ProductTypeFactionSet},
-			faction: ptrString("SHE"),
+			name:       "faction_set は CardPackID と Faction を持つ FactionSetProduct を返す",
+			common:     domain.Product{ProductID: "faction_she", Type: domain.ProductTypeFactionSet},
+			cardPackID: ptrString("faction_set_she"),
+			faction:    ptrString("SHE"),
 			want: domain.FactionSetProduct{
-				Product: domain.Product{ProductID: "faction_she", Type: domain.ProductTypeFactionSet},
-				Faction: "SHE",
+				Product:    domain.Product{ProductID: "faction_she", Type: domain.ProductTypeFactionSet},
+				CardPackID: "faction_set_she",
+				Faction:    "SHE",
+			},
+		},
+		{
+			name:       "card_pack は CardPackID を持つ CardPackProduct を返す",
+			common:     domain.Product{ProductID: "limited_2026_summer", Type: domain.ProductTypeCardPack},
+			cardPackID: ptrString("limited_2026_summer"),
+			want: domain.CardPackProduct{
+				Product:    domain.Product{ProductID: "limited_2026_summer", Type: domain.ProductTypeCardPack},
+				CardPackID: "limited_2026_summer",
 			},
 		},
 		{
@@ -56,7 +68,7 @@ func TestNewProductView_Success(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := domain.NewProductView(tt.common, tt.faction, tt.itemType, tt.itemNo, tt.periodMonths)
+			got, err := domain.NewProductView(tt.common, tt.cardPackID, tt.faction, tt.itemType, tt.itemNo, tt.periodMonths)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -68,6 +80,7 @@ func TestNewProductView_Error(t *testing.T) {
 	tests := []struct {
 		name         string
 		common       domain.Product
+		cardPackID   *string
 		faction      *string
 		itemType     *string
 		itemNo       *int64
@@ -75,9 +88,21 @@ func TestNewProductView_Error(t *testing.T) {
 		errSubstr    string
 	}{
 		{
-			name:      "faction_set だが faction が nil",
+			name:      "faction_set だが card_pack_id が nil",
 			common:    domain.Product{ProductID: "faction_she", Type: domain.ProductTypeFactionSet},
-			errSubstr: "faction missing",
+			faction:   ptrString("SHE"),
+			errSubstr: "card_pack_id missing",
+		},
+		{
+			name:       "faction_set だが faction が nil",
+			common:     domain.Product{ProductID: "faction_she", Type: domain.ProductTypeFactionSet},
+			cardPackID: ptrString("faction_set_she"),
+			errSubstr:  "faction missing",
+		},
+		{
+			name:      "card_pack だが card_pack_id が nil",
+			common:    domain.Product{ProductID: "limited_2026_summer", Type: domain.ProductTypeCardPack},
+			errSubstr: "card_pack_id missing",
 		},
 		{
 			name:      "cosmetic だが item_type が nil",
@@ -105,7 +130,7 @@ func TestNewProductView_Error(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := domain.NewProductView(tt.common, tt.faction, tt.itemType, tt.itemNo, tt.periodMonths)
+			got, err := domain.NewProductView(tt.common, tt.cardPackID, tt.faction, tt.itemType, tt.itemNo, tt.periodMonths)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errSubstr)
 			assert.Nil(t, got)
@@ -123,7 +148,11 @@ func TestPerTypeConstructors_ImplementProductView(t *testing.T) {
 	}{
 		{
 			name: "FactionSetProduct",
-			view: domain.NewFactionSetProduct(common, "SHE"),
+			view: domain.NewFactionSetProduct(common, "faction_set_she", "SHE"),
+		},
+		{
+			name: "CardPackProduct",
+			view: domain.NewCardPackProduct(common, "limited_2026_summer"),
 		},
 		{
 			name: "CosmeticProduct",

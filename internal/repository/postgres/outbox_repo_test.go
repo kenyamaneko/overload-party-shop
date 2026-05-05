@@ -33,25 +33,21 @@ func normalizeJSON(t *testing.T, raws []string) []string {
 	return out
 }
 
-// validFactions は player_owned_factions CHECK 制約で許される値。
-// 1 ケースあたり最大 4 seed まで (CHECK 制約の都合)。
-var validFactions = []string{"Tenki", "SHE", "Sugar", "Tuners"}
-
-// insertOutboxRow はユニークな player_id / token / faction で outbox 行を 1 本挿入する。
-// 書き込み API は package 外に公開していないので faction_purchase 経由で作る。
+// insertOutboxRow はユニークな player_id / token / card_pack_id で outbox 行を **1 本** 挿入する。
+// 書き込み API は package 外に公開していないので card_pack_purchase 経由で作る (本 repo は 1 outbox 行のみ書く)。
+// faction_purchase は 2 outbox 行を書くので seed 件数の意味付けが変わるため使わない。
 // seed 追加の変種 (published 済み / in-flight 等) は apply 関数で後続の mutation を合成する。
 func insertOutboxRow(t *testing.T, testIdx, seedIdx int, payload []byte) uuid.UUID {
 	t.Helper()
-	require.Less(t, seedIdx, len(validFactions), "1 ケースあたりの seed 数は faction CHECK 制約で 4 まで")
 	id := uuid.New()
 	playerID := fmt.Sprintf("%08d-%04d-%04d-0000-000000000000", testIdx+1, seedIdx, seedIdx)
-	faction := validFactions[seedIdx]
+	cardPackID := fmt.Sprintf("pack-%d-%d", testIdx, seedIdx)
 	token := fmt.Sprintf("tok-%d-%d", testIdx, seedIdx)
 
-	factionRepo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
-	purchase := &domain.OneTimePurchase{PlayerID: playerID, ProductID: "faction_" + faction, PurchasedAt: time.Now().UTC()}
-	_, err := factionRepo.CreatePurchase(context.Background(), purchase, faction, domain.PlatformIOS, token,
-		port.OutboxEvent{EventID: id, EventType: domain.EventTypeFactionPurchased, Payload: payload})
+	cardPackRepo := postgres.NewCardPackPurchaseRepository(sharedPg.Pool)
+	purchase := &domain.OneTimePurchase{PlayerID: playerID, ProductID: cardPackID, PurchasedAt: time.Now().UTC()}
+	ev := port.OutboxEvent{EventID: id, EventType: domain.EventTypeCardPackPurchased, Payload: payload}
+	_, err := cardPackRepo.CreatePurchase(context.Background(), purchase, cardPackID, domain.PlatformIOS, token, ev)
 	require.NoError(t, err)
 	return id
 }

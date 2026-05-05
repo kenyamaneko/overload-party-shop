@@ -13,37 +13,49 @@ import (
 // New の入力検証は gpubsub.NewClient 呼び出し前に return する。
 func TestNew_Validation(t *testing.T) {
 	tests := []struct {
-		name                  string
-		projectID             string
-		factionPurchasedTopic string
-		premiumUpdatedTopic   string
-		wantSubs              string
+		name                   string
+		projectID              string
+		cardPackPurchasedTopic string
+		factionAcquiredTopic   string
+		premiumUpdatedTopic    string
+		wantSubs               string
 	}{
 		{
-			name:                  "projectID が空",
-			projectID:             "",
-			factionPurchasedTopic: domain.TopicFactionPurchased,
-			premiumUpdatedTopic:   domain.TopicPremiumUpdated,
-			wantSubs:              "projectID is empty",
+			name:                   "projectID が空",
+			projectID:              "",
+			cardPackPurchasedTopic: domain.TopicCardPackPurchased,
+			factionAcquiredTopic:   domain.TopicFactionAcquired,
+			premiumUpdatedTopic:    domain.TopicPremiumUpdated,
+			wantSubs:               "projectID is empty",
 		},
 		{
-			name:                  "faction-purchased topic 名が空",
-			projectID:             "test-project",
-			factionPurchasedTopic: "",
-			premiumUpdatedTopic:   domain.TopicPremiumUpdated,
-			wantSubs:              "both topic names are required",
+			name:                   "card-pack-purchased topic 名が空",
+			projectID:              "test-project",
+			cardPackPurchasedTopic: "",
+			factionAcquiredTopic:   domain.TopicFactionAcquired,
+			premiumUpdatedTopic:    domain.TopicPremiumUpdated,
+			wantSubs:               "all topic names are required",
 		},
 		{
-			name:                  "premium-updated topic 名が空",
-			projectID:             "test-project",
-			factionPurchasedTopic: domain.TopicFactionPurchased,
-			premiumUpdatedTopic:   "",
-			wantSubs:              "both topic names are required",
+			name:                   "faction-acquired topic 名が空",
+			projectID:              "test-project",
+			cardPackPurchasedTopic: domain.TopicCardPackPurchased,
+			factionAcquiredTopic:   "",
+			premiumUpdatedTopic:    domain.TopicPremiumUpdated,
+			wantSubs:               "all topic names are required",
+		},
+		{
+			name:                   "premium-updated topic 名が空",
+			projectID:              "test-project",
+			cardPackPurchasedTopic: domain.TopicCardPackPurchased,
+			factionAcquiredTopic:   domain.TopicFactionAcquired,
+			premiumUpdatedTopic:    "",
+			wantSubs:               "all topic names are required",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := New(context.Background(), tt.projectID, tt.factionPurchasedTopic, tt.premiumUpdatedTopic)
+			p, err := New(context.Background(), tt.projectID, tt.cardPackPurchasedTopic, tt.factionAcquiredTopic, tt.premiumUpdatedTopic)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantSubs)
 			assert.Nil(t, p)

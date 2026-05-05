@@ -115,7 +115,7 @@ func run() error {
 	// クライアント到達性は起動時に検証するため、repo を生成だけしておく。
 	_ = shopfirestore.NewGameConfigRepository(fsClient)
 
-	pub, err := shoppubsub.New(ctx, cfg.GoogleCloudProject, cfg.FactionPurchasedTopic, cfg.PremiumUpdatedTopic)
+	pub, err := shoppubsub.New(ctx, cfg.GoogleCloudProject, cfg.CardPackPurchasedTopic, cfg.FactionAcquiredTopic, cfg.PremiumUpdatedTopic)
 	if err != nil {
 		return fmt.Errorf("shop publisher: %w", err)
 	}
@@ -145,7 +145,8 @@ func run() error {
 	slog.Info("listening",
 		"addr", srv.Addr,
 		"google_cloud_project", cfg.GoogleCloudProject,
-		"faction_topic", cfg.FactionPurchasedTopic,
+		"card_pack_purchased_topic", cfg.CardPackPurchasedTopic,
+		"faction_acquired_topic", cfg.FactionAcquiredTopic,
 		"premium_topic", cfg.PremiumUpdatedTopic,
 	)
 
@@ -181,12 +182,13 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) http.Handler {
 	productRepo := postgres.NewProductRepository(pool)
 	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(pool)
+	cardPackPurchaseRepo := postgres.NewCardPackPurchaseRepository(pool)
 	itemPurchaseRepo := postgres.NewItemPurchaseRepository(pool)
 	purchaseLookup := postgres.NewPurchaseLookupRepository(pool)
 	subRepo := postgres.NewSubscriptionRepository(pool)
 
 	shopSvc := purchase.New(
-		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup,
+		productRepo, factionPurchaseRepo, cardPackPurchaseRepo, itemPurchaseRepo, purchaseLookup,
 		subRepo,
 		vfs.apple, vfs.google,
 	)
