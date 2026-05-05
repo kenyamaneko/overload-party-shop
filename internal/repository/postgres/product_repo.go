@@ -33,7 +33,8 @@ const productJoinClause = `
 		LEFT JOIN shop.product_cosmetics       c  ON c.product_id  = p.product_id`
 
 // GetActiveProducts は販売中商品を type 別 ProductView に詰めて返す。
-// faction_set / cosmetic は副表 LEFT JOIN で付帯属性を引く。
+// 副表 LEFT JOIN で得た optional 列はそのまま domain.NewProductView に渡し、
+// 型 dispatch / 不変条件検査は domain 層に委譲する。
 func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]domain.ProductView, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT`+productSelectColumns+productJoinClause+`
@@ -45,7 +46,7 @@ func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]domain.Pro
 
 	var products []domain.ProductView
 	for rows.Next() {
-		pv, err := scanProductView(rows)
+		pv, err := scanProductRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -64,7 +65,7 @@ func (r *ProductRepository) GetProductByID(ctx context.Context, productID string
 		 WHERE p.product_id = $1`,
 		productID)
 
-	pv, err := scanProductView(row)
+	pv, err := scanProductRow(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("product %s: %w", productID, port.ErrNotFound)
@@ -74,13 +75,11 @@ func (r *ProductRepository) GetProductByID(ctx context.Context, productID string
 	return pv, nil
 }
 
-// scanProductView は products + product_faction_grants + product_cosmetics の
-// LEFT JOIN 結果 1 行を読み、type に応じた ProductView 実装を返す。
-// type と副表行の整合は application 層の責務 (DDL は CHECK で縛らない)。
-func scanProductView(row pgx.Row) (domain.ProductView, error) {
+// scanProductRow は LEFT JOIN 結果 1 行を Scan して domain factory に委譲する。
+// 型 dispatch / 不変条件検査は持たず、純粋に DB 行 → primitive の取り出しのみを行う。
+func scanProductRow(row pgx.Row) (domain.ProductView, error) {
 	var common domain.Product
-	var faction *string
-	var itemType *string
+	var faction, itemType *string
 	var itemNo *int64
 
 	if err := row.Scan(
@@ -91,21 +90,5 @@ func scanProductView(row pgx.Row) (domain.ProductView, error) {
 	); err != nil {
 		return nil, err
 	}
-
-	switch common.Type {
-	case domain.ProductTypeFactionSet:
-		if faction == nil {
-			return nil, fmt.Errorf("product %s: type=%s but product_faction_grants missing", common.ProductID, common.Type)
-		}
-		return domain.FactionSetProduct{Product: common, Faction: *faction}, nil
-	case domain.ProductTypeCosmetic:
-		if itemType == nil || itemNo == nil {
-			return nil, fmt.Errorf("product %s: type=%s but product_cosmetics missing", common.ProductID, common.Type)
-		}
-		return domain.CosmeticProduct{Product: common, ItemType: *itemType, ItemNo: *itemNo}, nil
-	case domain.ProductTypeSubscription:
-		return domain.SubscriptionProduct{Product: common}, nil
-	default:
-		return nil, fmt.Errorf("product %s: unknown type %q", common.ProductID, common.Type)
-	}
+	return domain.NewProductView(common, faction, itemType, itemNo)
 }
