@@ -68,10 +68,18 @@ jobs:
           ENV_NAME: ${{ needs.resolve-env.outputs.env_name }}
         run: .github/scripts/deploy/set-image-tags.sh
 
+      - name: Generate Cross-Repo Deps App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.CROSS_REPO_DEPS_APP_ID }}
+          private-key: ${{ secrets.CROSS_REPO_DEPS_APP_PRIVATE_KEY }}
+          owner: kenyamaneko
+
       - name: Build image
         env:
           DOCKER_BUILDKIT: "1"
-          COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
+          GO_MODULES_TOKEN: ${{ steps.app-token.outputs.token }}
           IMAGE: ${{ steps.tags.outputs.image }}
           SHA_TAG: ${{ steps.tags.outputs.sha_tag }}
           LATEST_TAG: ${{ steps.tags.outputs.latest_tag }}

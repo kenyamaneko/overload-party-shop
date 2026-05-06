@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # build-image.sh — Docker イメージをビルドする。
-# 入力: IMAGE, SHA_TAG, LATEST_TAG, COMMON_GO_MODULES_FETCH (env)
+# 入力: IMAGE, SHA_TAG, LATEST_TAG, GO_MODULES_TOKEN (env)
 set -euo pipefail
 
 docker build \
-  --secret id=COMMON_GO_MODULES_FETCH,env=COMMON_GO_MODULES_FETCH \
+  --secret id=GO_MODULES_TOKEN,env=GO_MODULES_TOKEN \
   -t "${IMAGE}:${SHA_TAG}" \
   -t "${IMAGE}:${LATEST_TAG}" \
   .
