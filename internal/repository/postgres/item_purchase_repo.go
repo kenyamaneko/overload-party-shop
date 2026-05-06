@@ -6,15 +6,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 var _ port.ItemPurchaseRepo = (*ItemPurchaseRepository)(nil)
 
-// ItemPurchaseRepository は cosmetic 購入 aggregate を扱う。
-// 書き込みは shop.one_time_purchases + shop.{apple,google}_purchase_tokens +
-// shop.player_items の 3 テーブルを同一 tx で更新する。
+// ItemPurchaseRepository は cosmetic 購入 aggregate (purchase + token + player_item) を扱う。
 type ItemPurchaseRepository struct {
 	pool *pgxpool.Pool
 }
@@ -23,7 +21,7 @@ func NewItemPurchaseRepository(pool *pgxpool.Pool) *ItemPurchaseRepository {
 	return &ItemPurchaseRepository{pool: pool}
 }
 
-func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, item *apishop.PlayerItem, platform, purchaseToken string, eventOnCreate port.OutboxEvent) (created bool, err error) {
+func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, item *domain.PlayerItem, platform, purchaseToken string) (created bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin tx: %w", err)
@@ -35,9 +33,6 @@ func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *a
 		return false, err
 	}
 	if !created {
-		if err := tx.Commit(ctx); err != nil {
-			return false, fmt.Errorf("commit tx: %w", err)
-		}
 		return false, nil
 	}
 
@@ -47,12 +42,6 @@ func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *a
 		item.PlayerID, item.ItemType, item.ItemNo, item.AcquiredAt,
 	); err != nil {
 		return false, fmt.Errorf("insert player item: %w", err)
-	}
-
-	if eventOnCreate.Topic != "" {
-		if err := writeOutboxEvent(ctx, tx, eventOnCreate); err != nil {
-			return false, err
-		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -73,7 +62,7 @@ func (r *ItemPurchaseRepository) HasPlayerItem(ctx context.Context, playerID, it
 	return exists, nil
 }
 
-func (r *ItemPurchaseRepository) ListPlayerItems(ctx context.Context, playerID string) ([]*apishop.PlayerItem, error) {
+func (r *ItemPurchaseRepository) ListPlayerItems(ctx context.Context, playerID string) ([]*domain.PlayerItem, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT player_id, item_type, item_no, acquired_at
 		   FROM shop.player_items
@@ -85,9 +74,9 @@ func (r *ItemPurchaseRepository) ListPlayerItems(ctx context.Context, playerID s
 	}
 	defer rows.Close()
 
-	var items []*apishop.PlayerItem
+	var items []*domain.PlayerItem
 	for rows.Next() {
-		item := &apishop.PlayerItem{}
+		item := &domain.PlayerItem{}
 		if err := rows.Scan(&item.PlayerID, &item.ItemType, &item.ItemNo, &item.AcquiredAt); err != nil {
 			return nil, fmt.Errorf("scan player item: %w", err)
 		}

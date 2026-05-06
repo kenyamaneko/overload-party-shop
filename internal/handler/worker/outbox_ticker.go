@@ -1,7 +1,4 @@
 // Package worker は周期起動される delivery 層のエントリポイントを提供する。
-// HTTP handler が inbound 要求を受けて service を呼ぶのと対称に、worker は
-// ticker 起点で service の RunOnce 系メソッドを呼ぶだけの薄い層に留める。
-// orchestration / ビジネスロジックは service 層に閉じ込める。
 package worker
 
 import (
@@ -11,22 +8,18 @@ import (
 	"time"
 )
 
-// outboxRunner は OutboxTicker が依存する service の狭い契約。
-// service.OutboxPublisher.RunOnce が満たす。interface にしておくことで
-// handler/worker 側は service の内部実装を知らずに ticker 制御だけに集中できる。
+// outboxRunner は OutboxTicker が依存する usecase の狭い contract。
 type outboxRunner interface {
 	RunOnce(ctx context.Context) error
 }
 
 // OutboxTicker は一定間隔で outboxRunner.RunOnce を呼ぶ常駐 worker。
-// ctx キャンセルで終了し、tick ごとのエラーは ERROR ログ化して継続する
-// (DB 一時障害で常駐プロセスを落とすと復旧機会を失うため)。
+// tick ごとのエラーは ERROR ログ化して継続する (常駐プロセスを落とすと復旧機会を失うため)。
 type OutboxTicker struct {
 	runner   outboxRunner
 	interval time.Duration
 }
 
-// NewOutboxTicker は OutboxTicker を構築する。
 func NewOutboxTicker(runner outboxRunner, interval time.Duration) (*OutboxTicker, error) {
 	if runner == nil {
 		return nil, errors.New("outbox ticker: runner is nil")

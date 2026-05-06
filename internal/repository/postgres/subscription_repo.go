@@ -8,15 +8,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 var _ port.SubscriptionRepo = (*SubscriptionRepository)(nil)
 
-// SubscriptionRepository は pgxpool 経由の PostgreSQL で SubscriptionRepo を実装する。
-// shop.subscriptions (純粋ドメイン) と shop.{apple,google}_subscription_tokens
-// (外部識別マッピング) の 2 系統を同一 tx で協調操作する。
+// SubscriptionRepository は subscriptions と {apple,google}_subscription_tokens の CRUD。
 type SubscriptionRepository struct {
 	pool *pgxpool.Pool
 }
@@ -27,18 +25,16 @@ func NewSubscriptionRepository(pool *pgxpool.Pool) *SubscriptionRepository {
 
 func subscriptionTokenTableForPlatform(platform string) (string, error) {
 	switch platform {
-	case apishop.PlatformIOS:
+	case domain.PlatformIOS:
 		return "shop.apple_subscription_tokens", nil
-	case apishop.PlatformAndroid:
+	case domain.PlatformAndroid:
 		return "shop.google_subscription_tokens", nil
 	default:
 		return "", fmt.Errorf("%w: subscription platform %q", port.ErrUnsupportedPlatform, platform)
 	}
 }
 
-// CreateSubscription は subscriptions + 対応 token 行 + outbox event をアトミックに挿入する。
-// event.Topic が空のときは outbox 書き込みをスキップする。
-func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *apishop.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
+func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *domain.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
 	tokenTable, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
 		return err
@@ -67,10 +63,8 @@ func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *ap
 		return fmt.Errorf("insert subscription token: %w", err)
 	}
 
-	if event.Topic != "" {
-		if err := writeOutboxEvent(ctx, tx, event); err != nil {
-			return err
-		}
+	if err := writeOutboxEvent(ctx, tx, event); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -80,8 +74,7 @@ func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *ap
 }
 
 // GetLatestSubscription は player の最新サブスクリプション 1 行を返す。
-// 純粋ドメインなので token テーブルは引かない (status / 期間判定のみが必要なため)。
-func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, playerID string) (*apishop.Subscription, error) {
+func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, playerID string) (*domain.Subscription, error) {
 	row := r.pool.QueryRow(ctx,
 		`SELECT subscription_id, player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at
 		   FROM shop.subscriptions
@@ -100,8 +93,8 @@ func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, play
 	return s, nil
 }
 
-// FindSubscriptionByToken は platform に応じた token テーブル → subscriptions の JOIN で引く。
-func (r *SubscriptionRepository) FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*apishop.Subscription, error) {
+// FindSubscriptionByToken は platform に応じた token テーブル経由で subscription を引く。
+func (r *SubscriptionRepository) FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*domain.Subscription, error) {
 	table, err := subscriptionTokenTableForPlatform(platform)
 	if err != nil {
 		return nil, err
@@ -124,8 +117,8 @@ func (r *SubscriptionRepository) FindSubscriptionByToken(ctx context.Context, pl
 	return s, nil
 }
 
-func scanSubscription(row pgx.Row) (*apishop.Subscription, error) {
-	var s apishop.Subscription
+func scanSubscription(row pgx.Row) (*domain.Subscription, error) {
+	var s domain.Subscription
 	if err := row.Scan(
 		&s.SubscriptionID, &s.PlayerID, &s.ProductID,
 		&s.Status,
@@ -137,18 +130,46 @@ func scanSubscription(row pgx.Row) (*apishop.Subscription, error) {
 	return &s, nil
 }
 
-// UpdateSubscription はサブスクリプションの状態・期間を更新しつつ、
-// event.Topic が空でなければ同一 tx で outbox に書き込む。
-// webhook 駆動の状態遷移 (renew/expire/revoke) で DB 更新と publish を atomic に
-// 揃えるためのもの。解約 (cancelled) 等の「イベントを出さない遷移」では
-// event.Topic を空にして呼ぶ。
-func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *apishop.Subscription, event port.OutboxEvent) error {
+// UpdateSubscription は subscriptions 行のみを更新する (outbox 行を伴わない)。
+func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *domain.Subscription) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := updateSubscriptionRow(ctx, tx, sub); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// UpdateSubscriptionWithEvent は subscriptions 更新と outbox 行 INSERT を同一 tx で行う。
+func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context, sub *domain.Subscription, event port.OutboxEvent) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := updateSubscriptionRow(ctx, tx, sub); err != nil {
+		return err
+	}
+	if err := writeOutboxEvent(ctx, tx, event); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+func updateSubscriptionRow(ctx context.Context, tx pgx.Tx, sub *domain.Subscription) error {
 	if _, err := tx.Exec(ctx,
 		`UPDATE shop.subscriptions SET
 			status = $1,
@@ -162,16 +183,6 @@ func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *ap
 		sub.SubscriptionID,
 	); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
-	}
-
-	if event.Topic != "" {
-		if err := writeOutboxEvent(ctx, tx, event); err != nil {
-			return err
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }

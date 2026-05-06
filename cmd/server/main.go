@@ -24,9 +24,9 @@ import (
 	shopfirestore "github.com/kenyamaneko/overload-party-shop/internal/repository/firestore"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/router"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/outbox"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/purchase"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/outbox"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/purchase"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
 func main() {
@@ -53,7 +53,6 @@ func setupLogger(mode config.IAPMode) error {
 }
 
 // newCloudLoggingHandler は Cloud Logging 互換の JSON ハンドラを返す。
-// slog のデフォルトフィールド名・値では Cloud Logging が認識しないため変換する。
 func newCloudLoggingHandler() slog.Handler {
 	return slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
@@ -81,7 +80,6 @@ func newCloudLoggingHandler() slog.Handler {
 }
 
 // verifiers は IAP_MODE=production のときだけ初期化される verifier をまとめる。
-// local モードでは全て nil のまま返り、shop_service 側で ErrUnsupportedPlatform を返す。
 type verifiers struct {
 	apple     port.ReceiptVerifier
 	google    port.ReceiptVerifier
@@ -117,7 +115,7 @@ func run() error {
 	// クライアント到達性は起動時に検証するため、repo を生成だけしておく。
 	_ = shopfirestore.NewGameConfigRepository(fsClient)
 
-	pub, err := shoppubsub.New(ctx, cfg.GoogleCloudProject, cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
+	pub, err := shoppubsub.New(ctx, cfg.GoogleCloudProject, cfg.CardPackPurchasedTopic, cfg.FactionAcquiredTopic, cfg.PremiumUpdatedTopic)
 	if err != nil {
 		return fmt.Errorf("shop publisher: %w", err)
 	}
@@ -126,11 +124,6 @@ func run() error {
 			slog.Error("publisher close failed", "error", cerr)
 		}
 	}()
-
-	eventBuilder, err := shoppubsub.NewEventBuilder(cfg.FactionSelectedTopic, cfg.PremiumUpdatedTopic)
-	if err != nil {
-		return fmt.Errorf("shop event builder: %w", err)
-	}
 
 	vfs, err := setupVerifiers(ctx, cfg)
 	if err != nil {
@@ -142,7 +135,7 @@ func run() error {
 		return err
 	}
 
-	handler := buildHTTPHandler(cfg, pool, eventBuilder, vfs)
+	handler := buildHTTPHandler(cfg, pool, vfs)
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           handler,
@@ -151,16 +144,16 @@ func run() error {
 
 	slog.Info("listening",
 		"addr", srv.Addr,
-		"gcp_project", cfg.GoogleCloudProject,
-		"faction_topic", cfg.FactionSelectedTopic,
+		"google_cloud_project", cfg.GoogleCloudProject,
+		"card_pack_purchased_topic", cfg.CardPackPurchasedTopic,
+		"faction_acquired_topic", cfg.FactionAcquiredTopic,
 		"premium_topic", cfg.PremiumUpdatedTopic,
 	)
 
 	return runHTTPAndWorker(ctx, srv, outboxTicker)
 }
 
-// setupVerifiers は IAP_MODE に応じて Apple/Google verifier を初期化する。
-// local モードでは全 verifier を nil のまま返し、webhook ルートも未登録となる。
+// setupVerifiers は IAP_MODE に応じて Apple/Google verifier を初期化する。local モードでは全て nil。
 func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) {
 	if cfg.IAPMode != config.IAPModeProduction {
 		slog.Info("skipping verifier init and webhook route registration", "iap_mode", "local")
@@ -185,20 +178,19 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 	return verifiers{apple: av, google: gv, googleSub: gsv, appleJWS: ajws}, nil
 }
 
-// buildHTTPHandler は repo / service / handler の配線を一箇所にまとめる。
-// run() の肥大を避けるための分割であり、起動順には依存していない。
-func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.OutboxEventBuilder, vfs verifiers) http.Handler {
+// buildHTTPHandler は repo / usecase / handler の配線を組み立てる。
+func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) http.Handler {
 	productRepo := postgres.NewProductRepository(pool)
 	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(pool)
+	cardPackPurchaseRepo := postgres.NewCardPackPurchaseRepository(pool)
 	itemPurchaseRepo := postgres.NewItemPurchaseRepository(pool)
 	purchaseLookup := postgres.NewPurchaseLookupRepository(pool)
 	subRepo := postgres.NewSubscriptionRepository(pool)
 
 	shopSvc := purchase.New(
-		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup,
+		productRepo, factionPurchaseRepo, cardPackPurchaseRepo, itemPurchaseRepo, purchaseLookup,
 		subRepo,
 		vfs.apple, vfs.google,
-		eventBuilder,
 	)
 	shopH := rest.NewShopHandler(shopSvc)
 	var (
@@ -207,20 +199,19 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, eventBuilder port.
 	)
 	if cfg.IAPMode == config.IAPModeProduction {
 		appleWH = rest.NewAppleWebhookHandler(
-			subscription.NewAppleNotifier(subRepo, eventBuilder, vfs.appleJWS),
+			subscription.NewAppleNotifier(subRepo, vfs.appleJWS),
 		)
 		googleWH = rest.NewGoogleWebhookHandler(
-			subscription.NewGoogleNotifier(subRepo, eventBuilder, vfs.googleSub),
+			subscription.NewGoogleNotifier(subRepo, vfs.googleSub),
 		)
 	}
 	return router.New(shopH, appleWH, googleWH)
 }
 
-// buildOutboxTicker は outbox 消費フローを構成する 2 コンポーネント (service の
-// use case + handler/worker の ticker) を組み立てる。依存方向は worker → service → port。
+// buildOutboxTicker は outbox 消費フローの relay と worker ticker を組み立てる。
 func buildOutboxTicker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *config.Config) (*worker.OutboxTicker, error) {
 	outboxRepo := postgres.NewOutboxRepository(pool)
-	publisher, err := outbox.New(outboxRepo, pub, outbox.Config{
+	relay, err := outbox.New(outboxRepo, pub, outbox.Config{
 		BatchSize:         cfg.OutboxBatchSize,
 		FailureThreshold:  cfg.OutboxFailureThreshold,
 		VisibilityTimeout: cfg.OutboxVisibilityTimeout,
@@ -228,13 +219,10 @@ func buildOutboxTicker(pool *pgxpool.Pool, pub port.RawEventPublisher, cfg *conf
 	if err != nil {
 		return nil, err
 	}
-	return worker.NewOutboxTicker(publisher, cfg.OutboxPollInterval)
+	return worker.NewOutboxTicker(relay, cfg.OutboxPollInterval)
 }
 
-// runHTTPAndWorker は HTTP server と outbox ticker を並行起動し、
-// どちらかの失敗・シグナル到来で両方を graceful に停止する。
-// errgroup を使うのは「どちらが先に終わっても相方を畳む」ためで、shop 独自の
-// 停止順序 (http 先・worker 後) が必要になった場合はここを変える。
+// runHTTPAndWorker は HTTP server と outbox ticker を並行起動し、どちらかの失敗・signal で両方を graceful に停止する。
 func runHTTPAndWorker(ctx context.Context, srv *http.Server, outboxTicker *worker.OutboxTicker) error {
 	g, gCtx := errgroup.WithContext(ctx)
 

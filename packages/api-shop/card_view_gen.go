@@ -2,7 +2,7 @@
 
 package apishop
 
-// CardView is shop's narrow projection of card service CardDefinition response.
+// CardView は card service の CardDefinition レスポンスを shop 側で必要な範囲に絞った projection。
 type CardView struct {
 	CardID      string `json:"card_id"`
 	CardName    string `json:"card_name"`

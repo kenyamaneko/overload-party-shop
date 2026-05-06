@@ -7,27 +7,24 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 func purchaseTokenTableForPlatform(platform string) (string, error) {
 	switch platform {
-	case apishop.PlatformIOS:
+	case domain.PlatformIOS:
 		return "shop.apple_purchase_tokens", nil
-	case apishop.PlatformAndroid:
+	case domain.PlatformAndroid:
 		return "shop.google_purchase_tokens", nil
 	default:
 		return "", fmt.Errorf("%w: purchase platform %q", port.ErrUnsupportedPlatform, platform)
 	}
 }
 
-// insertOneTimePurchaseAndToken は shop.one_time_purchases + 対応する token テーブル
-// への挿入を同一 tx 内で実行する。faction_purchase / item_purchase repo の共通処理。
-//   - 既存 token があれば created=false、purchase.PurchaseID に既存 id を埋めて返す
-//     (呼び出し側は owned_faction / player_item 挿入をスキップする責務を持つ)
-//   - 新規なら INSERT 2 本を実行し created=true を返す
-func insertOneTimePurchaseAndToken(ctx context.Context, tx pgx.Tx, purchase *apishop.OneTimePurchase, platform, purchaseToken string) (created bool, err error) {
+// insertOneTimePurchaseAndToken は one_time_purchases と対応する token テーブルへの挿入を同一 tx で行う。
+// 既存 token があれば created=false で existing purchase_id を埋めて返す。
+func insertOneTimePurchaseAndToken(ctx context.Context, tx pgx.Tx, purchase *domain.OneTimePurchase, platform, purchaseToken string) (created bool, err error) {
 	table, err := purchaseTokenTableForPlatform(platform)
 	if err != nil {
 		return false, err

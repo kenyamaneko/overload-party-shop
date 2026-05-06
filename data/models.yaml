@@ -1,35 +1,96 @@
 # Shop service model definitions (service-owned SSoT).
 #
-# scripts/generate_types.py reads this file and generates wire types into
-#   packages/api-shop/   (Go module, package apishop)
+# scripts/generate_types.py reads this file and emits to multiple targets:
+#   - target: domain  -> internal/domain/   (package domain, internal logic types)
+#   - target: wire    -> packages/api-shop/ (package apishop, REST/Pub-Sub wire contract)
+#
+# 同じ JSON 形状を要求するイベント型のように両層に出力したい場合は targets:
+# でリスト指定する。
 
 files:
-  # ─── Card view (narrow projection from card service) ───
-  - name: card_view
-    target: both
-    pkg: apishop
+  # ─── Domain entities (internal logic types; no db tags) ───────────────
+  - name: shop_entity
+    target: domain
     types:
-      - name: CardView
-        comment: "CardView is shop's narrow projection of card service CardDefinition response."
+      - name: Product
+        comment: "Product は shop カタログの購入可能商品の共通属性。type 固有属性は FactionSetProduct / CosmeticProduct / SubscriptionProduct 等の per-type 型が保持する。"
         fields:
-          - {name: CardID, type: string, json: "card_id"}
-          - {name: CardName, type: string, json: "card_name"}
-          - {name: Faction, type: string, json: "faction"}
-          - {name: CardType, type: string, json: "card_type"}
-          - {name: Restriction, type: string, json: "restriction"}
-          - {name: IsActive, type: bool, json: "is_active"}
+          - {name: ProductID, type: string}
+          - {name: Name, type: string}
+          - {name: Type, type: string}
+          - {name: Price, type: int64}
+          - {name: Description, type: "*string"}
+          - {name: ImageURL, type: "*string"}
+          - {name: IsActive, type: bool}
 
-  # ─── Shop products / purchases / subscriptions / cosmetics ───
-  - name: shop
-    target: both
-    pkg: apishop
-    imports:
-      - encoding/json
-      - time
+      - name: FactionSetProduct
+        comment: "FactionSetProduct は ProductTypeFactionSet の per-type ビュー。Product 共通属性 + 配布する card_pack 参照 + 付与する faction を保持する。"
+        fields:
+          - {name: Product, type: Product}
+          - {name: CardPackID, type: string}
+          - {name: Faction, type: string}
+
+      - name: CardPackProduct
+        comment: "CardPackProduct は ProductTypeCardPack の per-type ビュー。Product 共通属性 + 配布する card_pack 参照を保持する。"
+        fields:
+          - {name: Product, type: Product}
+          - {name: CardPackID, type: string}
+
+      - name: CosmeticProduct
+        comment: "CosmeticProduct は ProductTypeCosmetic の per-type ビュー。Product 共通属性 + cosmetic_items への参照を保持する。"
+        fields:
+          - {name: Product, type: Product}
+          - {name: ItemType, type: string}
+          - {name: ItemNo, type: int64}
+
+      - name: SubscriptionProduct
+        comment: "SubscriptionProduct は ProductTypeSubscription の per-type ビュー。Product 共通属性 + 課金周期 (月数) を保持する。"
+        fields:
+          - {name: Product, type: Product}
+          - {name: PeriodMonths, type: int64}
+
+      - name: OneTimePurchase
+        comment: "OneTimePurchase は単発 (非サブスクリプション) の購入レコード。"
+        fields:
+          - {name: PurchaseID, type: int64}
+          - {name: PlayerID, type: string}
+          - {name: ProductID, type: string}
+          - {name: PurchasedAt, type: time.Time}
+
+      - name: Subscription
+        comment: "Subscription は継続課金の権利レコード。"
+        fields:
+          - {name: SubscriptionID, type: int64}
+          - {name: PlayerID, type: string}
+          - {name: ProductID, type: string}
+          - {name: Status, type: string}
+          - {name: CurrentPeriodStart, type: time.Time}
+          - {name: CurrentPeriodEnd, type: time.Time}
+          - {name: CreatedAt, type: time.Time}
+          - {name: UpdatedAt, type: time.Time}
+
+      - name: PlayerItem
+        comment: "PlayerItem はプレイヤーが所有する cosmetic アイテム。"
+        fields:
+          - {name: PlayerID, type: string}
+          - {name: ItemType, type: string}
+          - {name: ItemNo, type: int64}
+          - {name: AcquiredAt, type: time.Time}
+
+      - name: ProductWithOwnership
+        comment: "ProductWithOwnership は per-type ProductView (FactionSetProduct / CosmeticProduct / SubscriptionProduct のいずれか) にリクエスト元プレイヤーの所有状態を付与した usecase 層のビュー。"
+        fields:
+          - {name: ProductView, type: ProductView}
+          - {name: IsOwned, type: bool}
+
+  # ─── Domain enums (status machine / type discriminators) ──────────────
+  - name: shop_enum
+    target: domain
     constants:
       - type: string
         values:
           - {name: ProductTypeFactionSet, value: "faction_set"}
+          - {name: ProductTypeCardPack, value: "card_pack"}
           - {name: ProductTypeCosmetic, value: "cosmetic"}
           - {name: ProductTypeSubscription, value: "subscription"}
           - {name: PlatformIOS, value: "ios"}
@@ -43,93 +104,79 @@ files:
           - {name: SubscriptionStatusCancelled, value: "cancelled"}
           - {name: SubscriptionStatusGracePeriod, value: "grace_period"}
           - {name: SubscriptionStatusRevoked, value: "revoked"}
-    types:
-      - name: Product
-        comment: "Product represents a purchasable item in the shop catalog."
-        fields:
-          - {name: ProductID, type: string, json: "product_id", db: "product_id"}
-          - {name: Name, type: string, json: "name", db: "name"}
-          - {name: Type, type: string, json: "type", db: "type"}
-          - {name: Price, type: int64, json: "price", db: "price"}
-          - {name: Content, type: json.RawMessage, json: "content", db: "content"}
-          - {name: Description, type: "*string", json: "description,omitempty", db: "description"}
-          - {name: ImageURL, type: "*string", json: "image_url,omitempty", db: "image_url"}
-          - {name: IsActive, type: bool, json: "is_active", db: "is_active"}
 
-      - name: FactionSetContent
+  # ─── Inter-service events (need both domain and wire copies) ──────────
+  # Service が生成するときは domain 版を使う。gateway 等の外部 subscriber は
+  # packages/api-shop の wire 版を import する。両者は同じ JSON 形状で生成。
+  - name: shop_event_card_pack_purchased
+    targets: [domain, wire]
+    constants:
+      - type: string
+        values:
+          - {name: TopicCardPackPurchased, value: "card-pack-purchased"}
+          - {name: EventTypeCardPackPurchased, value: "card_pack_purchased"}
+    types:
+      - name: CardPackPurchasedEvent
+        comment: |
+          CardPackPurchasedEvent はプレイヤーが card_pack を含む商品 (faction_set / card_pack 等) を購入した際に shop が発行するイベント。
+          subscriber: card (GrantPack(card_pack_id) でカード配布) / gateway (WS 副次通知)。
+          subscriber は EventID で冪等性を担保する (at-least-once)。
         fields:
+          - {name: EventType, type: string, json: "event_type"}
+          - {name: EventID, type: string, json: "event_id"}
+          - {name: Timestamp, type: time.Time, json: "timestamp"}
+          - {name: PlayerID, type: string, json: "player_id"}
+          - {name: CardPackID, type: string, json: "card_pack_id"}
+
+  - name: shop_event_faction_acquired
+    targets: [domain, wire]
+    constants:
+      - type: string
+        values:
+          - {name: TopicFactionAcquired, value: "faction-acquired"}
+          - {name: EventTypeFactionAcquired, value: "faction_acquired"}
+    types:
+      - name: FactionAcquiredEvent
+        comment: |
+          FactionAcquiredEvent はプレイヤーが faction を獲得した業務事実を表す shop 発行イベント。
+          subscriber: account (player_factions に INSERT、authoritative 所有権) / gateway (WS 一次通知)。
+          subscriber は EventID で冪等性を担保する (at-least-once)。
+        fields:
+          - {name: EventType, type: string, json: "event_type"}
+          - {name: EventID, type: string, json: "event_id"}
+          - {name: Timestamp, type: time.Time, json: "timestamp"}
+          - {name: PlayerID, type: string, json: "player_id"}
           - {name: Faction, type: string, json: "faction"}
 
-      - name: CosmeticContent
+  - name: shop_event_premium_updated
+    targets: [domain, wire]
+    constants:
+      - type: string
+        values:
+          - {name: TopicPremiumUpdated, value: "premium-updated"}
+          - {name: EventTypePremiumUpdated, value: "premium_updated"}
+          - {name: PremiumUpdatedSourceShop, value: "shop"}
+    types:
+      - name: PremiumUpdatedEvent
+        comment: |
+          PremiumUpdatedEvent は subscription 状態遷移により is_premium が変化した際に shop が発行するイベント。
+          subscriber: account (players.is_premium / premium_expires_at を更新) / gateway (WS 通知)。
+          subscriber は EventID で冪等性を担保する (at-least-once)。
         fields:
-          - {name: ItemType, type: string, json: "item_type"}
-          - {name: ItemNo, type: int64, json: "item_no"}
+          - {name: EventType, type: string, json: "event_type"}
+          - {name: EventID, type: string, json: "event_id"}
+          - {name: Timestamp, type: time.Time, json: "timestamp"}
+          - {name: PlayerID, type: string, json: "player_id"}
+          - {name: IsPremium, type: bool, json: "is_premium"}
+          - {name: PremiumExpiresAt, type: "*time.Time", json: "premium_expires_at,omitempty"}
+          - {name: Source, type: string, json: "source"}
 
-      - name: OneTimePurchase
-        fields:
-          - {name: PurchaseID, type: int64, json: "purchase_id", db: "purchase_id"}
-          - {name: PlayerID, type: string, json: "player_id", db: "player_id"}
-          - {name: ProductID, type: string, json: "product_id", db: "product_id"}
-          - {name: PurchasedAt, type: time.Time, json: "purchased_at", db: "purchased_at"}
-
-      - name: Subscription
-        fields:
-          - {name: SubscriptionID, type: int64, json: "subscription_id", db: "subscription_id"}
-          - {name: PlayerID, type: string, json: "player_id", db: "player_id"}
-          - {name: ProductID, type: string, json: "product_id", db: "product_id"}
-          - {name: Status, type: string, json: "status", db: "status"}
-          - {name: CurrentPeriodStart, type: time.Time, json: "current_period_start", db: "current_period_start"}
-          - {name: CurrentPeriodEnd, type: time.Time, json: "current_period_end", db: "current_period_end"}
-          - {name: CreatedAt, type: time.Time, json: "created_at", db: "created_at"}
-          - {name: UpdatedAt, type: time.Time, json: "updated_at", db: "updated_at"}
-
-      # 外部 (Apple / Google) のトークンマッピング。Subscription / OneTimePurchase
-      # のドメインから外部識別を分離する。サブスクトークンは UpdatedAt を持ち
-      # (将来 token 再関連付けの可能性)、購入トークンは append-only。
-      - name: AppleSubscriptionToken
-        fields:
-          - {name: Token, type: string, json: "token", db: "token"}
-          - {name: SubscriptionID, type: int64, json: "subscription_id", db: "subscription_id"}
-          - {name: CreatedAt, type: time.Time, json: "created_at", db: "created_at"}
-          - {name: UpdatedAt, type: time.Time, json: "updated_at", db: "updated_at"}
-
-      - name: GoogleSubscriptionToken
-        fields:
-          - {name: Token, type: string, json: "token", db: "token"}
-          - {name: SubscriptionID, type: int64, json: "subscription_id", db: "subscription_id"}
-          - {name: CreatedAt, type: time.Time, json: "created_at", db: "created_at"}
-          - {name: UpdatedAt, type: time.Time, json: "updated_at", db: "updated_at"}
-
-      - name: ApplePurchaseToken
-        fields:
-          - {name: Token, type: string, json: "token", db: "token"}
-          - {name: PurchaseID, type: int64, json: "purchase_id", db: "purchase_id"}
-          - {name: CreatedAt, type: time.Time, json: "created_at", db: "created_at"}
-
-      - name: GooglePurchaseToken
-        fields:
-          - {name: Token, type: string, json: "token", db: "token"}
-          - {name: PurchaseID, type: int64, json: "purchase_id", db: "purchase_id"}
-          - {name: CreatedAt, type: time.Time, json: "created_at", db: "created_at"}
-
-      - name: CosmeticItem
-        fields:
-          - {name: ItemType, type: string, json: "item_type", db: "item_type"}
-          - {name: ItemNo, type: int64, json: "item_no", db: "item_no"}
-          - {name: ItemName, type: string, json: "item_name", db: "item_name"}
-          - {name: Description, type: "*string", json: "description,omitempty", db: "description"}
-          - {name: IsPurchasable, type: bool, json: "is_purchasable", db: "is_purchasable"}
-          - {name: IsActive, type: bool, json: "is_active", db: "is_active"}
-
-      - name: PlayerItem
-        fields:
-          - {name: PlayerID, type: string, json: "player_id", db: "player_id"}
-          - {name: ItemType, type: string, json: "item_type", db: "item_type"}
-          - {name: ItemNo, type: int64, json: "item_no", db: "item_no"}
-          - {name: AcquiredAt, type: time.Time, json: "acquired_at", db: "acquired_at"}
-
+  # ─── Wire types (REST request/response, webhook bodies) ───────────────
+  - name: shop_wire
+    target: wire
+    types:
       - name: ProductResponse
-        comment: "ProductResponse is the API response element for the shop catalog endpoint."
+        comment: "ProductResponse は商品カタログ API のレスポンス要素。"
         fields:
           - {name: ProductID, type: string, json: "product_id"}
           - {name: Name, type: string, json: "name"}
@@ -142,7 +189,7 @@ files:
           - {name: IsOwned, type: bool, json: "is_owned"}
 
       - name: PurchaseRequest
-        comment: "PurchaseRequest is the request body for POST /shop/purchase and /shop/subscribe."
+        comment: "PurchaseRequest は POST /shop/purchase および /shop/subscribe のリクエストボディ。"
         fields:
           - {name: ProductID, type: string, json: "product_id"}
           - {name: Platform, type: string, json: "platform"}
@@ -168,16 +215,30 @@ files:
 
       # ─── Webhook request bodies (external, Apple/Google signed) ───
       - name: AppleNotificationPayload
-        comment: "AppleNotificationPayload is the top-level body Apple sends to /webhook/apple."
+        comment: "AppleNotificationPayload は Apple が /webhook/apple に送る最上位ボディ。"
         fields:
           - {name: SignedPayload, type: string, json: "signedPayload"}
 
       - name: GoogleRTDNMessage
-        comment: "GoogleRTDNMessage is the Pub/Sub push wrapper Google sends to /webhook/google."
+        comment: "GoogleRTDNMessage は Google が /webhook/google に送る Pub/Sub push ラッパー。"
         fields:
           - {name: Message, type: "GoogleRTDNMessageBody", json: "message"}
 
       - name: GoogleRTDNMessageBody
-        comment: "GoogleRTDNMessageBody is the inner message envelope of GoogleRTDNMessage."
+        comment: "GoogleRTDNMessageBody は GoogleRTDNMessage の内側の message 封筒。"
         fields:
           - {name: Data, type: string, json: "data"}
+
+  # ─── Card view (narrow projection from card service) ─────────────────
+  - name: card_view
+    target: wire
+    types:
+      - name: CardView
+        comment: "CardView は card service の CardDefinition レスポンスを shop 側で必要な範囲に絞った projection。"
+        fields:
+          - {name: CardID, type: string, json: "card_id"}
+          - {name: CardName, type: string, json: "card_name"}
+          - {name: Faction, type: string, json: "faction"}
+          - {name: CardType, type: string, json: "card_type"}
+          - {name: Restriction, type: string, json: "restriction"}
+          - {name: IsActive, type: bool, json: "is_active"}

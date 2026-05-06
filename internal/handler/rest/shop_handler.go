@@ -7,13 +7,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
+	"github.com/kenyamaneko/overload-party-shop/internal/presenter"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
-// shopServicer は shop handler が依存するサービス層の狭い contract。
-// カタログ・購入・サブスクリプションのドメインロジックを handler から隠蔽する。
+// shopServicer は shop handler が依存する usecase の狭い contract。
 type shopServicer interface {
-	GetProducts(ctx context.Context, playerID string) ([]apishop.ProductResponse, error)
+	GetProducts(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error)
 	Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error
 	Subscribe(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error)
 }
@@ -23,7 +24,6 @@ type ShopHandler struct {
 	shopService shopServicer
 }
 
-// NewShopHandler は ShopService を受け取り ShopHandler を構築する。
 func NewShopHandler(shopService shopServicer) *ShopHandler {
 	return &ShopHandler{shopService: shopService}
 }
@@ -42,7 +42,12 @@ func (h *ShopHandler) GetProducts(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"products": products})
+	resp, err := presenter.ToProductResponses(products)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"products": resp})
 }
 
 // Purchase は単発購入リクエストを処理する。
@@ -95,3 +100,4 @@ func (h *ShopHandler) Subscribe(c *gin.Context) {
 		"expires_at": expiresAt,
 	})
 }
+

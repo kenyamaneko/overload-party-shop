@@ -18,8 +18,7 @@ type Verifier struct {
 	packageName string
 }
 
-// NewVerifier は Google Play レシート verifier を構築する。
-// ADC（Application Default Credentials）で認証する。
+// NewVerifier は ADC で認証する Google Play レシート verifier を構築する。
 func NewVerifier(ctx context.Context, packageName string, opts ...option.ClientOption) (*Verifier, error) {
 	svc, err := androidpublisher.NewService(ctx, opts...)
 	if err != nil {
@@ -44,7 +43,7 @@ func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*p
 
 	result, err := v.service.Purchases.Products.Get(v.packageName, productID, token).Context(ctx).Do()
 	if err != nil {
-		return &port.VerifyResult{IsValid: false}, fmt.Errorf("Google Play API: %w", err)
+		return &port.VerifyResult{IsValid: false}, fmt.Errorf("google Play API: %w", err)
 	}
 
 	// PurchaseState: 0=購入済み, 1=キャンセル, 2=保留中
@@ -72,7 +71,7 @@ func (v *Verifier) VerifySubscription(ctx context.Context, purchaseToken string)
 
 	result, err := v.service.Purchases.Subscriptions.Get(v.packageName, subscriptionID, token).Context(ctx).Do()
 	if err != nil {
-		return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("Google Play API: %w", err)
+		return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("google Play API: %w", err)
 	}
 
 	expiresAt := time.UnixMilli(result.ExpiryTimeMillis)
@@ -94,15 +93,13 @@ func splitGoogleToken(composite string) (string, string, error) {
 	return productID, token, nil
 }
 
-// SubVerifier は Google Play Developer API からサブスクリプションの
-// 実際の有効期限を取得する。
+// SubVerifier は Google Play Developer API からサブスクリプション有効期限を取得する。
 type SubVerifier struct {
 	service     *androidpublisher.Service
 	packageName string
 }
 
-// NewSubVerifier は Google Play にサブスクリプション有効期限を問い合わせる
-// verifier を構築する。ADC で認証する。
+// NewSubVerifier は ADC で認証する SubVerifier を構築する。
 func NewSubVerifier(ctx context.Context, packageName string, opts ...option.ClientOption) (*SubVerifier, error) {
 	svc, err := androidpublisher.NewService(ctx, opts...)
 	if err != nil {
@@ -123,7 +120,7 @@ func (v *SubVerifier) GetSubscriptionExpiry(ctx context.Context, purchaseToken s
 
 	result, err := v.service.Purchases.Subscriptions.Get(v.packageName, subscriptionID, token).Context(ctx).Do()
 	if err != nil {
-		return time.Time{}, fmt.Errorf("Google Play API get subscription: %w", err)
+		return time.Time{}, fmt.Errorf("google Play API get subscription: %w", err)
 	}
 
 	return time.UnixMilli(result.ExpiryTimeMillis), nil

@@ -7,4 +7,9 @@ vendor/
 .DS_Store
 go.work
 go.work.sum
-.claude/
+.claude/*
+!.claude/docs.yaml
+!.claude/docs/
+!.claude/docs/**
+!.claude/skills/
+!.claude/skills/**

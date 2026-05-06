@@ -13,17 +13,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/purchase"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
-	"github.com/kenyamaneko/overload-party-shop/internal/service/purchase"
 )
 
 type fakeShopServicer struct {
-	getProductsFn func(ctx context.Context, playerID string) ([]apishop.ProductResponse, error)
+	getProductsFn func(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error)
 	purchaseFn    func(ctx context.Context, playerID, productID, pf, purchaseToken string) error
 	subscribeFn   func(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error)
 }
 
-func (f *fakeShopServicer) GetProducts(ctx context.Context, playerID string) ([]apishop.ProductResponse, error) {
+func (f *fakeShopServicer) GetProducts(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error) {
 	return f.getProductsFn(ctx, playerID)
 }
 
@@ -44,13 +45,17 @@ func newShopTestServer(svc shopServicer) *gin.Engine {
 	return r
 }
 
-// GetProducts の成功パスは service の戻り値を {"products":[...]} で wrap する。
-// body shape 検証が本テストの主目的。
+// GetProducts の成功パスは usecase の戻り値を {"products":[...]} で wrap する。
 func TestGetProducts_Success(t *testing.T) {
 	svc := &fakeShopServicer{
-		getProductsFn: func(_ context.Context, _ string) ([]apishop.ProductResponse, error) {
-			return []apishop.ProductResponse{
-				{ProductID: "p1", Name: "商品1", IsOwned: true},
+		getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
+			return []domain.ProductWithOwnership{
+				{
+					ProductView: domain.SubscriptionProduct{
+						Product: domain.Product{ProductID: "p1", Name: "商品1", Type: domain.ProductTypeSubscription},
+					},
+					IsOwned: true,
+				},
 			}, nil
 		},
 	}
@@ -68,12 +73,10 @@ func TestGetProducts_Success(t *testing.T) {
 	assert.True(t, resp.Products[0].IsOwned)
 }
 
-// GetProducts の service エラーは errorStatus マッピング経由で HTTP ステータスに
-// 変換される (分類 → ステータスの網羅は rest/errors_test.go 側)。ここは
-// 「handler が service のエラーを respondError 経由で流すこと」を代表ケースで固定する。
+// GetProducts の usecase エラーは respondError 経由で HTTP ステータスに変換される。
 func TestGetProducts_PropagatesServiceError(t *testing.T) {
 	svc := &fakeShopServicer{
-		getProductsFn: func(_ context.Context, _ string) ([]apishop.ProductResponse, error) {
+		getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
 			return nil, purchase.ErrVerifyReceipt
 		},
 	}
@@ -107,8 +110,7 @@ func TestPurchase_Success(t *testing.T) {
 	assert.Equal(t, "faction_tenki", resp["product_id"])
 }
 
-// Purchase は service のエラー分類と body bind 失敗をそれぞれの HTTP ステータスに
-// 変換する。body shape は検証対象外 (status 変換の契約を固定する)。
+// Purchase は usecase エラー分類と body bind 失敗をそれぞれの HTTP ステータスに変換する。
 func TestPurchase_ErrorResponses(t *testing.T) {
 	validBody, _ := json.Marshal(apishop.PurchaseRequest{
 		ProductID:     "faction_tenki",
@@ -184,7 +186,7 @@ func TestSubscribe_Success(t *testing.T) {
 	assert.Equal(t, expiresAt.Format(time.RFC3339Nano), resp["expires_at"])
 }
 
-// Subscribe のエラーレスポンス: service エラー分類 + body bind 失敗 の HTTP status 変換。
+// Subscribe のエラーレスポンス: usecase エラー分類 + body bind 失敗 の HTTP status 変換。
 func TestSubscribe_ErrorResponses(t *testing.T) {
 	validBody, _ := json.Marshal(apishop.PurchaseRequest{
 		ProductID:     "premium_monthly",

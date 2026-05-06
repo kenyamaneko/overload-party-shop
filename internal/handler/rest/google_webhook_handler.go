@@ -6,10 +6,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
-// googleNotifier は Google webhook handler が依存するサービス層の狭い contract。
+// googleNotifier は Google webhook handler が依存する usecase の狭い contract。
 type googleNotifier interface {
 	HandleNotification(ctx context.Context, msg subscription.GoogleRTDNMessage) error
 }
@@ -19,7 +19,6 @@ type GoogleWebhookHandler struct {
 	notifier googleNotifier
 }
 
-// NewGoogleWebhookHandler は GoogleNotifier を受け取り handler を構築する。
 func NewGoogleWebhookHandler(n googleNotifier) *GoogleWebhookHandler {
 	return &GoogleWebhookHandler{notifier: n}
 }

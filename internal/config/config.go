@@ -11,36 +11,27 @@ import (
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 )
 
-// IAPMode は起動時に Apple/Google IAP verifier 設定を必須とするかを制御する。
-// production は完全な IAP 設定がないと起動を拒否し、local は IAP 設定なしでの
-// 起動を許容する。
+// IAPMode は IAP verifier 設定を必須とするかを制御する。
 type IAPMode string
 
 const (
-	// IAPModeProduction は本番環境で IAP 設定を必須とするモード。
 	IAPModeProduction IAPMode = "production"
-	// IAPModeLocal はローカル開発で IAP 設定なしでも起動可能なモード。
-	IAPModeLocal IAPMode = "local"
+	IAPModeLocal      IAPMode = "local"
 )
 
 // Config は shop サービスの起動設定を保持する。
 type Config struct {
 	Port int
 
-	// DatabaseConn は libpq キーワード形式の接続文字列（URL 形式ではない）。
-	// 本番は Cloud SQL Auth Proxy + IAM 認証で接続するためパスワードを含まない。
-	// したがって機密情報ではなく ConfigMap で注入して良い。
+	// DatabaseConn は libpq キーワード形式の接続文字列。Cloud SQL Auth Proxy + IAM 認証前提でパスワードを含まない。
 	DatabaseConn string
 
-	// GoogleCloudProject はこのサービスが利用する全 GCP リソース
-	// （Pub/Sub topic / Firestore / Secret Manager）の project ID。
 	GoogleCloudProject string
 
-	FactionSelectedTopic string
-	PremiumUpdatedTopic  string
+	CardPackPurchasedTopic string
+	FactionAcquiredTopic   string
+	PremiumUpdatedTopic    string
 
-	// IAPMode は IAP verifier 設定を必須とするかを制御する。
-	// IAP_MODE=local にすると IAP 設定なしで起動でき、webhook ルートは登録されない。
 	IAPMode IAPMode
 
 	// Apple IAP
@@ -56,25 +47,23 @@ type Config struct {
 	// Google Play
 	GooglePackageName string
 
-	// Outbox worker 設定。shop.outbox_events を消費する常駐 worker のチューニング値。
-	// ハードコードではなく env で持つのは、負荷試験やインシデント時にデプロイなしで
-	// 試行錯誤できるようにするため。
-	OutboxPollInterval      time.Duration // 例: 1s
-	OutboxBatchSize         int           // 1 tick で claim する最大行数
-	OutboxFailureThreshold  int           // この回数以上の連続失敗で ERROR ログ (死蔵検知)
-	OutboxVisibilityTimeout time.Duration // claim 後この期間は他 worker が同じ行を拾わない。publish 中の worker がクラッシュしたらこの時間経過後に他 worker が再試行する。
+	// Outbox worker のチューニング値。
+	OutboxPollInterval      time.Duration
+	OutboxBatchSize         int
+	OutboxFailureThreshold  int
+	OutboxVisibilityTimeout time.Duration
 }
 
-// FromEnv は環境変数から Config を構築する。
-// 全 env は必須。未設定や未定義値は起動時に fail する（デフォルトへのフォールバック禁止）。
+// FromEnv は環境変数から Config を構築する。全 env は必須で未設定は fail する。
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		DatabaseConn:         os.Getenv("DATABASE_CONN"),
-		GoogleCloudProject:   os.Getenv("GOOGLE_CLOUD_PROJECT"),
-		FactionSelectedTopic: os.Getenv("FACTION_SELECTED_TOPIC"),
-		PremiumUpdatedTopic:  os.Getenv("PREMIUM_UPDATED_TOPIC"),
-		IAPMode:              IAPMode(os.Getenv("IAP_MODE")),
-		AppleEnvironment:     os.Getenv("APPLE_ENVIRONMENT"),
+		DatabaseConn:           os.Getenv("DATABASE_CONN"),
+		GoogleCloudProject:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		CardPackPurchasedTopic: os.Getenv("CARD_PACK_PURCHASED_TOPIC"),
+		FactionAcquiredTopic:   os.Getenv("FACTION_ACQUIRED_TOPIC"),
+		PremiumUpdatedTopic:    os.Getenv("PREMIUM_UPDATED_TOPIC"),
+		IAPMode:                IAPMode(os.Getenv("IAP_MODE")),
+		AppleEnvironment:       os.Getenv("APPLE_ENVIRONMENT"),
 	}
 
 	rawPort := os.Getenv("PORT")
@@ -93,8 +82,11 @@ func FromEnv() (*Config, error) {
 	if cfg.GoogleCloudProject == "" {
 		return nil, fmt.Errorf("config: GOOGLE_CLOUD_PROJECT is required")
 	}
-	if cfg.FactionSelectedTopic == "" {
-		return nil, fmt.Errorf("config: FACTION_SELECTED_TOPIC is required")
+	if cfg.CardPackPurchasedTopic == "" {
+		return nil, fmt.Errorf("config: CARD_PACK_PURCHASED_TOPIC is required")
+	}
+	if cfg.FactionAcquiredTopic == "" {
+		return nil, fmt.Errorf("config: FACTION_ACQUIRED_TOPIC is required")
 	}
 	if cfg.PremiumUpdatedTopic == "" {
 		return nil, fmt.Errorf("config: PREMIUM_UPDATED_TOPIC is required")
@@ -118,7 +110,6 @@ func FromEnv() (*Config, error) {
 }
 
 // loadProductionIAP は Secret Manager から IAP 認証情報を取得する。
-// APPLE_ENVIRONMENT が不正・シークレット到達不可の場合は fail-fast する。
 func loadProductionIAP(cfg *Config) error {
 	switch cfg.AppleEnvironment {
 	case "Production", "Sandbox":
@@ -131,7 +122,7 @@ func loadProductionIAP(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("config: secret manager client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	cfg.AppleKeyID, err = accessSecret(ctx, client, cfg.GoogleCloudProject, "shop-apple-key-id")
 	if err != nil {
@@ -160,8 +151,6 @@ func loadProductionIAP(cfg *Config) error {
 }
 
 // loadOutboxConfig は outbox worker のチューニング値を env から読む。
-// 全値必須で、パース不能・非正値は fail-fast する (CLAUDE.md「デフォルトへのフォール
-// バック禁止」方針)。
 func loadOutboxConfig(cfg *Config) error {
 	raw := os.Getenv("OUTBOX_POLL_INTERVAL")
 	if raw == "" {
@@ -217,8 +206,7 @@ func loadOutboxConfig(cfg *Config) error {
 	return nil
 }
 
-// loadLocalIAP はローカル開発用に環境変数から IAP 認証情報を読み込む。
-// 値が欠落していても許容する（IAPMode == local では verifier 初期化をスキップする）。
+// loadLocalIAP はローカル開発用に環境変数から IAP 認証情報を読み込む (欠落許容)。
 func loadLocalIAP(cfg *Config) {
 	cfg.AppleKeyID = os.Getenv("APPLE_KEY_ID")
 	cfg.AppleIssuerID = os.Getenv("APPLE_ISSUER_ID")

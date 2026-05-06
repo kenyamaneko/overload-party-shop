@@ -26,13 +26,13 @@ shop は **shop スキーマの DB 行を唯一の真実とし**、他サービ�
 
 ## 2. プロダクト種別
 
-商品は `Product.Type` で 3 種に分かれ、`Product.Content` JSON に種別固有のデータを持つ。
+商品は `Product.Type` で 3 種に分かれ、type 固有属性は **type 別副表**に正規化されている (詳細は [DATA_DESIGN.md](DATA_DESIGN.md))。
 
-| Type | Content スキーマ | 所有判定 |
+| Type | type 固有属性の所在 | 所有判定 |
 |---|---|---|
-| `faction_set` | `{"faction": "<faction_id>"}` | `player_owned_factions` に該当 faction が存在 |
-| `cosmetic` | `{"item_type": "...", "item_no": <int>}` | `player_items` に (item_type, item_no) が存在 |
-| `subscription` | （Content 不要） | 現在 entitled なサブスクリプションが存在（§5 参照） |
+| `faction_set` | `shop.product_faction(faction)` | `player_owned_factions` に該当 faction が存在 |
+| `cosmetic` | `shop.product_cosmetic(item_type, item_no)` | `player_items` に (item_type, item_no) が存在 |
+| `subscription` | `shop.product_subscription(period_months)` | 現在 entitled なサブスクリプションが存在（§5 参照） |
 
 `Product.IsActive = false` の商品は購入不可で、`GetProducts` でも返さない。
 
@@ -66,14 +66,18 @@ shop は **shop スキーマの DB 行を唯一の真実とし**、他サービ�
 2. **冪等性チェック**: `(pf, purchaseToken)` で既存購入を検索。ヒットすれば `nil` で即 return（成功扱い、副作用なし）
 3. **商品存在・有効性**: `productID` で取得 → `ErrNotFound` / `ErrProductNotActive`
 4. **種別固有バリデーション**:
-   - `faction_set`: faction が `gamedesign.SelectableFactions` に含まれること（`ErrInvalidFaction`）かつ未所有（`ErrAlreadyOwned`）
+   - `faction_set`: `card_pack_id` 未所有（`ErrAlreadyOwned`）。faction の値域は `product_faction.faction` の DB CHECK 制約で担保される (selectable faction のみ)
+   - `card_pack`: `card_pack_id` 未所有（`ErrAlreadyOwned`）
    - `cosmetic`: (item_type, item_no) が未所有（`ErrAlreadyOwned`）
    - `subscription` または不明種別: `ErrUnsupportedProductType`（subscription は `Subscribe` を使う）
 5. **レシート検証**: verifier 呼び出し
    - インフラ失敗（ネットワーク等）: `ErrVerifyReceipt`
    - ストアが拒否: `ErrReceiptVerificationFailed`
 6. **DB 書き込み**: 購入レコードと所有権レコードを **同一トランザクション** で挿入
-7. **イベント発行**: `faction_set` 購入が新規成立した場合のみ `faction-selected` を publish
+7. **イベント発行**: 新規成立時のみ outbox に enqueue (DB commit と atomic):
+   - `faction_set`: `card-pack-purchased` + `faction-acquired` の 2 行
+   - `card_pack`: `card-pack-purchased` の 1 行
+   - `cosmetic`: なし
 
 ### 4.2 冪等性契約
 
@@ -107,7 +111,7 @@ ownership ガード（`ErrAlreadyOwned`）は **異なる token で同じ商品�
 
 ### 5.2 Entitlement 判定
 
-`isEntitled(sub, now)` は以下を満たす場合に `true`:
+`status` がサブスクリプション自体の状態を表すのに対し、Entitlement はプレミアム利用権の有無を表す。`isEntitled(sub, now)` は以下を満たす場合に `true`:
 
 | Status | Entitled? | 意味 |
 |---|---|---|
@@ -167,7 +171,7 @@ Google RTDN は `expiresAt` をペイロードに含まないため、`active` �
 
 ## 7. エラーセマンティクス
 
-サービス層は HTTP ステータスを知らない。エラーはセンチネルとして返し、handler が `errors.Is` ベースの分類関数で transport 層のステータスに変換する（既存の振る舞いは [errors.go](../internal/service/errors.go) 参照）。
+usecase 層は HTTP ステータスを知らない。エラーはセンチネルとして返し、handler が `errors.Is` ベースの分類関数で transport 層のステータスに変換する（既存の振る舞いは [errors.go](../internal/handler/rest/errors.go) 参照）。
 
 ### 7.1 分類
 
@@ -175,7 +179,7 @@ Google RTDN は `expiresAt` をペイロードに含まないため、`active` �
 |---|---|---|
 | `IsNotFound` | `ErrNotFound`, `ErrSubscriptionNotFound` | 404 |
 | `IsConflict` | `ErrAlreadyOwned`, `ErrFactionAlreadySelected` | 409 |
-| `IsValidation` | `ErrInvalidFaction`, `ErrProductNotActive`, `ErrProductNotSubscription`, `ErrUnsupportedProductType`, `ErrUnsupportedPlatform` | 400 |
+| `IsValidation` | `ErrProductNotActive`, `ErrProductNotSubscription`, `ErrUnsupportedProductType`, `ErrUnsupportedPlatform` | 400 |
 | `IsPaymentFailed` | `ErrReceiptVerificationFailed`, `ErrSubVerificationFailed` | 402（ストアが拒否） |
 | `IsDeterministic` | デコード系全般, `ErrSubscriptionNotFound` | webhook で 2xx ACK（リトライ無意味） |
 
@@ -186,19 +190,14 @@ Google RTDN は `expiresAt` をペイロードに含まないため、`active` �
 
 webhook は `IsDeterministic` で「リトライしても結果が変わらないか」を判定し、変わらないものは 2xx で確定 ACK する。これによりストアからの無限リトライを防ぐ。
 
-### 7.3 握りつぶし禁止
-
-レシート検証失敗・DB エラー・publish 失敗をログのみで握りつぶしてはならない。すべて呼び出し元に返す（CLAUDE.md「設計思想」参照）。
-
 ---
 
 ## 8. イベント発行
 
 | トピック | ペイロード | 発行契機 |
 |---|---|---|
-| `faction-selected` | `{player_id, faction, source}` | `faction_set` 単発購入が新規成立した COMMIT 後 |
-| `premium-updated` | `{player_id, is_premium, expires_at?}` | サブスクリプション開始時、および webhook で premium 状態が変化した時 |
-
-`faction-selected` は購入由来の場合 `source = shop_purchase` をセットする。
+| `card-pack-purchased` | `{event_type, event_id, timestamp, player_id, card_pack_id}` | `faction_set` または `card_pack` 単発購入が新規成立した COMMIT 後 |
+| `faction-acquired` | `{event_type, event_id, timestamp, player_id, faction}` | `faction_set` 単発購入が新規成立した COMMIT 後 (`card-pack-purchased` と 2 行同時 publish) |
+| `premium-updated` | `{event_type, event_id, timestamp, player_id, is_premium, expires_at?, source}` | サブスクリプション開始時、および webhook で premium 状態が変化した時 |
 
 publish タイミング・冪等性の詳細は [ARCHITECTURE.md#pubsub-publisher](ARCHITECTURE.md#pubsub-publisher) を参照。

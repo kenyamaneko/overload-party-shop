@@ -9,6 +9,15 @@ permissions:
   contents: read
 
 jobs:
+  check-source-branch:
+    if: github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate source branch
+        run: .github/scripts/ci/check-source-branch.sh "${{ github.head_ref }}"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -22,25 +31,45 @@ jobs:
       - name: Configure Go private modules
         env:
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
-          GOPRIVATE: github.com/kenyamaneko/overload-party-common
-          GONOSUMDB: github.com/kenyamaneko/overload-party-common
+          GOPRIVATE: github.com/kenyamaneko/*
+          GONOSUMDB: github.com/kenyamaneko/*
         run: .github/scripts/ci/configure-go-private-modules.sh
       # golangci-lint-action のビルド済みバイナリは Go 1.25 未対応のため
       # go install でソースからビルドして使う
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.1.6
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6
       - name: Run lint
         run: golangci-lint run --timeout 5m ./...
         env:
-          GOPRIVATE: github.com/kenyamaneko/overload-party-common
+          GOPRIVATE: github.com/kenyamaneko/*
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run govulncheck
         run: govulncheck ./...
         env:
+          GOPRIVATE: github.com/kenyamaneko/*
+
+  test-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Configure Go private modules
+        env:
+          COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
+          GOPRIVATE: github.com/kenyamaneko/overload-party-common
+          GONOSUMDB: github.com/kenyamaneko/overload-party-common
+        run: .github/scripts/ci/configure-go-private-modules.sh
+      - name: Run unit tests
+        run: go test -race -count=1 ./...
+        env:
           GOPRIVATE: github.com/kenyamaneko/overload-party-common
 
-  test:
+  test-integration:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -63,17 +92,16 @@ jobs:
       # Testcontainers はテスト中に自動 pull するが、時間がかかりタイムアウトの原因になるため事前に取得する
       - name: Pre-pull postgres image (Testcontainers)
         run: docker pull postgres:16-alpine
-      # overload-party-common の共有パッケージを取得するためにプライベートモジュールの認証を設定する
       - name: Configure Go private modules
         env:
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
-          GOPRIVATE: github.com/kenyamaneko/overload-party-common
-          GONOSUMDB: github.com/kenyamaneko/overload-party-common
+          GOPRIVATE: github.com/kenyamaneko/*
+          GONOSUMDB: github.com/kenyamaneko/*
         run: .github/scripts/ci/configure-go-private-modules.sh
-      - name: Run unit tests
-        run: go test -race -count=1 ./...
+      - name: Run integration tests
+        run: go test -race -count=1 -tags=integration ./...
         env:
-          GOPRIVATE: github.com/kenyamaneko/overload-party-common
+          GOPRIVATE: github.com/kenyamaneko/*
           FIRESTORE_EMULATOR_HOST: localhost:9041
           FIRESTORE_PROJECT_ID: overload-party-test
 
@@ -86,8 +114,8 @@ jobs:
       - name: Configure Go private modules
         env:
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
-          GOPRIVATE: github.com/kenyamaneko/overload-party-common
-          GONOSUMDB: github.com/kenyamaneko/overload-party-common
+          GOPRIVATE: github.com/kenyamaneko/*
+          GONOSUMDB: github.com/kenyamaneko/*
         run: .github/scripts/ci/configure-go-private-modules.sh
       - name: Build image
         env:
@@ -95,7 +123,7 @@ jobs:
           COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
         run: docker build --secret id=COMMON_GO_MODULES_FETCH,env=COMMON_GO_MODULES_FETCH -t shop:ci-scan .
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: shop:ci-scan
           exit-code: "1"
@@ -110,14 +138,20 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Configure git auth for private modules
+        env:
+          COMMON_GO_MODULES_FETCH: ${{ secrets.COMMON_GO_MODULES_FETCH }}
+        run: .github/scripts/ci/configure-go-private-modules.sh
       - name: Install dependencies
-        run: pip install pyyaml "overload-party-doc-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/doc-tools"
+        run: |
+          pip install pyyaml \
+            "overload-party-doc-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/doc-tools" \
+            "overload-party-codegen-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/codegen-tools"
       - name: Run codegen
         run: python3 scripts/generate_types.py
       - name: Run schema-doc codegen
         run: python3 scripts/generate_schema_doc.py
       - name: Run api-doc codegen
         run: python3 scripts/generate_api_docs.py
-      # 生成スクリプト実行後の差分があればドリフトとして失敗させる
       - name: Check for drift
-        run: .github/scripts/validate/check-codegen-drift.sh
+        run: .github/scripts/ci/check-codegen-drift.sh

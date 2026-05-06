@@ -1,3 +1,5 @@
+//go:build integration
+
 package postgres_test
 
 import (
@@ -7,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
@@ -30,9 +32,9 @@ func TestProductRepository_GetActiveProducts(t *testing.T) {
 		{
 			name: "active商品のみ返りinactiveは除外",
 			seeds: []productSeed{
-				{"p1", "Active 1", apishop.ProductTypeFactionSet, 100, true},
-				{"p2", "Inactive", apishop.ProductTypeFactionSet, 200, false},
-				{"p3", "Active 2", apishop.ProductTypeCosmetic, 300, true},
+				{"p1", "Active 1", domain.ProductTypeFactionSet, 100, true},
+				{"p2", "Inactive", domain.ProductTypeFactionSet, 200, false},
+				{"p3", "Active 2", domain.ProductTypeCosmetic, 300, true},
 			},
 			wantIDs: []string{"p1", "p3"},
 		},
@@ -44,8 +46,8 @@ func TestProductRepository_GetActiveProducts(t *testing.T) {
 		{
 			name: "全てinactiveなら空",
 			seeds: []productSeed{
-				{"p1", "Inactive 1", apishop.ProductTypeFactionSet, 100, false},
-				{"p2", "Inactive 2", apishop.ProductTypeCosmetic, 200, false},
+				{"p1", "Inactive 1", domain.ProductTypeFactionSet, 100, false},
+				{"p2", "Inactive 2", domain.ProductTypeCosmetic, 200, false},
 			},
 			wantIDs: nil,
 		},
@@ -63,7 +65,7 @@ func TestProductRepository_GetActiveProducts(t *testing.T) {
 
 			gotIDs := make([]string, len(got))
 			for i, p := range got {
-				gotIDs[i] = p.ProductID
+				gotIDs[i] = p.Common().ProductID
 			}
 			assert.ElementsMatch(t, tt.wantIDs, gotIDs)
 		})
@@ -75,7 +77,7 @@ func TestProductRepository_GetProductByID(t *testing.T) {
 	repo := postgres.NewProductRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	seedProduct(t, "faction_she", "SHE Pack", apishop.ProductTypeFactionSet, 980, true)
+	seedProduct(t, "faction_she", "SHE Pack", domain.ProductTypeFactionSet, 980, true)
 
 	tests := []struct {
 		name      string
@@ -108,7 +110,7 @@ func TestProductRepository_GetProductByID(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantName, got.Name)
+			assert.Equal(t, tt.wantName, got.Common().Name)
 		})
 	}
 }

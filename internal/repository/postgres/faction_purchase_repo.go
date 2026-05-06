@@ -6,17 +6,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 var _ port.FactionPurchaseRepo = (*FactionPurchaseRepository)(nil)
 
 // FactionPurchaseRepository は faction_set 購入 aggregate を扱う。
-// 書き込みは shop.one_time_purchases + shop.{apple,google}_purchase_tokens +
-// shop.player_owned_factions の 3 テーブルを同一 tx で更新する。
-// shop.player_owned_factions は authoritative な account.player_factions の shop ローカル射影
-// (cross-schema 読み込み不可のため GetProducts の IsOwned 判定用に独立保持)。
 type FactionPurchaseRepository struct {
 	pool *pgxpool.Pool
 }
@@ -25,7 +21,7 @@ func NewFactionPurchaseRepository(pool *pgxpool.Pool) *FactionPurchaseRepository
 	return &FactionPurchaseRepository{pool: pool}
 }
 
-func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *apishop.OneTimePurchase, faction, platform, purchaseToken string, eventOnCreate port.OutboxEvent) (created bool, err error) {
+func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, faction, cardPackID, platform, purchaseToken string, eventsOnCreate []port.OutboxEvent) (created bool, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin tx: %w", err)
@@ -37,9 +33,6 @@ func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase
 		return false, err
 	}
 	if !created {
-		if err := tx.Commit(ctx); err != nil {
-			return false, fmt.Errorf("commit tx: %w", err)
-		}
 		return false, nil
 	}
 
@@ -51,8 +44,16 @@ func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase
 		return false, fmt.Errorf("insert owned faction: %w", err)
 	}
 
-	if eventOnCreate.Topic != "" {
-		if err := writeOutboxEvent(ctx, tx, eventOnCreate); err != nil {
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id)
+		 VALUES ($1, $2)`,
+		purchase.PlayerID, cardPackID,
+	); err != nil {
+		return false, fmt.Errorf("insert owned card pack: %w", err)
+	}
+
+	for _, ev := range eventsOnCreate {
+		if err := writeOutboxEvent(ctx, tx, ev); err != nil {
 			return false, err
 		}
 	}

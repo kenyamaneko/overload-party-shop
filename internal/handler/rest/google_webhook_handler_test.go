@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/service/subscription"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
 type fakeGoogleNotifier struct {

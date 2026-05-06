@@ -24,16 +24,37 @@ $$ LANGUAGE plpgsql;
 CREATE TABLE shop.products (
   product_id          VARCHAR(50) NOT NULL,                  -- 商品ID
   name                VARCHAR(100) NOT NULL,                 -- 商品名
-  type                VARCHAR(20) NOT NULL,                  -- 商品タイプ (faction_set / cosmetic / subscription)
+  type                VARCHAR(20) NOT NULL,                  -- 商品タイプ discriminator (faction_set / cosmetic / subscription)
   price               BIGINT NOT NULL,                       -- 価格 (JPY)
-  content             JSONB NOT NULL,                        -- 商品内容
-  faction_id          VARCHAR(20) CHECK (faction_id IS NULL OR faction_id IN ('SHE', 'Tenki', 'Sugar', 'Tuners', 'Neutral')), -- 陣営（faction_set 商品のみ、それ以外は NULL）
   requires_product_id VARCHAR(50),                           -- 購入前提の商品ID（拡張セット用、NULL: なし）
   description         VARCHAR(500),                          -- 商品説明
   image_url           VARCHAR(200),                          -- 画像URL
   is_active           BOOLEAN NOT NULL,                      -- 販売中フラグ
   PRIMARY KEY (product_id),
   FOREIGN KEY (requires_product_id) REFERENCES shop.products(product_id)
+);
+
+-- type='faction_set' 商品の付帯属性。type と本副表の存在/不在の整合は application 層で担保する。
+CREATE TABLE shop.product_faction (
+  product_id VARCHAR(50) NOT NULL,                          -- shop.products への FK
+  faction    VARCHAR(20) NOT NULL CHECK (faction IN ('SHE', 'Tenki', 'Sugar', 'Tuners')), -- 配布対象 faction
+  PRIMARY KEY (product_id),
+  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
+);
+
+CREATE TABLE shop.product_card_pack (
+  product_id   VARCHAR(50) NOT NULL,                        -- 商品ID
+  card_pack_id VARCHAR(50) NOT NULL,                        -- カードパックID
+  PRIMARY KEY (product_id),
+  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
+);
+
+-- type='subscription' 商品の付帯属性。課金周期等の variant 属性をここに保持する。
+CREATE TABLE shop.product_subscription (
+  product_id    VARCHAR(50) NOT NULL,                        -- shop.products への FK
+  period_months INT NOT NULL CHECK (period_months > 0),      -- 課金周期 (月数。e.g. 1=monthly, 12=yearly)
+  PRIMARY KEY (product_id),
+  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
 );
 
 -- ドメイン (Subscription / OneTimePurchase) と外部識別 (Apple/Google トークン) を
@@ -126,6 +147,16 @@ CREATE TABLE shop.player_items (
   PRIMARY KEY (player_id, item_type, item_no)
 );
 
+-- type='cosmetic' 商品の付帯属性。cosmetic_items への DB レベル FK が成立する。
+CREATE TABLE shop.product_cosmetic (
+  product_id VARCHAR(50) NOT NULL,                          -- shop.products への FK
+  item_type  VARCHAR(20) NOT NULL,                          -- アイテム種別 (cosmetic_items 参照)
+  item_no    BIGINT NOT NULL,                               -- アイテム番号 (cosmetic_items 参照)
+  PRIMARY KEY (product_id),
+  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE,
+  FOREIGN KEY (item_type, item_no) REFERENCES shop.cosmetic_items(item_type, item_no)
+);
+
 -- =============================================================================
 -- Shop-local read models
 -- =============================================================================
@@ -143,6 +174,13 @@ CREATE TABLE shop.player_owned_factions (
   PRIMARY KEY (player_id, faction)
 );
 
+CREATE TABLE shop.player_owned_card_packs (
+  player_id    UUID NOT NULL,                           -- 所有プレイヤー
+  card_pack_id VARCHAR(50) NOT NULL,                    -- 所有カードパック
+  granted_at   TIMESTAMPTZ NOT NULL DEFAULT now(),      -- 付与日時
+  PRIMARY KEY (player_id, card_pack_id)
+);
+
 -- =============================================================================
 -- Transactional Outbox
 -- =============================================================================
@@ -158,7 +196,7 @@ CREATE TABLE shop.player_owned_factions (
 -- 配信済み行は削除しない (監査・障害調査用に保持)。
 CREATE TABLE shop.outbox_events (
   event_id          UUID NOT NULL,                        -- payload 内 eventId と一致
-  topic             VARCHAR(100) NOT NULL,                -- Pub/Sub topic 名
+  event_type        VARCHAR(100) NOT NULL,                -- 論理イベント種別 (apishop.EventType*)。adapter が物理 topic に解決する
   payload           JSONB NOT NULL,                       -- JSON Marshal 済みイベント本体
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),   -- enqueue 日時
   published_at      TIMESTAMPTZ,                          -- NULL = 未配信

@@ -12,7 +12,7 @@ on:
 
 permissions:
   contents: read
-  # Workload Identity Federation で GCP に認証するために OIDC トークンの発行権限が必要
+  # Workload Identity Federation で Google Cloud に認証するために OIDC トークンの発行権限が必要
   id-token: write
 
 concurrency:
@@ -20,7 +20,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PROJECT_NUMBER: "248288258659"
   PROJECT_ID: keyandnotes-platform
   REGISTRY: asia-northeast1-docker.pkg.dev
   REPOSITORY: overload-party
@@ -54,8 +53,8 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/${{ env.PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-actions/providers/github
-          service_account: github-ci@keyandnotes-platform.iam.gserviceaccount.com
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.CI_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
