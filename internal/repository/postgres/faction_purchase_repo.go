@@ -13,7 +13,6 @@ import (
 var _ port.FactionPurchaseRepo = (*FactionPurchaseRepository)(nil)
 
 // FactionPurchaseRepository は faction_set 購入 aggregate を扱う。
-// purchase + token + player_owned_factions + player_owned_card_packs + outbox events (2 行) を単一 tx で書く。
 type FactionPurchaseRepository struct {
 	pool *pgxpool.Pool
 }

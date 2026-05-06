@@ -34,37 +34,36 @@ func newFactionPurchaseEvents() []port.OutboxEvent {
 	}
 }
 
-func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
+const (
+	factionTestUser1 = "11111111-1111-1111-1111-111111111111"
+	factionTestUser2 = "22222222-2222-2222-2222-222222222222"
+)
+
+func newFactionTestPurchase(playerID string) *domain.OneTimePurchase {
+	return &domain.OneTimePurchase{
+		PlayerID:    playerID,
+		ProductID:   "faction_tenki",
+		PurchasedAt: time.Now().UTC(),
+	}
+}
+
+type factionPurchaseSeed struct {
+	playerID, faction, cardPackID, platform, token string
+}
+
+// TestFactionPurchaseRepository_CreatePurchase_Success は正常系の作成/べき等動作を確認する。
+func TestFactionPurchaseRepository_CreatePurchase_Success(t *testing.T) {
 	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	const (
-		user1 = "11111111-1111-1111-1111-111111111111"
-		user2 = "22222222-2222-2222-2222-222222222222"
-	)
-
-	newPurchase := func(playerID string) *domain.OneTimePurchase {
-		return &domain.OneTimePurchase{
-			PlayerID:    playerID,
-			ProductID:   "faction_tenki",
-			PurchasedAt: time.Now().UTC(),
-		}
-	}
-
-	type seed struct {
-		playerID, faction, cardPackID, platform, token string
-	}
-
 	tests := []struct {
 		name               string
-		seeds              []seed
+		seeds              []factionPurchaseSeed
 		playerID           string
 		faction            string
 		cardPackID         string
 		platform           string
 		token              string
-		wantErr            bool
-		wantErrIs          error
 		wantCreated        bool
 		expectPurchaseRows int
 		expectOwnedRows    int
@@ -72,7 +71,8 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 	}{
 		{
 			name:               "新規トークン: purchase + token + owned_faction + owned_card_pack 作成",
-			playerID:           user1,
+			seeds:              nil,
+			playerID:           factionTestUser1,
 			faction:            "Tenki",
 			cardPackID:         "faction_set_tenki",
 			platform:           domain.PlatformIOS,
@@ -84,10 +84,10 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		},
 		{
 			name: "同一ユーザー既存トークンはべき等 (created=false、owned 系も追加されない)",
-			seeds: []seed{
-				{user1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "dup-token"},
+			seeds: []factionPurchaseSeed{
+				{factionTestUser1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "dup-token"},
 			},
-			playerID:           user1,
+			playerID:           factionTestUser1,
 			faction:            "Tenki",
 			cardPackID:         "faction_set_tenki",
 			platform:           domain.PlatformIOS,
@@ -99,10 +99,10 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		},
 		{
 			name: "別ユーザー既存トークンもべき等 (first purchaseに紐付いたまま)",
-			seeds: []seed{
-				{user1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "shared-token"},
+			seeds: []factionPurchaseSeed{
+				{factionTestUser1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "shared-token"},
 			},
-			playerID:           user2,
+			playerID:           factionTestUser2,
 			faction:            "Tenki",
 			cardPackID:         "faction_set_tenki",
 			platform:           domain.PlatformIOS,
@@ -114,10 +114,10 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 		},
 		{
 			name: "異なるユーザーに同じfaction新規トークンで追加可",
-			seeds: []seed{
-				{user1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "tok-u1"},
+			seeds: []factionPurchaseSeed{
+				{factionTestUser1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "tok-u1"},
 			},
-			playerID:           user2,
+			playerID:           factionTestUser2,
 			faction:            "Tenki",
 			cardPackID:         "faction_set_tenki",
 			platform:           domain.PlatformIOS,
@@ -127,53 +127,17 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			expectOwnedRows:    2,
 			expectCardPackRows: 2,
 		},
-		{
-			name:       "unsupported platformはErrUnsupportedPlatform",
-			playerID:   user1,
-			faction:    "Tenki",
-			cardPackID: "faction_set_tenki",
-			platform:   "windows",
-			token:      "tok",
-			wantErrIs:  port.ErrUnsupportedPlatform,
-		},
-		{
-			name:       "player_IDが空文字(UUID不正)はエラー",
-			playerID:   "",
-			faction:    "Tenki",
-			cardPackID: "faction_set_tenki",
-			platform:   domain.PlatformIOS,
-			token:      "tok",
-			wantErr:    true,
-		},
-		{
-			name:       "不正なfaction文字列はCHECK制約でエラー",
-			playerID:   user1,
-			faction:    "InvalidFaction",
-			cardPackID: "faction_set_tenki",
-			platform:   domain.PlatformIOS,
-			token:      "tok",
-			wantErr:    true,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sharedPg.Truncate(t)
 			for _, s := range tt.seeds {
-				_, err := repo.CreatePurchase(ctx, newPurchase(s.playerID), s.faction, s.cardPackID, s.platform, s.token, newFactionPurchaseEvents())
+				_, err := repo.CreatePurchase(ctx, newFactionTestPurchase(s.playerID), s.faction, s.cardPackID, s.platform, s.token, newFactionPurchaseEvents())
 				require.NoError(t, err)
 			}
 
-			created, err := repo.CreatePurchase(ctx, newPurchase(tt.playerID), tt.faction, tt.cardPackID, tt.platform, tt.token, newFactionPurchaseEvents())
-
-			if tt.wantErrIs != nil {
-				assert.ErrorIs(t, err, tt.wantErrIs)
-				return
-			}
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
+			created, err := repo.CreatePurchase(ctx, newFactionTestPurchase(tt.playerID), tt.faction, tt.cardPackID, tt.platform, tt.token, newFactionPurchaseEvents())
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCreated, created)
 
@@ -187,6 +151,82 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			assert.Equal(t, tt.expectPurchaseRows, purchases)
 			assert.Equal(t, tt.expectOwnedRows, owned)
 			assert.Equal(t, tt.expectCardPackRows, cardPacks)
+		})
+	}
+}
+
+// TestFactionPurchaseRepository_CreatePurchase_WrappedError は wrap された
+// sentinel error (ErrorIs 判定) を返すケースを確認する。
+func TestFactionPurchaseRepository_CreatePurchase_WrappedError(t *testing.T) {
+	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		playerID   string
+		faction    string
+		cardPackID string
+		platform   string
+		token      string
+		wantErrIs  error
+	}{
+		{
+			name:       "unsupported platformはErrUnsupportedPlatform",
+			playerID:   factionTestUser1,
+			faction:    "Tenki",
+			cardPackID: "faction_set_tenki",
+			platform:   "windows",
+			token:      "tok",
+			wantErrIs:  port.ErrUnsupportedPlatform,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sharedPg.Truncate(t)
+			_, err := repo.CreatePurchase(ctx, newFactionTestPurchase(tt.playerID), tt.faction, tt.cardPackID, tt.platform, tt.token, newFactionPurchaseEvents())
+			assert.ErrorIs(t, err, tt.wantErrIs)
+		})
+	}
+}
+
+// TestFactionPurchaseRepository_CreatePurchase_DBError は DB 制約違反などで
+// 一般的にエラーが返るケースを確認する (sentinel ではないので Error のみ判定)。
+func TestFactionPurchaseRepository_CreatePurchase_DBError(t *testing.T) {
+	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		playerID   string
+		faction    string
+		cardPackID string
+		platform   string
+		token      string
+	}{
+		{
+			name:       "player_IDが空文字(UUID不正)はエラー",
+			playerID:   "",
+			faction:    "Tenki",
+			cardPackID: "faction_set_tenki",
+			platform:   domain.PlatformIOS,
+			token:      "tok",
+		},
+		{
+			name:       "不正なfaction文字列はCHECK制約でエラー",
+			playerID:   factionTestUser1,
+			faction:    "InvalidFaction",
+			cardPackID: "faction_set_tenki",
+			platform:   domain.PlatformIOS,
+			token:      "tok",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sharedPg.Truncate(t)
+			_, err := repo.CreatePurchase(ctx, newFactionTestPurchase(tt.playerID), tt.faction, tt.cardPackID, tt.platform, tt.token, newFactionPurchaseEvents())
+			assert.Error(t, err)
 		})
 	}
 }

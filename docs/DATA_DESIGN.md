@@ -59,8 +59,8 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 <!-- BEGIN GENERATED: product_card_pack -->
 | カラム名 | 型 | Nullable | 説明 |
 |---|---|---|---|
-| `product_id` | VARCHAR(50) | No | shop.products への FK |
-| `card_pack_id` | VARCHAR(50) | No | card.card_pack.pack_id への論理参照 |
+| `product_id` | VARCHAR(50) | No | 商品ID |
+| `card_pack_id` | VARCHAR(50) | No | カードパックID |
 <!-- END GENERATED: product_card_pack -->
 
 ### product_cosmetic
@@ -206,7 +206,7 @@ shop 購入経由で付与された card_pack 所有状況の shop ローカル 
 | カラム名 | 型 | Nullable | 説明 |
 |---|---|---|---|
 | `player_id` | UUID | No | 所有プレイヤー |
-| `card_pack_id` | VARCHAR(50) | No | 所有 card_pack (card.card_pack.pack_id への論理参照) |
+| `card_pack_id` | VARCHAR(50) | No | 所有カードパック |
 | `granted_at` | TIMESTAMPTZ | No | 付与日時 |
 <!-- END GENERATED: player_owned_card_packs -->
 

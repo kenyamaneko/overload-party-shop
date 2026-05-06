@@ -12,8 +12,7 @@ import (
 
 var _ port.CardPackPurchaseRepo = (*CardPackPurchaseRepository)(nil)
 
-// CardPackPurchaseRepository は pure card_pack 商品 (faction を伴わない) 購入 aggregate を扱う。
-// purchase + token + player_owned_card_packs + outbox event (card-pack-purchased) を単一 tx で書く。
+// CardPackPurchaseRepository は card_pack 商品 (faction を伴わない pure pack 購入) aggregate を扱う。
 type CardPackPurchaseRepository struct {
 	pool *pgxpool.Pool
 }

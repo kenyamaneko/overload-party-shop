@@ -42,10 +42,9 @@ CREATE TABLE shop.product_faction (
   FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
 );
 
--- type IN ('faction_set','card_pack') 商品の付帯属性。card.card_pack.pack_id への論理参照 (FK なし、ADR-031 §5)。
 CREATE TABLE shop.product_card_pack (
-  product_id   VARCHAR(50) NOT NULL,                        -- shop.products への FK
-  card_pack_id VARCHAR(50) NOT NULL,                        -- card.card_pack.pack_id への論理参照
+  product_id   VARCHAR(50) NOT NULL,                        -- 商品ID
+  card_pack_id VARCHAR(50) NOT NULL,                        -- カードパックID
   PRIMARY KEY (product_id),
   FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
 );
@@ -175,14 +174,9 @@ CREATE TABLE shop.player_owned_factions (
   PRIMARY KEY (player_id, faction)
 );
 
--- shop.player_owned_card_packs は card_pack 商品の再購入禁止用 read model。
--- Purchase 成功時に書き込まれ、card-pack-purchased イベントの outbox 行は
--- この INSERT と同一トランザクションで書き込まれる。
--- 「同じ card_pack_id を再購入しない」契約 (ADR-031) を担保するため faction_set 商品
--- でも本表に行を入れる (faction の重複は player_owned_factions、card_pack の重複は本表でガード)。
 CREATE TABLE shop.player_owned_card_packs (
   player_id    UUID NOT NULL,                           -- 所有プレイヤー
-  card_pack_id VARCHAR(50) NOT NULL,                    -- 所有 card_pack (card.card_pack.pack_id への論理参照)
+  card_pack_id VARCHAR(50) NOT NULL,                    -- 所有カードパック
   granted_at   TIMESTAMPTZ NOT NULL DEFAULT now(),      -- 付与日時
   PRIMARY KEY (player_id, card_pack_id)
 );

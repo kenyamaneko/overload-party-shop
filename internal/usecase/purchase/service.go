@@ -83,9 +83,8 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]domain.Pr
 }
 
 // isProductOwned は per-type ProductView ごとに所有状態を判定する。
-// faction_set / card_pack の所有判定は `player_owned_card_packs` を引く (CardPackPurchaseRepo 経由)。
-// faction 所有 (`player_owned_factions`) ではなく card_pack 所有で判定するのは、
-// 「再購入禁止」契約 (ADR-031 §1) の判断軸が card_pack_id 単位だから。
+// faction_set / card_pack は再購入禁止契約が card_pack_id 単位なので
+// player_owned_card_packs を引く (faction 所有とは別軸)。
 func (s *Service) isProductOwned(ctx context.Context, playerID string, pv domain.ProductView, ownedItems []*domain.PlayerItem, subEntitled bool) (bool, error) {
 	switch p := pv.(type) {
 	case domain.FactionSetProduct:

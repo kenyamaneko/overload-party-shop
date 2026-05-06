@@ -23,8 +23,6 @@ func (p SubscriptionProduct) Common() Product { return p.Product }
 func (SubscriptionProduct) isProductView()    {}
 
 // NewFactionSetProduct は card_pack 参照と faction を持つ FactionSetProduct を構築する。
-// faction_set 商品は購入時に card_pack を配布する (card 側で GrantPack) と同時に
-// faction 所有権を付与する (account 側で player_factions INSERT) ので両方の情報が必要。
 func NewFactionSetProduct(common Product, cardPackID, faction string) FactionSetProduct {
 	return FactionSetProduct{Product: common, CardPackID: cardPackID, Faction: faction}
 }

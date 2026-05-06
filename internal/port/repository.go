@@ -15,9 +15,7 @@ type ProductRepo interface {
 
 // FactionPurchaseRepo は faction_set 購入 aggregate を扱う。
 type FactionPurchaseRepo interface {
-	// CreatePurchase は purchase + token + owned_faction + owned_card_pack + outbox events を単一 tx で挿入する。
-	// faction_set 商品は card_pack も配布するため、player_owned_card_packs に行を追加し
-	// outbox events として card-pack-purchased / faction-acquired の 2 行を相乗りさせる。
+	// CreatePurchase は購入確定に伴う行と outbox events を単一 tx で挿入する。
 	// 既存 token があれば created=false で既存 purchase_id を埋めて no-op return する。
 	CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, faction, cardPackID, platform, purchaseToken string, eventsOnCreate []OutboxEvent) (created bool, err error)
 	ListOwnedFactions(ctx context.Context, playerID string) ([]string, error)
@@ -25,11 +23,9 @@ type FactionPurchaseRepo interface {
 
 // CardPackPurchaseRepo は card_pack 商品 (faction を伴わない pure pack 購入) aggregate を扱う。
 type CardPackPurchaseRepo interface {
-	// CreatePurchase は purchase + token + owned_card_pack + outbox event (card-pack-purchased) を単一 tx で挿入する。
+	// CreatePurchase は購入確定に伴う行と outbox event を単一 tx で挿入する。
 	// 既存 token があれば created=false で no-op return する。
 	CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, cardPackID, platform, purchaseToken string, eventOnCreate OutboxEvent) (created bool, err error)
-	// HasPlayerCardPack は player_owned_card_packs に該当 (player_id, card_pack_id) が存在するか返す。
-	// 再購入禁止チェックに使う (faction_set / card_pack の両方で参照)。
 	HasPlayerCardPack(ctx context.Context, playerID, cardPackID string) (bool, error)
 }
 

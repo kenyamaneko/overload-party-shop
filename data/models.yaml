@@ -140,7 +140,6 @@ files:
         comment: |
           FactionAcquiredEvent はプレイヤーが faction を獲得した業務事実を表す shop 発行イベント。
           subscriber: account (player_factions に INSERT、authoritative 所有権) / gateway (WS 一次通知)。
-          card は購読しない (card の関心は CardPackPurchasedEvent 経由の pack 配布のみ)。
           subscriber は EventID で冪等性を担保する (at-least-once)。
         fields:
           - {name: EventType, type: string, json: "event_type"}
