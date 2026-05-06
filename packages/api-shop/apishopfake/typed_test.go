@@ -12,15 +12,15 @@ import (
 )
 
 // Expect → Publish → Wait の round-trip で typed publish/受信が繋がることを固定する。
-func TestFactionPurchased_ExpectPublishWaitRoundTrip(t *testing.T) {
+func TestFactionAcquired_ExpectPublishWaitRoundTrip(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
 	sub := apishopfake.NewSubscriber(broker)
 	ctx := context.Background()
 
-	exp := apishopfake.ExpectFactionPurchased(sub)
+	exp := apishopfake.ExpectFactionAcquired(sub)
 
-	require.NoError(t, apishopfake.PublishFactionPurchased(ctx, pub, apishop.FactionPurchasedEvent{
+	require.NoError(t, apishopfake.PublishFactionAcquired(ctx, pub, apishop.FactionAcquiredEvent{
 		PlayerID: "player-1",
 		Faction:  "Tenki",
 	}))
@@ -31,41 +31,63 @@ func TestFactionPurchased_ExpectPublishWaitRoundTrip(t *testing.T) {
 	assert.Equal(t, "Tenki", got.Faction)
 }
 
-// PublishFactionPurchased は EventType / EventID / Timestamp の省略時にデフォルトを補完する。
-func TestFactionPurchased_PublishFillsDefaults(t *testing.T) {
+// PublishFactionAcquired は EventType / EventID / Timestamp の省略時にデフォルトを補完する。
+func TestFactionAcquired_PublishFillsDefaults(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
 	sub := apishopfake.NewSubscriber(broker)
 	ctx := context.Background()
 
 	before := time.Now().UTC()
-	exp := apishopfake.ExpectFactionPurchased(sub)
+	exp := apishopfake.ExpectFactionAcquired(sub)
 
-	require.NoError(t, apishopfake.PublishFactionPurchased(ctx, pub, apishop.FactionPurchasedEvent{
+	require.NoError(t, apishopfake.PublishFactionAcquired(ctx, pub, apishop.FactionAcquiredEvent{
 		PlayerID: "p", Faction: "SHE",
 	}))
 
 	got, err := exp.Wait(time.Second)
 	require.NoError(t, err)
-	assert.Equal(t, apishop.EventTypeFactionPurchased, got.EventType, "EventType は契約で固定")
+	assert.Equal(t, apishop.EventTypeFactionAcquired, got.EventType, "EventType は契約で固定")
 	assert.NotEmpty(t, got.EventID, "EventID は未指定なら自動生成される")
 	assert.False(t, got.Timestamp.Before(before), "Timestamp は未指定なら現在時刻以降")
 }
 
 // Expect より先に publish されたメッセージは Wait で拾えず timeout になる。
-func TestFactionPurchased_WaitTimesOutWhenPublishedBeforeExpect(t *testing.T) {
+func TestFactionAcquired_WaitTimesOutWhenPublishedBeforeExpect(t *testing.T) {
 	broker := apishopfake.NewBroker()
 	pub := apishopfake.NewPublisher(broker)
 	sub := apishopfake.NewSubscriber(broker)
 	ctx := context.Background()
 
-	require.NoError(t, apishopfake.PublishFactionPurchased(ctx, pub, apishop.FactionPurchasedEvent{
+	require.NoError(t, apishopfake.PublishFactionAcquired(ctx, pub, apishop.FactionAcquiredEvent{
 		PlayerID: "p", Faction: "Tenki",
 	}))
 
-	exp := apishopfake.ExpectFactionPurchased(sub)
+	exp := apishopfake.ExpectFactionAcquired(sub)
 	_, err := exp.Wait(50 * time.Millisecond)
 	require.ErrorContains(t, err, "timeout")
+}
+
+// CardPackPurchased 側の round-trip + defaults を固定する。
+func TestCardPackPurchased_ExpectPublishWaitRoundTrip(t *testing.T) {
+	broker := apishopfake.NewBroker()
+	pub := apishopfake.NewPublisher(broker)
+	sub := apishopfake.NewSubscriber(broker)
+	ctx := context.Background()
+
+	exp := apishopfake.ExpectCardPackPurchased(sub)
+
+	require.NoError(t, apishopfake.PublishCardPackPurchased(ctx, pub, apishop.CardPackPurchasedEvent{
+		PlayerID:   "player-2",
+		CardPackID: "faction_set_tenki",
+	}))
+
+	got, err := exp.Wait(time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, "player-2", got.PlayerID)
+	assert.Equal(t, "faction_set_tenki", got.CardPackID)
+	assert.Equal(t, apishop.EventTypeCardPackPurchased, got.EventType, "EventType は契約で固定")
+	assert.NotEmpty(t, got.EventID)
 }
 
 // PremiumUpdated 側の round-trip + defaults + Source 補完を固定する。
@@ -101,7 +123,7 @@ func TestTyped_PublishedRecordsTopicAndPayload(t *testing.T) {
 	pub := apishopfake.NewPublisher(broker)
 	ctx := context.Background()
 
-	require.NoError(t, apishopfake.PublishFactionPurchased(ctx, pub, apishop.FactionPurchasedEvent{
+	require.NoError(t, apishopfake.PublishFactionAcquired(ctx, pub, apishop.FactionAcquiredEvent{
 		PlayerID: "p", Faction: "Sugar",
 	}))
 	require.NoError(t, apishopfake.PublishPremiumUpdated(ctx, pub, apishop.PremiumUpdatedEvent{
@@ -110,7 +132,7 @@ func TestTyped_PublishedRecordsTopicAndPayload(t *testing.T) {
 
 	history := pub.Published()
 	require.Len(t, history, 2)
-	assert.Equal(t, apishop.TopicFactionPurchased, history[0].Topic)
+	assert.Equal(t, apishop.TopicFactionAcquired, history[0].Topic)
 	assert.Equal(t, apishop.TopicPremiumUpdated, history[1].Topic)
 	assert.NotEmpty(t, history[0].Data)
 	assert.NotEmpty(t, history[1].Data)
