@@ -28,8 +28,9 @@ type Config struct {
 
 	GoogleCloudProject string
 
-	FactionPurchasedTopic string
-	PremiumUpdatedTopic   string
+	CardPackPurchasedTopic string
+	FactionAcquiredTopic   string
+	PremiumUpdatedTopic    string
 
 	IAPMode IAPMode
 
@@ -56,12 +57,13 @@ type Config struct {
 // FromEnv は環境変数から Config を構築する。全 env は必須で未設定は fail する。
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		DatabaseConn:          os.Getenv("DATABASE_CONN"),
-		GoogleCloudProject:    os.Getenv("GOOGLE_CLOUD_PROJECT"),
-		FactionPurchasedTopic: os.Getenv("FACTION_PURCHASED_TOPIC"),
-		PremiumUpdatedTopic:   os.Getenv("PREMIUM_UPDATED_TOPIC"),
-		IAPMode:               IAPMode(os.Getenv("IAP_MODE")),
-		AppleEnvironment:      os.Getenv("APPLE_ENVIRONMENT"),
+		DatabaseConn:           os.Getenv("DATABASE_CONN"),
+		GoogleCloudProject:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		CardPackPurchasedTopic: os.Getenv("CARD_PACK_PURCHASED_TOPIC"),
+		FactionAcquiredTopic:   os.Getenv("FACTION_ACQUIRED_TOPIC"),
+		PremiumUpdatedTopic:    os.Getenv("PREMIUM_UPDATED_TOPIC"),
+		IAPMode:                IAPMode(os.Getenv("IAP_MODE")),
+		AppleEnvironment:       os.Getenv("APPLE_ENVIRONMENT"),
 	}
 
 	rawPort := os.Getenv("PORT")
@@ -80,8 +82,11 @@ func FromEnv() (*Config, error) {
 	if cfg.GoogleCloudProject == "" {
 		return nil, fmt.Errorf("config: GOOGLE_CLOUD_PROJECT is required")
 	}
-	if cfg.FactionPurchasedTopic == "" {
-		return nil, fmt.Errorf("config: FACTION_PURCHASED_TOPIC is required")
+	if cfg.CardPackPurchasedTopic == "" {
+		return nil, fmt.Errorf("config: CARD_PACK_PURCHASED_TOPIC is required")
+	}
+	if cfg.FactionAcquiredTopic == "" {
+		return nil, fmt.Errorf("config: FACTION_ACQUIRED_TOPIC is required")
 	}
 	if cfg.PremiumUpdatedTopic == "" {
 		return nil, fmt.Errorf("config: PREMIUM_UPDATED_TOPIC is required")

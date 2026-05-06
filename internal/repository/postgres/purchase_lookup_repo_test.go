@@ -25,7 +25,7 @@ func TestPurchaseLookupRepository_FindPurchaseByToken(t *testing.T) {
 
 	_, err := factionPurchase.CreatePurchase(ctx,
 		&domain.OneTimePurchase{PlayerID: user1, ProductID: "faction_she", PurchasedAt: time.Now().UTC()},
-		"SHE", domain.PlatformIOS, "apple-token-1", newFactionEvent())
+		"SHE", "faction_set_she", domain.PlatformIOS, "apple-token-1", newFactionPurchaseEvents())
 	require.NoError(t, err)
 
 	tests := []struct {

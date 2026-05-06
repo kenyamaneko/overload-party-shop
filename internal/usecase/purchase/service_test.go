@@ -17,12 +17,13 @@ import (
 )
 
 type testShopEnv struct {
-	svc                 *Service
-	productRepo         *postgres.ProductRepository
-	factionPurchaseRepo *postgres.FactionPurchaseRepository
-	itemPurchaseRepo    *postgres.ItemPurchaseRepository
-	purchaseLookup      *postgres.PurchaseLookupRepository
-	subRepo             *postgres.SubscriptionRepository
+	svc                  *Service
+	productRepo          *postgres.ProductRepository
+	factionPurchaseRepo  *postgres.FactionPurchaseRepository
+	cardPackPurchaseRepo *postgres.CardPackPurchaseRepository
+	itemPurchaseRepo     *postgres.ItemPurchaseRepository
+	purchaseLookup       *postgres.PurchaseLookupRepository
+	subRepo              *postgres.SubscriptionRepository
 }
 
 // shopEnvOption は newTestShopEnv に渡す依存差し替えオプション。
@@ -55,37 +56,58 @@ func newTestShopEnv(t *testing.T, opts ...shopEnvOption) *testShopEnv {
 
 	productRepo := postgres.NewProductRepository(sharedPg.Pool)
 	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
+	cardPackPurchaseRepo := postgres.NewCardPackPurchaseRepository(sharedPg.Pool)
 	itemPurchaseRepo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	purchaseLookup := postgres.NewPurchaseLookupRepository(sharedPg.Pool)
 	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 
 	svc := New(
-		productRepo, factionPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo,
+		productRepo, factionPurchaseRepo, cardPackPurchaseRepo, itemPurchaseRepo, purchaseLookup, subRepo,
 		deps.appleVerifier, deps.googleVerifier,
 	)
 
 	return &testShopEnv{
-		svc:                 svc,
-		productRepo:         productRepo,
-		factionPurchaseRepo: factionPurchaseRepo,
-		itemPurchaseRepo:    itemPurchaseRepo,
-		purchaseLookup:      purchaseLookup,
-		subRepo:             subRepo,
+		svc:                  svc,
+		productRepo:          productRepo,
+		factionPurchaseRepo:  factionPurchaseRepo,
+		cardPackPurchaseRepo: cardPackPurchaseRepo,
+		itemPurchaseRepo:     itemPurchaseRepo,
+		purchaseLookup:       purchaseLookup,
+		subRepo:              subRepo,
 	}
 }
 
-func selectFactionPurchasedEvents(t *testing.T) []domain.FactionPurchasedEvent {
+func selectCardPackPurchasedEvents(t *testing.T) []domain.CardPackPurchasedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
 		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
-		domain.EventTypeFactionPurchased)
+		domain.EventTypeCardPackPurchased)
 	require.NoError(t, err)
 	defer rows.Close()
-	var events []domain.FactionPurchasedEvent
+	var events []domain.CardPackPurchasedEvent
 	for rows.Next() {
 		var payload []byte
 		require.NoError(t, rows.Scan(&payload))
-		var ev domain.FactionPurchasedEvent
+		var ev domain.CardPackPurchasedEvent
+		require.NoError(t, json.Unmarshal(payload, &ev))
+		events = append(events, ev)
+	}
+	require.NoError(t, rows.Err())
+	return events
+}
+
+func selectFactionAcquiredEvents(t *testing.T) []domain.FactionAcquiredEvent {
+	t.Helper()
+	rows, err := sharedPg.Pool.Query(context.Background(),
+		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
+		domain.EventTypeFactionAcquired)
+	require.NoError(t, err)
+	defer rows.Close()
+	var events []domain.FactionAcquiredEvent
+	for rows.Next() {
+		var payload []byte
+		require.NoError(t, rows.Scan(&payload))
+		var ev domain.FactionAcquiredEvent
 		require.NoError(t, json.Unmarshal(payload, &ev))
 		events = append(events, ev)
 	}
@@ -122,13 +144,29 @@ func insertCommonProduct(t *testing.T, productID, name, productType string, pric
 	require.NoError(t, err)
 }
 
-// insertFactionSetProduct は faction_set 商品 (products + product_faction) を seed する。
+// insertFactionSetProduct は faction_set 商品 (products + product_faction + product_card_pack) を seed する。
+// card_pack_id は "faction_set_<faction>" の規約で生成する。
 func insertFactionSetProduct(t *testing.T, productID, name string, price int64, faction string, isActive bool) {
 	t.Helper()
 	insertCommonProduct(t, productID, name, domain.ProductTypeFactionSet, price, isActive)
 	_, err := sharedPg.Pool.Exec(context.Background(),
 		`INSERT INTO shop.product_faction (product_id, faction) VALUES ($1,$2)`,
 		productID, faction)
+	require.NoError(t, err)
+	cardPackID := "faction_set_" + faction
+	_, err = sharedPg.Pool.Exec(context.Background(),
+		`INSERT INTO shop.product_card_pack (product_id, card_pack_id) VALUES ($1,$2)`,
+		productID, cardPackID)
+	require.NoError(t, err)
+}
+
+// insertCardPackProduct は card_pack 商品 (products + product_card_pack) を seed する。
+func insertCardPackProduct(t *testing.T, productID, name string, price int64, cardPackID string, isActive bool) {
+	t.Helper()
+	insertCommonProduct(t, productID, name, domain.ProductTypeCardPack, price, isActive)
+	_, err := sharedPg.Pool.Exec(context.Background(),
+		`INSERT INTO shop.product_card_pack (product_id, card_pack_id) VALUES ($1,$2)`,
+		productID, cardPackID)
 	require.NoError(t, err)
 }
 
@@ -195,8 +233,15 @@ func TestPurchase_FactionSet_Success(t *testing.T) {
 	err := env.svc.Purchase(context.Background(), "11111111-1111-1111-1111-111111111111", "faction_tenki", "ios", "receipt-token-1")
 	require.NoError(t, err)
 
-	t.Run("publishes faction-purchased event", func(t *testing.T) {
-		events := selectFactionPurchasedEvents(t)
+	t.Run("publishes card-pack-purchased event", func(t *testing.T) {
+		events := selectCardPackPurchasedEvents(t)
+		require.Len(t, events, 1)
+		assert.Equal(t, "11111111-1111-1111-1111-111111111111", events[0].PlayerID)
+		assert.Equal(t, "faction_set_Tenki", events[0].CardPackID)
+	})
+
+	t.Run("publishes faction-acquired event", func(t *testing.T) {
+		events := selectFactionAcquiredEvents(t)
 		require.Len(t, events, 1)
 		assert.Equal(t, "11111111-1111-1111-1111-111111111111", events[0].PlayerID)
 		assert.Equal(t, "Tenki", events[0].Faction)
@@ -206,6 +251,12 @@ func TestPurchase_FactionSet_Success(t *testing.T) {
 		factions, err := env.factionPurchaseRepo.ListOwnedFactions(context.Background(), "11111111-1111-1111-1111-111111111111")
 		require.NoError(t, err)
 		assert.Contains(t, factions, "Tenki")
+	})
+
+	t.Run("writes shop-local owned card pack", func(t *testing.T) {
+		owned, err := env.cardPackPurchaseRepo.HasPlayerCardPack(context.Background(), "11111111-1111-1111-1111-111111111111", "faction_set_Tenki")
+		require.NoError(t, err)
+		assert.True(t, owned)
 	})
 }
 
@@ -226,7 +277,8 @@ func TestPurchase_Idempotent(t *testing.T) {
 	require.NoError(t, env.svc.Purchase(ctx, playerID, "faction_tenki", "ios", "receipt-token-1"))
 
 	// publish は 1 回のみ (2 回目は既存 token 検出経路で publish 前に return)
-	assert.Len(t, selectFactionPurchasedEvents(t), 1)
+	assert.Len(t, selectCardPackPurchasedEvents(t), 1)
+	assert.Len(t, selectFactionAcquiredEvents(t), 1)
 }
 
 func TestPurchase_ReceiptFailed(t *testing.T) {
@@ -240,7 +292,37 @@ func TestPurchase_ReceiptFailed(t *testing.T) {
 
 	err := env.svc.Purchase(context.Background(), "33333333-3333-3333-3333-333333333333", "faction_tenki", "ios", "bad-receipt")
 	assert.ErrorIs(t, err, ErrReceiptVerificationFailed)
-	assert.Empty(t, selectFactionPurchasedEvents(t))
+	assert.Empty(t, selectCardPackPurchasedEvents(t))
+	assert.Empty(t, selectFactionAcquiredEvents(t))
+}
+
+// card_pack 商品 (faction を伴わない pure pack) 購入は card-pack-purchased のみ publish
+// する (faction-acquired は出さない)。再購入禁止は player_owned_card_packs で担保。
+func TestPurchase_CardPackProduct(t *testing.T) {
+	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+			return &port.VerifyResult{IsValid: true, TransactionID: "txn-limited"}, nil
+		},
+	}))
+
+	insertCardPackProduct(t, "limited_2026_summer", "限定: 2026 夏パック", 480, "limited_2026_summer", true)
+
+	playerID := "77777777-7777-7777-7777-aaaaaaaaaaaa"
+	ctx := context.Background()
+	require.NoError(t, env.svc.Purchase(ctx, playerID, "limited_2026_summer", "ios", "receipt-limited-1"))
+
+	t.Run("publishes card-pack-purchased event のみ (faction-acquired は出さない)", func(t *testing.T) {
+		card := selectCardPackPurchasedEvents(t)
+		require.Len(t, card, 1)
+		assert.Equal(t, playerID, card[0].PlayerID)
+		assert.Equal(t, "limited_2026_summer", card[0].CardPackID)
+		assert.Empty(t, selectFactionAcquiredEvents(t))
+	})
+
+	t.Run("再購入は ErrAlreadyOwned で拒否される", func(t *testing.T) {
+		err := env.svc.Purchase(ctx, playerID, "limited_2026_summer", "ios", "receipt-limited-2")
+		assert.ErrorIs(t, err, ErrAlreadyOwned)
+	})
 }
 
 func TestPurchase_CosmeticItem(t *testing.T) {
@@ -254,7 +336,8 @@ func TestPurchase_CosmeticItem(t *testing.T) {
 
 	err := env.svc.Purchase(context.Background(), "44444444-4444-4444-4444-444444444444", "playmat_01", "android", "cosmetic-receipt")
 	require.NoError(t, err)
-	assert.Empty(t, selectFactionPurchasedEvents(t))
+	assert.Empty(t, selectCardPackPurchasedEvents(t))
+	assert.Empty(t, selectFactionAcquiredEvents(t))
 }
 
 func TestPurchase_AlreadyOwned_FactionSet(t *testing.T) {
@@ -415,9 +498,14 @@ func TestGetProducts_WithOwnership(t *testing.T) {
 
 	playerID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 	// shop 購入で SHE faction を所有している状態をシミュレート
+	// (faction_set 商品の IsOwned 判定は player_owned_card_packs 経由)
 	_, err := sharedPg.Pool.Exec(context.Background(),
 		`INSERT INTO shop.player_owned_factions (player_id, faction) VALUES ($1, $2)`,
 		playerID, "SHE")
+	require.NoError(t, err)
+	_, err = sharedPg.Pool.Exec(context.Background(),
+		`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
+		playerID, "faction_set_SHE")
 	require.NoError(t, err)
 
 	products, err := env.svc.GetProducts(context.Background(), playerID)

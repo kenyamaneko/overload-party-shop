@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,18 +18,20 @@ import (
 
 // Service は shop ローカルの購入フロー (商品一覧・単発購入・サブスクリプション) を管理する。
 type Service struct {
-	productRepo         port.ProductRepo
-	factionPurchaseRepo port.FactionPurchaseRepo
-	itemPurchaseRepo    port.ItemPurchaseRepo
-	purchaseLookup      port.PurchaseLookupRepo
-	subRepo             port.SubscriptionRepo
-	appleVerifier       port.ReceiptVerifier
-	googleVerifier      port.ReceiptVerifier
+	productRepo          port.ProductRepo
+	factionPurchaseRepo  port.FactionPurchaseRepo
+	cardPackPurchaseRepo port.CardPackPurchaseRepo
+	itemPurchaseRepo     port.ItemPurchaseRepo
+	purchaseLookup       port.PurchaseLookupRepo
+	subRepo              port.SubscriptionRepo
+	appleVerifier        port.ReceiptVerifier
+	googleVerifier       port.ReceiptVerifier
 }
 
 func New(
 	productRepo port.ProductRepo,
 	factionPurchaseRepo port.FactionPurchaseRepo,
+	cardPackPurchaseRepo port.CardPackPurchaseRepo,
 	itemPurchaseRepo port.ItemPurchaseRepo,
 	purchaseLookup port.PurchaseLookupRepo,
 	subRepo port.SubscriptionRepo,
@@ -38,13 +39,14 @@ func New(
 	googleVerifier port.ReceiptVerifier,
 ) *Service {
 	return &Service{
-		productRepo:         productRepo,
-		factionPurchaseRepo: factionPurchaseRepo,
-		itemPurchaseRepo:    itemPurchaseRepo,
-		purchaseLookup:      purchaseLookup,
-		subRepo:             subRepo,
-		appleVerifier:       appleVerifier,
-		googleVerifier:      googleVerifier,
+		productRepo:          productRepo,
+		factionPurchaseRepo:  factionPurchaseRepo,
+		cardPackPurchaseRepo: cardPackPurchaseRepo,
+		itemPurchaseRepo:     itemPurchaseRepo,
+		purchaseLookup:       purchaseLookup,
+		subRepo:              subRepo,
+		appleVerifier:        appleVerifier,
+		googleVerifier:       googleVerifier,
 	}
 }
 
@@ -53,11 +55,6 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]domain.Pr
 	products, err := s.productRepo.GetActiveProducts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get products: %w", err)
-	}
-
-	ownedFactions, err := s.factionPurchaseRepo.ListOwnedFactions(ctx, playerID)
-	if err != nil {
-		return nil, fmt.Errorf("list owned factions: %w", err)
 	}
 
 	latestSub, err := s.subRepo.GetLatestSubscription(ctx, playerID)
@@ -76,20 +73,36 @@ func (s *Service) GetProducts(ctx context.Context, playerID string) ([]domain.Pr
 
 	result := make([]domain.ProductWithOwnership, 0, len(products))
 	for _, pv := range products {
-		owned := false
-		switch p := pv.(type) {
-		case domain.FactionSetProduct:
-			owned = slices.Contains(ownedFactions, p.Faction)
-		case domain.SubscriptionProduct:
-			owned = subEntitled
-		case domain.CosmeticProduct:
-			owned = slices.ContainsFunc(ownedItems, func(it *domain.PlayerItem) bool {
-				return it.ItemType == p.ItemType && it.ItemNo == p.ItemNo
-			})
+		owned, err := s.isProductOwned(ctx, playerID, pv, ownedItems, subEntitled)
+		if err != nil {
+			return nil, err
 		}
 		result = append(result, domain.ProductWithOwnership{ProductView: pv, IsOwned: owned})
 	}
 	return result, nil
+}
+
+// isProductOwned は per-type ProductView ごとに所有状態を判定する。
+// faction_set / card_pack は再購入禁止契約が card_pack_id 単位なので
+// player_owned_card_packs を引く (faction 所有とは別軸)。
+func (s *Service) isProductOwned(ctx context.Context, playerID string, pv domain.ProductView, ownedItems []*domain.PlayerItem, subEntitled bool) (bool, error) {
+	switch p := pv.(type) {
+	case domain.FactionSetProduct:
+		return s.cardPackPurchaseRepo.HasPlayerCardPack(ctx, playerID, p.CardPackID)
+	case domain.CardPackProduct:
+		return s.cardPackPurchaseRepo.HasPlayerCardPack(ctx, playerID, p.CardPackID)
+	case domain.SubscriptionProduct:
+		return subEntitled, nil
+	case domain.CosmeticProduct:
+		for _, it := range ownedItems {
+			if it.ItemType == p.ItemType && it.ItemNo == p.ItemNo {
+				return true, nil
+			}
+		}
+		return false, nil
+	default:
+		return false, fmt.Errorf("isProductOwned: unknown product view type %T", pv)
+	}
 }
 
 // Purchase は単発購入フローを実行する (べき等チェック・レシート検証・購入記録・outbox enqueue)。
@@ -119,6 +132,8 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 	switch p := pv.(type) {
 	case domain.FactionSetProduct:
 		return s.purchaseFactionSet(ctx, playerID, p, pf, purchaseToken, verifier)
+	case domain.CardPackProduct:
+		return s.purchaseCardPack(ctx, playerID, p, pf, purchaseToken, verifier)
 	case domain.CosmeticProduct:
 		return s.purchaseCosmetic(ctx, playerID, p, pf, purchaseToken, verifier)
 	default:
@@ -127,12 +142,11 @@ func (s *Service) Purchase(ctx context.Context, playerID, productID, pf, purchas
 }
 
 func (s *Service) purchaseFactionSet(ctx context.Context, playerID string, product domain.FactionSetProduct, pf, purchaseToken string, verifier port.ReceiptVerifier) error {
-	// product_faction の DB CHECK が selectable faction のみを許容するため、ここでの値域検査は不要。
-	ownedFactions, err := s.factionPurchaseRepo.ListOwnedFactions(ctx, playerID)
+	owned, err := s.cardPackPurchaseRepo.HasPlayerCardPack(ctx, playerID, product.CardPackID)
 	if err != nil {
-		return fmt.Errorf("check owned factions: %w", err)
+		return fmt.Errorf("check owned card pack: %w", err)
 	}
-	if slices.Contains(ownedFactions, product.Faction) {
+	if owned {
 		return ErrAlreadyOwned
 	}
 
@@ -145,12 +159,45 @@ func (s *Service) purchaseFactionSet(ctx context.Context, playerID string, produ
 		ProductID:   product.Product.ProductID,
 		PurchasedAt: time.Now(),
 	}
-	ev, err := buildFactionPurchasedEvent(playerID, product.Faction)
+	cardPackEvent, err := buildCardPackPurchasedEvent(playerID, product.CardPackID)
 	if err != nil {
-		return fmt.Errorf("build faction-purchased: %w", err)
+		return fmt.Errorf("build card-pack-purchased: %w", err)
 	}
-	if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, product.Faction, pf, purchaseToken, ev); err != nil {
+	factionEvent, err := buildFactionAcquiredEvent(playerID, product.Faction)
+	if err != nil {
+		return fmt.Errorf("build faction-acquired: %w", err)
+	}
+	events := []port.OutboxEvent{cardPackEvent, factionEvent}
+	if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, product.Faction, product.CardPackID, pf, purchaseToken, events); err != nil {
 		return fmt.Errorf("create faction purchase: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) purchaseCardPack(ctx context.Context, playerID string, product domain.CardPackProduct, pf, purchaseToken string, verifier port.ReceiptVerifier) error {
+	owned, err := s.cardPackPurchaseRepo.HasPlayerCardPack(ctx, playerID, product.CardPackID)
+	if err != nil {
+		return fmt.Errorf("check owned card pack: %w", err)
+	}
+	if owned {
+		return ErrAlreadyOwned
+	}
+
+	if err := verifyPurchase(ctx, verifier, purchaseToken); err != nil {
+		return err
+	}
+
+	purchase := &domain.OneTimePurchase{
+		PlayerID:    playerID,
+		ProductID:   product.Product.ProductID,
+		PurchasedAt: time.Now(),
+	}
+	ev, err := buildCardPackPurchasedEvent(playerID, product.CardPackID)
+	if err != nil {
+		return fmt.Errorf("build card-pack-purchased: %w", err)
+	}
+	if _, err := s.cardPackPurchaseRepo.CreatePurchase(ctx, purchase, product.CardPackID, pf, purchaseToken, ev); err != nil {
+		return fmt.Errorf("create card pack purchase: %w", err)
 	}
 	return nil
 }
@@ -260,7 +307,27 @@ func (s *Service) getVerifier(pf string) (port.ReceiptVerifier, error) {
 	}
 }
 
-func buildFactionPurchasedEvent(playerID, faction string) (port.OutboxEvent, error) {
+func buildCardPackPurchasedEvent(playerID, cardPackID string) (port.OutboxEvent, error) {
+	if playerID == "" {
+		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
+	}
+	if cardPackID == "" {
+		return port.OutboxEvent{}, errors.New("purchase: cardPackID is empty")
+	}
+	eventID := uuid.New()
+	ev := presenter.ToCardPackPurchasedEvent(eventID.String(), playerID, cardPackID, time.Now().UTC())
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		return port.OutboxEvent{}, fmt.Errorf("marshal card-pack-purchased: %w", err)
+	}
+	return port.OutboxEvent{
+		EventID:   eventID,
+		EventType: domain.EventTypeCardPackPurchased,
+		Payload:   payload,
+	}, nil
+}
+
+func buildFactionAcquiredEvent(playerID, faction string) (port.OutboxEvent, error) {
 	if playerID == "" {
 		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
 	}
@@ -268,14 +335,14 @@ func buildFactionPurchasedEvent(playerID, faction string) (port.OutboxEvent, err
 		return port.OutboxEvent{}, errors.New("purchase: faction is empty")
 	}
 	eventID := uuid.New()
-	ev := presenter.ToFactionPurchasedEvent(eventID.String(), playerID, faction, time.Now().UTC())
+	ev := presenter.ToFactionAcquiredEvent(eventID.String(), playerID, faction, time.Now().UTC())
 	payload, err := json.Marshal(ev)
 	if err != nil {
-		return port.OutboxEvent{}, fmt.Errorf("marshal faction-purchased: %w", err)
+		return port.OutboxEvent{}, fmt.Errorf("marshal faction-acquired: %w", err)
 	}
 	return port.OutboxEvent{
 		EventID:   eventID,
-		EventType: domain.EventTypeFactionPurchased,
+		EventType: domain.EventTypeFactionAcquired,
 		Payload:   payload,
 	}, nil
 }

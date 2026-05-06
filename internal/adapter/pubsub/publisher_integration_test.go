@@ -40,25 +40,53 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// Publisher を emulator に向けて構築するヘルパ。両 topic を事前作成。
-func setupPublisher(t *testing.T) (*Publisher, string, string) {
+// publisherTopics は setupPublisher が作成して返す全 topic 名のセット。
+type publisherTopics struct {
+	cardPackPurchased string
+	factionAcquired   string
+	premiumUpdated    string
+}
+
+// Publisher を emulator に向けて構築するヘルパ。全 topic を事前作成。
+func setupPublisher(t *testing.T) (*Publisher, publisherTopics) {
 	t.Helper()
-	factionTopic := sharedEmulator.CreateTopic(t, domain.TopicFactionPurchased)
-	premiumTopic := sharedEmulator.CreateTopic(t, domain.TopicPremiumUpdated)
+	topics := publisherTopics{
+		cardPackPurchased: sharedEmulator.CreateTopic(t, domain.TopicCardPackPurchased),
+		factionAcquired:   sharedEmulator.CreateTopic(t, domain.TopicFactionAcquired),
+		premiumUpdated:    sharedEmulator.CreateTopic(t, domain.TopicPremiumUpdated),
+	}
 
 	ctx := context.Background()
-	pub, err := New(ctx, sharedEmulator.ProjectID(), factionTopic, premiumTopic)
+	pub, err := New(ctx, sharedEmulator.ProjectID(), topics.cardPackPurchased, topics.factionAcquired, topics.premiumUpdated)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pub.Close() })
 
-	return pub, factionTopic, premiumTopic
+	return pub, topics
 }
 
-func buildFactionPurchasedOutbox(t *testing.T, playerID, faction string) port.OutboxEvent {
+func buildCardPackPurchasedOutbox(t *testing.T, playerID, cardPackID string) port.OutboxEvent {
 	t.Helper()
 	id := uuid.New()
-	payload, err := json.Marshal(domain.FactionPurchasedEvent{
-		EventType: domain.EventTypeFactionPurchased,
+	payload, err := json.Marshal(domain.CardPackPurchasedEvent{
+		EventType:  domain.EventTypeCardPackPurchased,
+		EventID:    id.String(),
+		Timestamp:  time.Now().UTC(),
+		PlayerID:   playerID,
+		CardPackID: cardPackID,
+	})
+	require.NoError(t, err)
+	return port.OutboxEvent{
+		EventID:   id,
+		EventType: domain.EventTypeCardPackPurchased,
+		Payload:   payload,
+	}
+}
+
+func buildFactionAcquiredOutbox(t *testing.T, playerID, faction string) port.OutboxEvent {
+	t.Helper()
+	id := uuid.New()
+	payload, err := json.Marshal(domain.FactionAcquiredEvent{
+		EventType: domain.EventTypeFactionAcquired,
 		EventID:   id.String(),
 		Timestamp: time.Now().UTC(),
 		PlayerID:  playerID,
@@ -67,7 +95,7 @@ func buildFactionPurchasedOutbox(t *testing.T, playerID, faction string) port.Ou
 	require.NoError(t, err)
 	return port.OutboxEvent{
 		EventID:   id,
-		EventType: domain.EventTypeFactionPurchased,
+		EventType: domain.EventTypeFactionAcquired,
 		Payload:   payload,
 	}
 }
@@ -92,33 +120,54 @@ func buildPremiumUpdatedOutbox(t *testing.T, playerID string, isPremium bool, ex
 	}
 }
 
-// faction-purchased payload が Publisher で送信できる shape であることを固定する
+// card-pack-purchased payload が Publisher で送信できる shape であることを固定する
 // (outbox 行を worker が送出する経路の近似)。
-func TestIntegration_PublishFactionPurchased(t *testing.T) {
-	pub, factionTopic, _ := setupPublisher(t)
-	sub := sharedEmulator.Subscribe(t, factionTopic)
+func TestIntegration_PublishCardPackPurchased(t *testing.T) {
+	pub, topics := setupPublisher(t)
+	sub := sharedEmulator.Subscribe(t, topics.cardPackPurchased)
 
 	ctx := context.Background()
-	ev := buildFactionPurchasedOutbox(t, "player-123", "Tenki")
+	ev := buildCardPackPurchasedOutbox(t, "player-123", "faction_set_tenki")
 	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
 	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 	require.NoError(t, err)
 
-	var decoded domain.FactionPurchasedEvent
+	var decoded domain.CardPackPurchasedEvent
 	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, domain.EventTypeFactionPurchased, decoded.EventType)
+	assert.Equal(t, domain.EventTypeCardPackPurchased, decoded.EventType)
 	assert.Equal(t, ev.EventID.String(), decoded.EventID, "payload の eventId は outbox 行の PK と一致する")
 	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
 	assert.Equal(t, "player-123", decoded.PlayerID)
+	assert.Equal(t, "faction_set_tenki", decoded.CardPackID)
+}
+
+// faction-acquired payload が Publisher で送信できる shape であることを固定する。
+func TestIntegration_PublishFactionAcquired(t *testing.T) {
+	pub, topics := setupPublisher(t)
+	sub := sharedEmulator.Subscribe(t, topics.factionAcquired)
+
+	ctx := context.Background()
+	ev := buildFactionAcquiredOutbox(t, "player-456", "Tenki")
+	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
+
+	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
+	require.NoError(t, err)
+
+	var decoded domain.FactionAcquiredEvent
+	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
+
+	assert.Equal(t, domain.EventTypeFactionAcquired, decoded.EventType)
+	assert.Equal(t, ev.EventID.String(), decoded.EventID)
+	assert.Equal(t, "player-456", decoded.PlayerID)
 	assert.Equal(t, "Tenki", decoded.Faction)
 }
 
 // premium 付与 (expires_at あり) の送信 shape を固定。
 func TestIntegration_PublishPremiumUpdated_Granted(t *testing.T) {
-	pub, _, premiumTopic := setupPublisher(t)
-	sub := sharedEmulator.Subscribe(t, premiumTopic)
+	pub, topics := setupPublisher(t)
+	sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
 
 	ctx := context.Background()
 	expiresAt := time.Now().Add(30 * 24 * time.Hour).UTC()
@@ -143,8 +192,8 @@ func TestIntegration_PublishPremiumUpdated_Granted(t *testing.T) {
 
 // premium 解除 (expires_at=nil) の送信 shape を固定。
 func TestIntegration_PublishPremiumUpdated_Revoked(t *testing.T) {
-	pub, _, premiumTopic := setupPublisher(t)
-	sub := sharedEmulator.Subscribe(t, premiumTopic)
+	pub, topics := setupPublisher(t)
+	sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
 
 	ctx := context.Background()
 	ev := buildPremiumUpdatedOutbox(t, "player-not-premium", false, nil)
@@ -167,8 +216,8 @@ func TestIntegration_PublishPremiumUpdated_Revoked(t *testing.T) {
 
 // negative path: publish が呼ばれなければ subscriber は timeout する。
 func TestIntegration_NoPublish_SubscriberTimesOut(t *testing.T) {
-	_, factionTopic, _ := setupPublisher(t)
-	sub := sharedEmulator.Subscribe(t, factionTopic)
+	_, topics := setupPublisher(t)
+	sub := sharedEmulator.Subscribe(t, topics.cardPackPurchased)
 
 	_, err := sub.WaitForMessage(context.Background(), 500*time.Millisecond)
 	assert.ErrorIs(t, err, pubsubtest.ErrTimeout)

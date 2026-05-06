@@ -31,6 +31,15 @@ func seedProduct(t *testing.T, productID, name, productType string, price int64,
 			`INSERT INTO shop.product_faction (product_id, faction) VALUES ($1, $2)`,
 			productID, "SHE")
 		require.NoError(t, err)
+		_, err = sharedPg.Pool.Exec(context.Background(),
+			`INSERT INTO shop.product_card_pack (product_id, card_pack_id) VALUES ($1, $2)`,
+			productID, "faction_set_SHE")
+		require.NoError(t, err)
+	case domain.ProductTypeCardPack:
+		_, err = sharedPg.Pool.Exec(context.Background(),
+			`INSERT INTO shop.product_card_pack (product_id, card_pack_id) VALUES ($1, $2)`,
+			productID, "default_pack_"+productID)
+		require.NoError(t, err)
 	case domain.ProductTypeCosmetic:
 		_, err = sharedPg.Pool.Exec(context.Background(),
 			`INSERT INTO shop.cosmetic_items (item_type, item_no, item_name, is_purchasable, is_active)

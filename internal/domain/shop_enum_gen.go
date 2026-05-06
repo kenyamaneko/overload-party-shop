@@ -4,6 +4,7 @@ package domain
 
 const (
 	ProductTypeFactionSet = "faction_set"
+	ProductTypeCardPack = "card_pack"
 	ProductTypeCosmetic = "cosmetic"
 	ProductTypeSubscription = "subscription"
 	PlatformIOS = "ios"

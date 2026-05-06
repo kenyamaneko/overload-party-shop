@@ -18,12 +18,12 @@ type Publisher struct {
 }
 
 // New は eventType → topic の mapping を構築する。topic 名は env から注入する。
-func New(ctx context.Context, projectID, factionPurchasedTopic, premiumUpdatedTopic string) (*Publisher, error) {
+func New(ctx context.Context, projectID, cardPackPurchasedTopic, factionAcquiredTopic, premiumUpdatedTopic string) (*Publisher, error) {
 	if projectID == "" {
 		return nil, errors.New("pubsub: projectID is empty")
 	}
-	if factionPurchasedTopic == "" || premiumUpdatedTopic == "" {
-		return nil, errors.New("pubsub: both topic names are required")
+	if cardPackPurchasedTopic == "" || factionAcquiredTopic == "" || premiumUpdatedTopic == "" {
+		return nil, errors.New("pubsub: all topic names are required")
 	}
 	client, err := gpubsub.NewClient(ctx, projectID)
 	if err != nil {
@@ -32,8 +32,9 @@ func New(ctx context.Context, projectID, factionPurchasedTopic, premiumUpdatedTo
 	return &Publisher{
 		client: client,
 		byEventType: map[string]*gpubsub.Publisher{
-			domain.EventTypeFactionPurchased: client.Publisher(factionPurchasedTopic),
-			domain.EventTypePremiumUpdated:   client.Publisher(premiumUpdatedTopic),
+			domain.EventTypeCardPackPurchased: client.Publisher(cardPackPurchasedTopic),
+			domain.EventTypeFactionAcquired:   client.Publisher(factionAcquiredTopic),
+			domain.EventTypePremiumUpdated:    client.Publisher(premiumUpdatedTopic),
 		},
 	}, nil
 }

@@ -7,14 +7,14 @@ import (
 )
 
 const (
-	TopicFactionPurchased = "faction-purchased"
-	EventTypeFactionPurchased = "faction_purchased"
+	TopicFactionAcquired = "faction-acquired"
+	EventTypeFactionAcquired = "faction_acquired"
 )
 
-// FactionPurchasedEvent はプレイヤーが faction を購入した際に shop が発行するイベント。
-// subscriber: account (player_factions に INSERT) / card (faction 固有カード付与) / gateway (WS 通知)。
+// FactionAcquiredEvent はプレイヤーが faction を獲得した業務事実を表す shop 発行イベント。
+// subscriber: account (player_factions に INSERT、authoritative 所有権) / gateway (WS 一次通知)。
 // subscriber は EventID で冪等性を担保する (at-least-once)。
-type FactionPurchasedEvent struct {
+type FactionAcquiredEvent struct {
 	EventType string    `json:"event_type"`
 	EventID   string    `json:"event_id"`
 	Timestamp time.Time `json:"timestamp"`

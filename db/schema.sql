@@ -42,6 +42,13 @@ CREATE TABLE shop.product_faction (
   FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
 );
 
+CREATE TABLE shop.product_card_pack (
+  product_id   VARCHAR(50) NOT NULL,                        -- 商品ID
+  card_pack_id VARCHAR(50) NOT NULL,                        -- カードパックID
+  PRIMARY KEY (product_id),
+  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
+);
+
 -- type='subscription' 商品の付帯属性。課金周期等の variant 属性をここに保持する。
 CREATE TABLE shop.product_subscription (
   product_id    VARCHAR(50) NOT NULL,                        -- shop.products への FK
@@ -165,6 +172,13 @@ CREATE TABLE shop.player_owned_factions (
   faction    VARCHAR(20) NOT NULL CHECK (faction IN ('SHE', 'Tenki', 'Sugar', 'Tuners')), -- 所有ファクション
   granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),      -- 付与日時
   PRIMARY KEY (player_id, faction)
+);
+
+CREATE TABLE shop.player_owned_card_packs (
+  player_id    UUID NOT NULL,                           -- 所有プレイヤー
+  card_pack_id VARCHAR(50) NOT NULL,                    -- 所有カードパック
+  granted_at   TIMESTAMPTZ NOT NULL DEFAULT now(),      -- 付与日時
+  PRIMARY KEY (player_id, card_pack_id)
 );
 
 -- =============================================================================

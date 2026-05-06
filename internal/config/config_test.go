@@ -16,7 +16,8 @@ var allEnvKeys = []string{
 	"PORT",
 	"DATABASE_CONN",
 	"GOOGLE_CLOUD_PROJECT",
-	"FACTION_PURCHASED_TOPIC",
+	"CARD_PACK_PURCHASED_TOPIC",
+	"FACTION_ACQUIRED_TOPIC",
 	"PREMIUM_UPDATED_TOPIC",
 	"IAP_MODE",
 	"APPLE_ENVIRONMENT",
@@ -58,7 +59,8 @@ var validLocalEnv = map[string]string{
 	"PORT":                      "9006",
 	"DATABASE_CONN":             "host=localhost port=5432 dbname=test sslmode=disable",
 	"GOOGLE_CLOUD_PROJECT":      "test-project",
-	"FACTION_PURCHASED_TOPIC":   domain.TopicFactionPurchased,
+	"CARD_PACK_PURCHASED_TOPIC": domain.TopicCardPackPurchased,
+	"FACTION_ACQUIRED_TOPIC":    domain.TopicFactionAcquired,
 	"PREMIUM_UPDATED_TOPIC":     domain.TopicPremiumUpdated,
 	"IAP_MODE":                  "local",
 	"OUTBOX_POLL_INTERVAL":      "1s",
@@ -88,7 +90,8 @@ func TestFromEnv_Success(t *testing.T) {
 				assert.Equal(t, 9006, cfg.Port)
 				assert.Equal(t, "host=localhost port=5432 dbname=test sslmode=disable", cfg.DatabaseConn)
 				assert.Equal(t, "test-project", cfg.GoogleCloudProject)
-				assert.Equal(t, domain.TopicFactionPurchased, cfg.FactionPurchasedTopic)
+				assert.Equal(t, domain.TopicCardPackPurchased, cfg.CardPackPurchasedTopic)
+				assert.Equal(t, domain.TopicFactionAcquired, cfg.FactionAcquiredTopic)
 				assert.Equal(t, domain.TopicPremiumUpdated, cfg.PremiumUpdatedTopic)
 			},
 		},
@@ -122,13 +125,15 @@ func TestFromEnv_Success(t *testing.T) {
 		{
 			name: "PORT / topic 名が env から上書きされる",
 			envs: mergeEnv(validLocalEnv, map[string]string{
-				"PORT":                   "8080",
-				"FACTION_PURCHASED_TOPIC": "faction-purchased-ci",
-				"PREMIUM_UPDATED_TOPIC":  "premium-updated-ci",
+				"PORT":                      "8080",
+				"CARD_PACK_PURCHASED_TOPIC": "card-pack-purchased-ci",
+				"FACTION_ACQUIRED_TOPIC":    "faction-acquired-ci",
+				"PREMIUM_UPDATED_TOPIC":     "premium-updated-ci",
 			}),
 			assert: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, 8080, cfg.Port)
-				assert.Equal(t, "faction-purchased-ci", cfg.FactionPurchasedTopic)
+				assert.Equal(t, "card-pack-purchased-ci", cfg.CardPackPurchasedTopic)
+				assert.Equal(t, "faction-acquired-ci", cfg.FactionAcquiredTopic)
 				assert.Equal(t, "premium-updated-ci", cfg.PremiumUpdatedTopic)
 			},
 		},
@@ -172,9 +177,14 @@ func TestFromEnv_Errors(t *testing.T) {
 			wantErr: "GOOGLE_CLOUD_PROJECT is required",
 		},
 		{
-			name:    "FACTION_PURCHASED_TOPIC が未設定ならエラー",
-			envs:    mergeEnv(validLocalEnv, map[string]string{"FACTION_PURCHASED_TOPIC": ""}),
-			wantErr: "FACTION_PURCHASED_TOPIC is required",
+			name:    "CARD_PACK_PURCHASED_TOPIC が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"CARD_PACK_PURCHASED_TOPIC": ""}),
+			wantErr: "CARD_PACK_PURCHASED_TOPIC is required",
+		},
+		{
+			name:    "FACTION_ACQUIRED_TOPIC が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"FACTION_ACQUIRED_TOPIC": ""}),
+			wantErr: "FACTION_ACQUIRED_TOPIC is required",
 		},
 		{
 			name:    "PREMIUM_UPDATED_TOPIC が未設定ならエラー",
