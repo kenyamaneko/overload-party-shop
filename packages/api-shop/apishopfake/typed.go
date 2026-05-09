@@ -17,7 +17,7 @@ func PublishFactionAcquired(ctx context.Context, p *Publisher, ev apishop.Factio
 	if err != nil {
 		return fmt.Errorf("marshal FactionAcquiredEvent: %w", err)
 	}
-	return p.Publish(ctx, apishop.TopicFactionAcquired, data)
+	return p.Publish(ctx, "faction-acquired", data)
 }
 
 // PublishCardPackPurchased は TopicCardPackPurchased へ CardPackPurchasedEvent を 1 件発行する。
@@ -28,7 +28,7 @@ func PublishCardPackPurchased(ctx context.Context, p *Publisher, ev apishop.Card
 	if err != nil {
 		return fmt.Errorf("marshal CardPackPurchasedEvent: %w", err)
 	}
-	return p.Publish(ctx, apishop.TopicCardPackPurchased, data)
+	return p.Publish(ctx, "card-pack-purchased", data)
 }
 
 // PublishPremiumUpdated は TopicPremiumUpdated へ PremiumUpdatedEvent を 1 件発行する。
@@ -39,7 +39,7 @@ func PublishPremiumUpdated(ctx context.Context, p *Publisher, ev apishop.Premium
 	if err != nil {
 		return fmt.Errorf("marshal PremiumUpdatedEvent: %w", err)
 	}
-	return p.Publish(ctx, apishop.TopicPremiumUpdated, data)
+	return p.Publish(ctx, "premium-updated", data)
 }
 
 // FactionAcquiredExpecter は TopicFactionAcquired に subscribe 済みの待受器。
@@ -51,12 +51,12 @@ type FactionAcquiredExpecter struct {
 
 // ExpectFactionAcquired は即時 subscribe して Expecter を返す (publish より前に呼ぶこと)。
 func ExpectFactionAcquired(s *Subscriber) *FactionAcquiredExpecter {
-	return &FactionAcquiredExpecter{ch: s.Messages(apishop.TopicFactionAcquired)}
+	return &FactionAcquiredExpecter{ch: s.Messages("faction-acquired")}
 }
 
 // Wait は subscribe 後に publish された最初の event を timeout 付きで取り出す。
 func (e *FactionAcquiredExpecter) Wait(timeout time.Duration) (apishop.FactionAcquiredEvent, error) {
-	return waitTypedFromChan[apishop.FactionAcquiredEvent](e.ch, apishop.TopicFactionAcquired, timeout)
+	return waitTypedFromChan[apishop.FactionAcquiredEvent](e.ch, "faction-acquired", timeout)
 }
 
 // CardPackPurchasedExpecter は TopicCardPackPurchased 版の Expecter。
@@ -66,12 +66,12 @@ type CardPackPurchasedExpecter struct {
 
 // ExpectCardPackPurchased は TopicCardPackPurchased に即時 subscribe し Expecter を返す。
 func ExpectCardPackPurchased(s *Subscriber) *CardPackPurchasedExpecter {
-	return &CardPackPurchasedExpecter{ch: s.Messages(apishop.TopicCardPackPurchased)}
+	return &CardPackPurchasedExpecter{ch: s.Messages("card-pack-purchased")}
 }
 
 // Wait は publish された最初の CardPackPurchasedEvent を timeout 付きで取り出す。
 func (e *CardPackPurchasedExpecter) Wait(timeout time.Duration) (apishop.CardPackPurchasedEvent, error) {
-	return waitTypedFromChan[apishop.CardPackPurchasedEvent](e.ch, apishop.TopicCardPackPurchased, timeout)
+	return waitTypedFromChan[apishop.CardPackPurchasedEvent](e.ch, "card-pack-purchased", timeout)
 }
 
 // PremiumUpdatedExpecter は TopicPremiumUpdated 版の Expecter。
@@ -81,12 +81,12 @@ type PremiumUpdatedExpecter struct {
 
 // ExpectPremiumUpdated は TopicPremiumUpdated に即時 subscribe し Expecter を返す。
 func ExpectPremiumUpdated(s *Subscriber) *PremiumUpdatedExpecter {
-	return &PremiumUpdatedExpecter{ch: s.Messages(apishop.TopicPremiumUpdated)}
+	return &PremiumUpdatedExpecter{ch: s.Messages("premium-updated")}
 }
 
 // Wait は publish された最初の PremiumUpdatedEvent を timeout 付きで取り出す。
 func (e *PremiumUpdatedExpecter) Wait(timeout time.Duration) (apishop.PremiumUpdatedEvent, error) {
-	return waitTypedFromChan[apishop.PremiumUpdatedEvent](e.ch, apishop.TopicPremiumUpdated, timeout)
+	return waitTypedFromChan[apishop.PremiumUpdatedEvent](e.ch, "premium-updated", timeout)
 }
 
 // waitTypedFromChan は payload bytes を timeout 付きで受信し型 T にデコードする。

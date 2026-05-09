@@ -2,7 +2,6 @@ package subscription
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -55,14 +54,20 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 		return port.OutboxEvent{}, errors.New("subscription: playerID is empty")
 	}
 	eventID := uuid.New()
-	ev := presenter.ToPremiumUpdatedEvent(eventID.String(), playerID, isPremium, expiresAt, time.Now().UTC())
-	payload, err := json.Marshal(ev)
+	premiumUpdated := domain.PremiumUpdatedEvent{
+		EventID:          eventID.String(),
+		Timestamp:        time.Now().UTC(),
+		PlayerID:         playerID,
+		IsPremium:        isPremium,
+		PremiumExpiresAt: expiresAt,
+	}
+	eventType, payload, err := presenter.ToPremiumUpdatedWire(premiumUpdated)
 	if err != nil {
-		return port.OutboxEvent{}, fmt.Errorf("marshal premium-updated: %w", err)
+		return port.OutboxEvent{}, fmt.Errorf("present premium-updated: %w", err)
 	}
 	return port.OutboxEvent{
 		EventID:   eventID,
-		EventType: domain.EventTypePremiumUpdated,
+		EventType: eventType,
 		Payload:   payload,
 	}, nil
 }

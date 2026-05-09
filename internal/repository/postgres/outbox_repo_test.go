@@ -15,6 +15,7 @@ import (
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
@@ -46,7 +47,7 @@ func insertOutboxRow(t *testing.T, testIdx, seedIdx int, payload []byte) uuid.UU
 
 	cardPackRepo := postgres.NewCardPackPurchaseRepository(sharedPg.Pool)
 	purchase := &domain.OneTimePurchase{PlayerID: playerID, ProductID: cardPackID, PurchasedAt: time.Now().UTC()}
-	ev := port.OutboxEvent{EventID: id, EventType: domain.EventTypeCardPackPurchased, Payload: payload}
+	ev := port.OutboxEvent{EventID: id, EventType: apishop.EventTypeCardPackPurchased, Payload: payload}
 	_, err := cardPackRepo.CreatePurchase(context.Background(), purchase, cardPackID, domain.PlatformIOS, token, ev)
 	require.NoError(t, err)
 	return id

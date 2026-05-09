@@ -13,6 +13,7 @@ import (
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
@@ -31,7 +32,7 @@ func newSub(playerID string, now time.Time) *domain.Subscription {
 func newPremiumEvent() port.OutboxEvent {
 	return port.OutboxEvent{
 		EventID:   uuid.New(),
-		EventType: domain.EventTypePremiumUpdated,
+		EventType: apishop.EventTypePremiumUpdated,
 		Payload:   []byte(`{}`),
 	}
 }

@@ -2,7 +2,6 @@ package purchase
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -315,14 +314,19 @@ func buildCardPackPurchasedEvent(playerID, cardPackID string) (port.OutboxEvent,
 		return port.OutboxEvent{}, errors.New("purchase: cardPackID is empty")
 	}
 	eventID := uuid.New()
-	ev := presenter.ToCardPackPurchasedEvent(eventID.String(), playerID, cardPackID, time.Now().UTC())
-	payload, err := json.Marshal(ev)
+	cardPackPurchased := domain.CardPackPurchasedEvent{
+		EventID:    eventID.String(),
+		Timestamp:  time.Now().UTC(),
+		PlayerID:   playerID,
+		CardPackID: cardPackID,
+	}
+	eventType, payload, err := presenter.ToCardPackPurchasedWire(cardPackPurchased)
 	if err != nil {
-		return port.OutboxEvent{}, fmt.Errorf("marshal card-pack-purchased: %w", err)
+		return port.OutboxEvent{}, fmt.Errorf("present card-pack-purchased: %w", err)
 	}
 	return port.OutboxEvent{
 		EventID:   eventID,
-		EventType: domain.EventTypeCardPackPurchased,
+		EventType: eventType,
 		Payload:   payload,
 	}, nil
 }
@@ -335,14 +339,19 @@ func buildFactionAcquiredEvent(playerID, faction string) (port.OutboxEvent, erro
 		return port.OutboxEvent{}, errors.New("purchase: faction is empty")
 	}
 	eventID := uuid.New()
-	ev := presenter.ToFactionAcquiredEvent(eventID.String(), playerID, faction, time.Now().UTC())
-	payload, err := json.Marshal(ev)
+	factionAcquired := domain.FactionAcquiredEvent{
+		EventID:   eventID.String(),
+		Timestamp: time.Now().UTC(),
+		PlayerID:  playerID,
+		Faction:   faction,
+	}
+	eventType, payload, err := presenter.ToFactionAcquiredWire(factionAcquired)
 	if err != nil {
-		return port.OutboxEvent{}, fmt.Errorf("marshal faction-acquired: %w", err)
+		return port.OutboxEvent{}, fmt.Errorf("present faction-acquired: %w", err)
 	}
 	return port.OutboxEvent{
 		EventID:   eventID,
-		EventType: domain.EventTypeFactionAcquired,
+		EventType: eventType,
 		Payload:   payload,
 	}, nil
 }
@@ -352,14 +361,20 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
 	}
 	eventID := uuid.New()
-	ev := presenter.ToPremiumUpdatedEvent(eventID.String(), playerID, isPremium, expiresAt, time.Now().UTC())
-	payload, err := json.Marshal(ev)
+	premiumUpdated := domain.PremiumUpdatedEvent{
+		EventID:          eventID.String(),
+		Timestamp:        time.Now().UTC(),
+		PlayerID:         playerID,
+		IsPremium:        isPremium,
+		PremiumExpiresAt: expiresAt,
+	}
+	eventType, payload, err := presenter.ToPremiumUpdatedWire(premiumUpdated)
 	if err != nil {
-		return port.OutboxEvent{}, fmt.Errorf("marshal premium-updated: %w", err)
+		return port.OutboxEvent{}, fmt.Errorf("present premium-updated: %w", err)
 	}
 	return port.OutboxEvent{
 		EventID:   eventID,
-		EventType: domain.EventTypePremiumUpdated,
+		EventType: eventType,
 		Payload:   payload,
 	}, nil
 }

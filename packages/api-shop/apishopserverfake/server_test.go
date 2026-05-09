@@ -112,7 +112,7 @@ func TestServer_PurchaseFn_ReceivesTypedRequest(t *testing.T) {
 
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 	assert.Equal(t, "faction_tenki", gotReq.ProductID)
-	assert.Equal(t, "ios", gotReq.Platform)
+	assert.Equal(t, apishop.PlatformIos, gotReq.Platform)
 	assert.Equal(t, "tok-1", gotReq.PurchaseToken)
 }
 

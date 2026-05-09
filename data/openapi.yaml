@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: overload-party-shop
+  version: 0.1.0
+  description: |
+    Shop service の REST 契約 (gateway → shop の internal API および外部ストアからの webhook)。
+    本ファイルが SSoT。`packages/api-shop` の Go 型は oapi-codegen が本ファイルから生成する。
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: サービス死活監視 (ClusterIP 内部のみ)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /internal/v1/players/{playerId}/products:
+    get:
+      operationId: listPlayerProducts
+      summary: 購入可能な商品一覧を返す (所持情報付き)
+      parameters:
+        - $ref: "#/components/parameters/PlayerIdPath"
+      responses:
+        "200":
+          description: 商品一覧
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductListResponse"
+
+  /internal/v1/players/{playerId}/purchase:
+    post:
+      operationId: purchaseProduct
+      summary: 1 回限りの商品を購入 (faction_set / cosmetic 等)
+      parameters:
+        - $ref: "#/components/parameters/PlayerIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseRequest"
+      responses:
+        "200":
+          description: 購入成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseResponse"
+        "400":
+          description: 無効なファクション / 非アクティブ商品 / 非対応プラットフォーム
+        "402":
+          description: レシート検証失敗
+        "404":
+          description: 商品が見つからない
+        "409":
+          description: 同一商品を既に所有
+
+  /internal/v1/players/{playerId}/subscribe:
+    post:
+      operationId: subscribeProduct
+      summary: サブスクリプション商品を購入 (プレミアムパス等)
+      parameters:
+        - $ref: "#/components/parameters/PlayerIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseRequest"
+      responses:
+        "200":
+          description: サブスク登録成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscribeResponse"
+        "400":
+          description: 商品がサブスクリプションタイプでない / 非対応プラットフォーム
+        "402":
+          description: サブスクリプション検証失敗
+        "404":
+          description: 商品が見つからない
+
+  /webhook/apple:
+    post:
+      operationId: appleWebhook
+      summary: Apple App Store Server Notifications V2 を受信
+      description: 認証は Apple JWS 署名検証 (Firebase Auth 不要)。IAP_MODE=local 時はルーティング自体が登録されない。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppleNotificationPayload"
+      responses:
+        "200":
+          description: 通知受領 (空 body)
+        "400":
+          description: JSON パースエラー
+        "500":
+          description: 通知処理失敗
+
+  /webhook/google:
+    post:
+      operationId: googleWebhook
+      summary: Google Real-Time Developer Notifications を受信
+      description: 認証は Google Pub/Sub push 署名検証 (Firebase Auth 不要)。IAP_MODE=local 時はルーティング自体が登録されない。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleRTDNMessage"
+      responses:
+        "200":
+          description: 通知受領 (空 body)
+        "400":
+          description: JSON パースエラー
+        "500":
+          description: 通知処理失敗
+
+components:
+  parameters:
+    PlayerIdPath:
+      name: playerId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    # ─── Health ────────────────────────────────────────────────────────
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    # ─── Product (catalog) ─────────────────────────────────────────────
+    ProductListResponse:
+      type: object
+      required: [products]
+      properties:
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductResponse"
+
+    ProductResponse:
+      type: object
+      required: [product_id, name, type, price, content, is_active, is_owned]
+      properties:
+        product_id:
+          type: string
+          x-go-name: ProductID
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/ProductType"
+        price:
+          type: integer
+          format: int64
+        content:
+          description: 商品 type ごとに固有の構造を持つ JSON オブジェクト。type=faction_set なら `{faction}`, type=cosmetic なら `{item_type, item_no}`, type=subscription なら `{}`、type=card_pack なら `{card_pack_id}`。
+          type: object
+          additionalProperties: true
+        description:
+          type: string
+        image_url:
+          type: string
+          x-go-name: ImageURL
+        is_active:
+          type: boolean
+        is_owned:
+          type: boolean
+
+    # ─── Purchase ──────────────────────────────────────────────────────
+    PurchaseRequest:
+      type: object
+      required: [product_id, platform, purchase_token]
+      properties:
+        product_id:
+          type: string
+          x-go-name: ProductID
+        platform:
+          $ref: "#/components/schemas/Platform"
+        purchase_token:
+          type: string
+
+    PurchaseResponse:
+      type: object
+      required: [message, product_id]
+      properties:
+        message:
+          type: string
+          example: purchase accepted
+        product_id:
+          type: string
+          x-go-name: ProductID
+
+    SubscribeResponse:
+      type: object
+      required: [message, expires_at]
+      properties:
+        message:
+          type: string
+          example: subscription accepted
+        expires_at:
+          type: string
+          format: date-time
+
+    # ─── Webhook payloads (external) ───────────────────────────────────
+    AppleNotificationPayload:
+      type: object
+      required: [signedPayload]
+      properties:
+        signedPayload:
+          type: string
+          description: Apple JWS 署名済みペイロード本体。
+
+    GoogleRTDNMessage:
+      type: object
+      required: [message]
+      properties:
+        message:
+          $ref: "#/components/schemas/GoogleRTDNMessageBody"
+
+    GoogleRTDNMessageBody:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: string
+          description: base64 エンコードされた DeveloperNotification 本体。
+
+    # ─── Enums (流出するもの) ──────────────────────────────────────────
+    Platform:
+      type: string
+      description: クライアント実行プラットフォーム。
+      enum:
+        - ios
+        - android
+
+    ProductType:
+      type: string
+      description: 商品種別の discriminator。
+      enum:
+        - faction_set
+        - card_pack
+        - cosmetic
+        - subscription
