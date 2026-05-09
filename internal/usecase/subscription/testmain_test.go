@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres/postgrestest"
 	"github.com/stretchr/testify/require"
@@ -25,18 +26,18 @@ func TestMain(m *testing.M) {
 	))
 }
 
-func selectPremiumUpdatedEvents(t *testing.T) []domain.PremiumUpdatedEvent {
+func selectPremiumUpdatedEvents(t *testing.T) []apishop.PremiumUpdatedEvent {
 	t.Helper()
 	rows, err := sharedPg.Pool.Query(context.Background(),
 		`SELECT payload FROM shop.outbox_events WHERE event_type = $1 ORDER BY created_at`,
-		domain.EventTypePremiumUpdated)
+		apishop.EventTypePremiumUpdated)
 	require.NoError(t, err)
 	defer rows.Close()
-	var events []domain.PremiumUpdatedEvent
+	var events []apishop.PremiumUpdatedEvent
 	for rows.Next() {
 		var payload []byte
 		require.NoError(t, rows.Scan(&payload))
-		var ev domain.PremiumUpdatedEvent
+		var ev apishop.PremiumUpdatedEvent
 		require.NoError(t, json.Unmarshal(payload, &ev))
 		events = append(events, ev)
 	}

@@ -138,6 +138,13 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Configure private repo auth
+        # pip install で git+https://github.com/kenyamaneko/... を clone するために
+        # token-based 認証 (insteadOf) を git config に注入する。
+        uses: kenyamaneko/overload-party-common/.github/actions/setup-go-private-modules@main
+        with:
+          app-id: ${{ vars.CROSS_REPO_DEPS_APP_ID }}
+          private-key: ${{ secrets.CROSS_REPO_DEPS_APP_PRIVATE_KEY }}
       - name: Install Python dependencies
         run: |
           pip install \
