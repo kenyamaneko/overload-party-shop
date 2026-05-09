@@ -134,21 +134,60 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Configure Go private modules
-        uses: kenyamaneko/overload-party-common/.github/actions/setup-go-private-modules@main
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          app-id: ${{ vars.CROSS_REPO_DEPS_APP_ID }}
-          private-key: ${{ secrets.CROSS_REPO_DEPS_APP_PRIVATE_KEY }}
-      - name: Install dependencies
+          go-version-file: go.mod
+      - name: Install Python dependencies (schema-doc only)
         run: |
-          pip install pyyaml \
-            "overload-party-doc-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/doc-tools" \
-            "overload-party-codegen-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/codegen-tools"
-      - name: Run codegen
-        run: python3 scripts/generate_types.py
+          pip install \
+            "overload-party-doc-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/doc-tools"
+      - name: Install oapi-codegen
+        run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.7.0
+      - name: Run OpenAPI codegen
+        run: scripts/generate_types.sh
       - name: Run schema-doc codegen
         run: python3 scripts/generate_schema_doc.py
-      - name: Run api-doc codegen
-        run: python3 scripts/generate_api_docs.py
       - name: Check for drift
         run: .github/scripts/ci/check-codegen-drift.sh
+
+  openapi-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install oasdiff
+        run: go install github.com/oasdiff/oasdiff@latest
+      - name: Detect breaking changes in data/openapi.yaml
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          # base にも openapi.yaml が無い場合 (初回 PR) はスキップ
+          if git show "origin/${{ github.base_ref }}:data/openapi.yaml" >/tmp/base-openapi.yaml 2>/dev/null; then
+            oasdiff breaking /tmp/base-openapi.yaml data/openapi.yaml --fail-on ERR
+          else
+            echo "::notice::base に data/openapi.yaml が存在しないため diff チェックをスキップ"
+          fi
+
+  asyncapi-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install AsyncAPI CLI
+        run: npm install -g @asyncapi/cli@latest
+      - name: Detect breaking changes in data/asyncapi.yaml
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          if git show "origin/${{ github.base_ref }}:data/asyncapi.yaml" >/tmp/base-asyncapi.yaml 2>/dev/null; then
+            asyncapi diff /tmp/base-asyncapi.yaml data/asyncapi.yaml --type breaking
+          else
+            echo "::notice::base に data/asyncapi.yaml が存在しないため diff チェックをスキップ"
+          fi

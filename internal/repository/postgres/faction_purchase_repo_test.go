@@ -23,12 +23,12 @@ func newFactionPurchaseEvents() []port.OutboxEvent {
 	return []port.OutboxEvent{
 		{
 			EventID:   uuid.New(),
-			EventType: domain.EventTypeCardPackPurchased,
+			EventType: apishop.EventTypeCardPackPurchased,
 			Payload:   []byte(`{}`),
 		},
 		{
 			EventID:   uuid.New(),
-			EventType: domain.EventTypeFactionAcquired,
+			EventType: apishop.EventTypeFactionAcquired,
 			Payload:   []byte(`{}`),
 		},
 	}

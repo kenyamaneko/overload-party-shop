@@ -1,6 +1,7 @@
 package presenter_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/presenter"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
 func TestToProductResponse(t *testing.T) {
@@ -74,9 +76,11 @@ func TestToProductResponse(t *testing.T) {
 			common := tt.view.Common()
 			assert.Equal(t, common.ProductID, got.ProductID)
 			assert.Equal(t, common.Name, got.Name)
-			assert.Equal(t, common.Type, got.Type)
+			assert.Equal(t, apishop.ProductType(common.Type), got.Type)
 			assert.Equal(t, common.Price, got.Price)
-			assert.JSONEq(t, tt.wantContent, string(got.Content))
+			contentJSON, err := json.Marshal(got.Content)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.wantContent, string(contentJSON))
 			assert.Equal(t, common.Description, got.Description)
 			assert.Equal(t, common.ImageURL, got.ImageURL)
 			assert.Equal(t, common.IsActive, got.IsActive)

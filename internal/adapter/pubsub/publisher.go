@@ -8,7 +8,7 @@ import (
 
 	gpubsub "cloud.google.com/go/pubsub/v2"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/domain"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
 // Publisher は port.RawEventPublisher を実装する。
@@ -32,9 +32,9 @@ func New(ctx context.Context, projectID, cardPackPurchasedTopic, factionAcquired
 	return &Publisher{
 		client: client,
 		byEventType: map[string]*gpubsub.Publisher{
-			domain.EventTypeCardPackPurchased: client.Publisher(cardPackPurchasedTopic),
-			domain.EventTypeFactionAcquired:   client.Publisher(factionAcquiredTopic),
-			domain.EventTypePremiumUpdated:    client.Publisher(premiumUpdatedTopic),
+			apishop.EventTypeCardPackPurchased: client.Publisher(cardPackPurchasedTopic),
+			apishop.EventTypeFactionAcquired:   client.Publisher(factionAcquiredTopic),
+			apishop.EventTypePremiumUpdated:    client.Publisher(premiumUpdatedTopic),
 		},
 	}, nil
 }

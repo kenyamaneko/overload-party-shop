@@ -132,8 +132,8 @@ func TestTyped_PublishedRecordsTopicAndPayload(t *testing.T) {
 
 	history := pub.Published()
 	require.Len(t, history, 2)
-	assert.Equal(t, apishop.TopicFactionAcquired, history[0].Topic)
-	assert.Equal(t, apishop.TopicPremiumUpdated, history[1].Topic)
+	assert.Equal(t, "faction-acquired", history[0].Topic)
+	assert.Equal(t, "premium-updated", history[1].Topic)
 	assert.NotEmpty(t, history[0].Data)
 	assert.NotEmpty(t, history[1].Data)
 }

@@ -64,7 +64,7 @@ func (h *ShopHandler) Purchase(c *gin.Context) {
 		return
 	}
 
-	if err := h.shopService.Purchase(c.Request.Context(), playerID, req.ProductID, req.Platform, req.PurchaseToken); err != nil {
+	if err := h.shopService.Purchase(c.Request.Context(), playerID, req.ProductID, string(req.Platform), req.PurchaseToken); err != nil {
 		respondError(c, err)
 		return
 	}
@@ -89,7 +89,7 @@ func (h *ShopHandler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	expiresAt, err := h.shopService.Subscribe(c.Request.Context(), playerID, req.ProductID, req.Platform, req.PurchaseToken)
+	expiresAt, err := h.shopService.Subscribe(c.Request.Context(), playerID, req.ProductID, string(req.Platform), req.PurchaseToken)
 	if err != nil {
 		respondError(c, err)
 		return

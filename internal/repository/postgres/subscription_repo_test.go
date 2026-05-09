@@ -31,7 +31,7 @@ func newSub(playerID string, now time.Time) *domain.Subscription {
 func newPremiumEvent() port.OutboxEvent {
 	return port.OutboxEvent{
 		EventID:   uuid.New(),
-		EventType: domain.EventTypePremiumUpdated,
+		EventType: apishop.EventTypePremiumUpdated,
 		Payload:   []byte(`{}`),
 	}
 }

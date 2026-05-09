@@ -6,8 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 )
 
 // allEnvKeys は FromEnv が読む全 env キー。各テストは毎回これらを明示値（または ""）
@@ -59,9 +57,9 @@ var validLocalEnv = map[string]string{
 	"PORT":                      "9006",
 	"DATABASE_CONN":             "host=localhost port=5432 dbname=test sslmode=disable",
 	"GOOGLE_CLOUD_PROJECT":      "test-project",
-	"CARD_PACK_PURCHASED_TOPIC": domain.TopicCardPackPurchased,
-	"FACTION_ACQUIRED_TOPIC":    domain.TopicFactionAcquired,
-	"PREMIUM_UPDATED_TOPIC":     domain.TopicPremiumUpdated,
+	"CARD_PACK_PURCHASED_TOPIC": "card-pack-purchased",
+	"FACTION_ACQUIRED_TOPIC":    "faction-acquired",
+	"PREMIUM_UPDATED_TOPIC":     "premium-updated",
 	"IAP_MODE":                  "local",
 	"OUTBOX_POLL_INTERVAL":      "1s",
 	"OUTBOX_BATCH_SIZE":         "100",
@@ -90,9 +88,9 @@ func TestFromEnv_Success(t *testing.T) {
 				assert.Equal(t, 9006, cfg.Port)
 				assert.Equal(t, "host=localhost port=5432 dbname=test sslmode=disable", cfg.DatabaseConn)
 				assert.Equal(t, "test-project", cfg.GoogleCloudProject)
-				assert.Equal(t, domain.TopicCardPackPurchased, cfg.CardPackPurchasedTopic)
-				assert.Equal(t, domain.TopicFactionAcquired, cfg.FactionAcquiredTopic)
-				assert.Equal(t, domain.TopicPremiumUpdated, cfg.PremiumUpdatedTopic)
+				assert.Equal(t, "card-pack-purchased", cfg.CardPackPurchasedTopic)
+				assert.Equal(t, "faction-acquired", cfg.FactionAcquiredTopic)
+				assert.Equal(t, "premium-updated", cfg.PremiumUpdatedTopic)
 			},
 		},
 		{
