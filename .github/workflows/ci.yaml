@@ -138,13 +138,15 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Install Python dependencies (schema-doc only)
+      - name: Install Python dependencies
         run: |
           pip install \
-            "overload-party-doc-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/doc-tools"
+            "overload-party-doc-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/doc-tools" \
+            "overload-party-codegen-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/codegen-tools" \
+            "overload-party-asyncapi-codegen-tools @ git+https://github.com/kenyamaneko/overload-party-common.git@main#subdirectory=packages/asyncapi-codegen-tools"
       - name: Install oapi-codegen
         run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.7.0
-      - name: Run OpenAPI codegen
+      - name: Run codegen (OpenAPI + AsyncAPI)
         run: scripts/generate_types.sh
       - name: Run schema-doc codegen
         run: python3 scripts/generate_schema_doc.py
