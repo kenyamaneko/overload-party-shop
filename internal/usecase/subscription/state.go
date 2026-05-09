@@ -54,14 +54,14 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 		return port.OutboxEvent{}, errors.New("subscription: playerID is empty")
 	}
 	eventID := uuid.New()
-	domainEv := domain.PremiumUpdatedEvent{
+	premiumUpdated := domain.PremiumUpdatedEvent{
 		EventID:          eventID.String(),
 		Timestamp:        time.Now().UTC(),
 		PlayerID:         playerID,
 		IsPremium:        isPremium,
 		PremiumExpiresAt: expiresAt,
 	}
-	eventType, payload, err := presenter.ToPremiumUpdatedWire(domainEv)
+	eventType, payload, err := presenter.ToPremiumUpdatedWire(premiumUpdated)
 	if err != nil {
 		return port.OutboxEvent{}, fmt.Errorf("present premium-updated: %w", err)
 	}

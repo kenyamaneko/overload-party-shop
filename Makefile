@@ -1,4 +1,4 @@
-.PHONY: build test test-integration vet fmt run tidy db-up db-down db-reset generate help
+.PHONY: build test test-integration vet fmt run tidy db-up db-down db-reset generate-openapi-types help
 
 APP := overload-party-shop
 
@@ -20,7 +20,7 @@ tidy: ## Tidy dependencies
 fmt: ## Format code
 	gofmt -s -w .
 
-generate: ## Re-generate Go types from data/openapi.yaml (requires oapi-codegen on PATH)
+generate-openapi-types: ## Re-generate packages/api-shop/openapi_gen.go from data/openapi.yaml (requires oapi-codegen on PATH)
 	scripts/generate_types.sh
 
 db-up: ## Start local Postgres (docker compose)

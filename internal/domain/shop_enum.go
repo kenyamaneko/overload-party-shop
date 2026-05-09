@@ -1,6 +1,6 @@
 package domain
 
-// 商品種別の discriminator。同名の値は wire 層 (apishop) でも公開している (本ファイルとは独立した SSoT として、AsyncAPI/OpenAPI 由来)。
+// ProductType は商品種別の discriminator。本パッケージが SSoT。
 const (
 	ProductTypeFactionSet   = "faction_set"
 	ProductTypeCardPack     = "card_pack"
@@ -8,13 +8,13 @@ const (
 	ProductTypeSubscription = "subscription"
 )
 
-// クライアント実行プラットフォーム。
+// Platform はクライアント実行プラットフォーム。本パッケージが SSoT。
 const (
 	PlatformIOS     = "ios"
 	PlatformAndroid = "android"
 )
 
-// 装飾アイテム (cosmetic) の種別。
+// ItemType は装飾アイテム (cosmetic) の種別。本パッケージが SSoT。
 const (
 	ItemTypeStamp   = "stamp"
 	ItemTypePlaymat = "playmat"
@@ -22,7 +22,7 @@ const (
 	ItemTypeIcon    = "icon"
 )
 
-// サブスクリプションの状態機械。domain 内部完結 (wire には流出しない)。
+// SubscriptionStatus はサブスクリプションの状態機械。domain 内部完結 (wire には流出しない)。
 const (
 	SubscriptionStatusActive      = "active"
 	SubscriptionStatusExpired     = "expired"

@@ -2,10 +2,6 @@ package domain
 
 import "time"
 
-// 本ファイルは shop が発行する Pub/Sub イベントの domain 表現を定義する。
-// wire 表現は packages/api-shop/event.go に存在し、両者は presenter 層で詰め替える。
-// JSON 形状の一致は前提としない (ADR-034)。
-
 // CardPackPurchasedEvent はプレイヤーが card_pack を含む商品を購入した業務事実。
 // subscriber: card / gateway。
 type CardPackPurchasedEvent struct {

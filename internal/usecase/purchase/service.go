@@ -314,13 +314,13 @@ func buildCardPackPurchasedEvent(playerID, cardPackID string) (port.OutboxEvent,
 		return port.OutboxEvent{}, errors.New("purchase: cardPackID is empty")
 	}
 	eventID := uuid.New()
-	domainEv := domain.CardPackPurchasedEvent{
+	cardPackPurchased := domain.CardPackPurchasedEvent{
 		EventID:    eventID.String(),
 		Timestamp:  time.Now().UTC(),
 		PlayerID:   playerID,
 		CardPackID: cardPackID,
 	}
-	eventType, payload, err := presenter.ToCardPackPurchasedWire(domainEv)
+	eventType, payload, err := presenter.ToCardPackPurchasedWire(cardPackPurchased)
 	if err != nil {
 		return port.OutboxEvent{}, fmt.Errorf("present card-pack-purchased: %w", err)
 	}
@@ -339,13 +339,13 @@ func buildFactionAcquiredEvent(playerID, faction string) (port.OutboxEvent, erro
 		return port.OutboxEvent{}, errors.New("purchase: faction is empty")
 	}
 	eventID := uuid.New()
-	domainEv := domain.FactionAcquiredEvent{
+	factionAcquired := domain.FactionAcquiredEvent{
 		EventID:   eventID.String(),
 		Timestamp: time.Now().UTC(),
 		PlayerID:  playerID,
 		Faction:   faction,
 	}
-	eventType, payload, err := presenter.ToFactionAcquiredWire(domainEv)
+	eventType, payload, err := presenter.ToFactionAcquiredWire(factionAcquired)
 	if err != nil {
 		return port.OutboxEvent{}, fmt.Errorf("present faction-acquired: %w", err)
 	}
@@ -361,14 +361,14 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
 	}
 	eventID := uuid.New()
-	domainEv := domain.PremiumUpdatedEvent{
+	premiumUpdated := domain.PremiumUpdatedEvent{
 		EventID:          eventID.String(),
 		Timestamp:        time.Now().UTC(),
 		PlayerID:         playerID,
 		IsPremium:        isPremium,
 		PremiumExpiresAt: expiresAt,
 	}
-	eventType, payload, err := presenter.ToPremiumUpdatedWire(domainEv)
+	eventType, payload, err := presenter.ToPremiumUpdatedWire(premiumUpdated)
 	if err != nil {
 		return port.OutboxEvent{}, fmt.Errorf("present premium-updated: %w", err)
 	}

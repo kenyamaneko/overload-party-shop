@@ -151,43 +151,28 @@ jobs:
       - name: Check for drift
         run: .github/scripts/ci/check-codegen-drift.sh
 
-  openapi-diff:
+  spec-diff:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Install oasdiff
-        run: go install github.com/oasdiff/oasdiff@latest
-      - name: Detect breaking changes in data/openapi.yaml
-        run: |
-          git fetch origin "${{ github.base_ref }}"
-          # base にも openapi.yaml が無い場合 (初回 PR) はスキップ
-          if git show "origin/${{ github.base_ref }}:data/openapi.yaml" >/tmp/base-openapi.yaml 2>/dev/null; then
-            oasdiff breaking /tmp/base-openapi.yaml data/openapi.yaml --fail-on ERR
-          else
-            echo "::notice::base に data/openapi.yaml が存在しないため diff チェックをスキップ"
-          fi
-
-  asyncapi-diff:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout PR head
-        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          fetch-depth: 0
+          go-version-file: go.mod
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Install oasdiff
+        run: go install github.com/oasdiff/oasdiff@latest
       - name: Install AsyncAPI CLI
         run: npm install -g @asyncapi/cli@latest
+      - name: Fetch base ref
+        run: git fetch origin "${{ github.base_ref }}"
+      - name: Detect breaking changes in data/openapi.yaml
+        run: .github/scripts/ci/openapi-diff.sh "origin/${{ github.base_ref }}"
       - name: Detect breaking changes in data/asyncapi.yaml
-        run: |
-          git fetch origin "${{ github.base_ref }}"
-          if git show "origin/${{ github.base_ref }}:data/asyncapi.yaml" >/tmp/base-asyncapi.yaml 2>/dev/null; then
-            asyncapi diff /tmp/base-asyncapi.yaml data/asyncapi.yaml --type breaking
-          else
-            echo "::notice::base に data/asyncapi.yaml が存在しないため diff チェックをスキップ"
-          fi
+        run: .github/scripts/ci/asyncapi-diff.sh "origin/${{ github.base_ref }}"
