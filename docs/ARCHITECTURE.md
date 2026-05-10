@@ -150,7 +150,3 @@ webhook の deterministic error (decode 失敗 / unknown subscription 等) は *
 | `premium-updated` | サブスクリプション状態変化時 (解約時は除く、上述の契約) | account, gateway |
 
 subscriber 列はこのリポジトリからは導けないので、変更時は各サービスの購読状況も確認すること。
-
-### コード生成
-
-- `data/models.yaml` を変更したら `python3 scripts/generate_types.py` を実行する。生成物は `internal/domain/` の event 型と `packages/api-shop/` の wire 型。
