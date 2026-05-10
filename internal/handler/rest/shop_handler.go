@@ -30,9 +30,8 @@ func NewShopHandler(shopService shopServicer) *ShopHandler {
 
 // GetProducts はプレイヤー向け商品一覧を返す。
 func (h *ShopHandler) GetProducts(c *gin.Context) {
-	playerID := c.Param("playerId")
-	if playerID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "playerId is required"})
+	playerID, ok := playerIDFromHeader(c)
+	if !ok {
 		return
 	}
 
@@ -52,9 +51,8 @@ func (h *ShopHandler) GetProducts(c *gin.Context) {
 
 // Purchase は単発購入リクエストを処理する。
 func (h *ShopHandler) Purchase(c *gin.Context) {
-	playerID := c.Param("playerId")
-	if playerID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "playerId is required"})
+	playerID, ok := playerIDFromHeader(c)
+	if !ok {
 		return
 	}
 
@@ -77,9 +75,8 @@ func (h *ShopHandler) Purchase(c *gin.Context) {
 
 // Subscribe はサブスクリプション購入リクエストを処理する。
 func (h *ShopHandler) Subscribe(c *gin.Context) {
-	playerID := c.Param("playerId")
-	if playerID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "playerId is required"})
+	playerID, ok := playerIDFromHeader(c)
+	if !ok {
 		return
 	}
 
