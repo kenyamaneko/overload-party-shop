@@ -19,11 +19,11 @@ func New(shopH *rest.ShopHandler, appleWH *rest.AppleWebhookHandler, googleWH *r
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	players := r.Group("/internal/v1/players/:playerId")
+	api := r.Group("/api/v1/shop")
 	{
-		players.GET("/products", shopH.GetProducts)
-		players.POST("/purchase", shopH.Purchase)
-		players.POST("/subscribe", shopH.Subscribe)
+		api.GET("/products", shopH.GetProducts)
+		api.POST("/purchase", shopH.Purchase)
+		api.POST("/subscribe", shopH.Subscribe)
 	}
 
 	// ストア webhook — 外部到達可能。Apple/Google がリクエストに署名するため

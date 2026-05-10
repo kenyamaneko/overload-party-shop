@@ -118,8 +118,26 @@ type SubscribeResponse struct {
 	Message   string    `json:"message"`
 }
 
-// PlayerIdPath defines model for PlayerIdPath.
-type PlayerIdPath = string
+// PlayerIdHeader defines model for PlayerIdHeader.
+type PlayerIdHeader = string
+
+// ListPlayerProductsParams defines parameters for ListPlayerProducts.
+type ListPlayerProductsParams struct {
+	// XPlayerId gateway が認証後に付与する player_id。client が直接設定するヘッダではない。
+	XPlayerId PlayerIdHeader `json:"X-Player-Id"`
+}
+
+// PurchaseProductParams defines parameters for PurchaseProduct.
+type PurchaseProductParams struct {
+	// XPlayerId gateway が認証後に付与する player_id。client が直接設定するヘッダではない。
+	XPlayerId PlayerIdHeader `json:"X-Player-Id"`
+}
+
+// SubscribeProductParams defines parameters for SubscribeProduct.
+type SubscribeProductParams struct {
+	// XPlayerId gateway が認証後に付与する player_id。client が直接設定するヘッダではない。
+	XPlayerId PlayerIdHeader `json:"X-Player-Id"`
+}
 
 // PurchaseProductJSONRequestBody defines body for PurchaseProduct for application/json ContentType.
 type PurchaseProductJSONRequestBody = PurchaseRequest

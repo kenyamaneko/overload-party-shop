@@ -39,10 +39,17 @@ func (f *fakeShopServicer) Subscribe(ctx context.Context, playerID, productID, p
 func newShopTestServer(svc shopServicer) *gin.Engine {
 	r := gin.New()
 	h := NewShopHandler(svc)
-	r.GET("/players/:playerId/products", h.GetProducts)
-	r.POST("/players/:playerId/purchase", h.Purchase)
-	r.POST("/players/:playerId/subscribe", h.Subscribe)
+	api := r.Group("/api/v1/shop")
+	api.GET("/products", h.GetProducts)
+	api.POST("/purchase", h.Purchase)
+	api.POST("/subscribe", h.Subscribe)
 	return r
+}
+
+// withPlayerIDHeader は handler が要求する X-Player-Id ヘッダを request にセットする。
+func withPlayerIDHeader(req *http.Request, playerID string) *http.Request {
+	req.Header.Set(playerIDHeader, playerID)
+	return req
 }
 
 // GetProducts の成功パスは usecase の戻り値を {"products":[...]} で wrap する。
@@ -61,7 +68,7 @@ func TestGetProducts_Success(t *testing.T) {
 	}
 	r := newShopTestServer(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/players/player-1/products", nil))
+	r.ServeHTTP(w, withPlayerIDHeader(httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil), "player-1"))
 
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp struct {
@@ -73,6 +80,21 @@ func TestGetProducts_Success(t *testing.T) {
 	assert.True(t, resp.Products[0].IsOwned)
 }
 
+// GetProducts は X-Player-Id ヘッダ欠落時に 401 を返す (handler 内で usecase 呼び出しに到達しない)。
+func TestGetProducts_MissingPlayerIDHeader(t *testing.T) {
+	svc := &fakeShopServicer{
+		getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
+			t.Fatal("usecase が呼ばれてはならない")
+			return nil, nil
+		},
+	}
+	r := newShopTestServer(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil))
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 // GetProducts の usecase エラーは respondError 経由で HTTP ステータスに変換される。
 func TestGetProducts_PropagatesServiceError(t *testing.T) {
 	svc := &fakeShopServicer{
@@ -82,7 +104,7 @@ func TestGetProducts_PropagatesServiceError(t *testing.T) {
 	}
 	r := newShopTestServer(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/players/player-1/products", nil))
+	r.ServeHTTP(w, withPlayerIDHeader(httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil), "player-1"))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
@@ -99,7 +121,7 @@ func TestPurchase_Success(t *testing.T) {
 	})
 	r := newShopTestServer(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/players/player-1/purchase", bytes.NewReader(body))
+	req := withPlayerIDHeader(httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(body)), "player-1")
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
@@ -151,7 +173,7 @@ func TestPurchase_ErrorResponses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newShopTestServer(tt.svc)
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/players/player-1/purchase", bytes.NewReader(tt.body))
+			req := withPlayerIDHeader(httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(tt.body)), "player-1")
 			req.Header.Set("Content-Type", "application/json")
 			r.ServeHTTP(w, req)
 
@@ -175,7 +197,7 @@ func TestSubscribe_Success(t *testing.T) {
 	})
 	r := newShopTestServer(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/players/player-1/subscribe", bytes.NewReader(body))
+	req := withPlayerIDHeader(httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(body)), "player-1")
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
@@ -221,7 +243,7 @@ func TestSubscribe_ErrorResponses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newShopTestServer(tt.svc)
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/players/player-1/subscribe", bytes.NewReader(tt.body))
+			req := withPlayerIDHeader(httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(tt.body)), "player-1")
 			req.Header.Set("Content-Type", "application/json")
 			r.ServeHTTP(w, req)
 

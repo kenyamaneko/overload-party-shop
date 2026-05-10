@@ -3,8 +3,9 @@ info:
   title: overload-party-shop
   version: 0.1.0
   description: |
-    Shop service の REST 契約 (gateway → shop の internal API および外部ストアからの webhook)。
-    本ファイルが SSoT。`packages/api-shop` の Go 型は oapi-codegen が本ファイルから生成する。
+    Shop service の REST 契約。client が gateway 経由で叩く公開 API および外部ストアからの webhook を含む。
+    認証は gateway が担当し、shop へは `X-Player-Id` header で player_id を引き渡す。
+    本ファイルが SSoT。`packages/api-shop` の Go 型と `packages/api-shop-npm` の TS 型を本ファイルから生成する。
 
 paths:
   /health:
@@ -19,12 +20,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
 
-  /internal/v1/players/{playerId}/products:
+  /api/v1/shop/products:
     get:
       operationId: listPlayerProducts
       summary: 購入可能な商品一覧を返す (所持情報付き)
       parameters:
-        - $ref: "#/components/parameters/PlayerIdPath"
+        - $ref: "#/components/parameters/PlayerIdHeader"
       responses:
         "200":
           description: 商品一覧
@@ -32,13 +33,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProductListResponse"
+        "401":
+          description: X-Player-Id header が欠落
 
-  /internal/v1/players/{playerId}/purchase:
+  /api/v1/shop/purchase:
     post:
       operationId: purchaseProduct
       summary: 1 回限りの商品を購入 (faction_set / cosmetic 等)
       parameters:
-        - $ref: "#/components/parameters/PlayerIdPath"
+        - $ref: "#/components/parameters/PlayerIdHeader"
       requestBody:
         required: true
         content:
@@ -54,6 +57,8 @@ paths:
                 $ref: "#/components/schemas/PurchaseResponse"
         "400":
           description: 無効なファクション / 非アクティブ商品 / 非対応プラットフォーム
+        "401":
+          description: X-Player-Id header が欠落
         "402":
           description: レシート検証失敗
         "404":
@@ -61,12 +66,12 @@ paths:
         "409":
           description: 同一商品を既に所有
 
-  /internal/v1/players/{playerId}/subscribe:
+  /api/v1/shop/subscribe:
     post:
       operationId: subscribeProduct
       summary: サブスクリプション商品を購入 (プレミアムパス等)
       parameters:
-        - $ref: "#/components/parameters/PlayerIdPath"
+        - $ref: "#/components/parameters/PlayerIdHeader"
       requestBody:
         required: true
         content:
@@ -82,6 +87,8 @@ paths:
                 $ref: "#/components/schemas/SubscribeResponse"
         "400":
           description: 商品がサブスクリプションタイプでない / 非対応プラットフォーム
+        "401":
+          description: X-Player-Id header が欠落
         "402":
           description: サブスクリプション検証失敗
         "404":
@@ -127,10 +134,11 @@ paths:
 
 components:
   parameters:
-    PlayerIdPath:
-      name: playerId
-      in: path
+    PlayerIdHeader:
+      name: X-Player-Id
+      in: header
       required: true
+      description: gateway が認証後に付与する player_id。client が直接設定するヘッダではない。
       schema:
         type: string
 

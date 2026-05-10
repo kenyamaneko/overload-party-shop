@@ -1,0 +1,26 @@
+{
+  "name": "@kenyamaneko/overload-party-api-shop",
+  "version": "0.0.0",
+  "description": "Overload Party shop service の client 公開 API 型 (ProductResponse / PurchaseRequest / SubscribeResponse / Platform / ProductType)。data/openapi.yaml から openapi-typescript で生成。",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.cloudsmith.io/keyandnotes/overload-party-npm/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kenyamaneko/overload-party-shop.git",
+    "directory": "packages/api-shop-npm"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

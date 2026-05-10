@@ -1,12 +1,20 @@
 name: Publish
 
-# api-shop Go モジュールを手動でタグ付け・公開する。
+# api-shop (Go module) と api-shop-npm (Cloudsmith npm) を手動でタグ付け・公開する。
 # バージョンを上げるタイミングは人が判断して workflow_dispatch で実行する。
 # タグの手動打ちは禁止 — このワークフローがモジュールタグの唯一の発行元。
 
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: "Package to publish"
+        required: true
+        default: "api-shop"
+        type: choice
+        options:
+          - api-shop
+          - api-shop-npm
       bump:
         description: "Version bump level"
         required: true
@@ -19,15 +27,15 @@ on:
 
 concurrency:
   group: publish-${{ github.ref }}
-  # タグの採番が競合しないように、先行ジョブの完了を待つ
   cancel-in-progress: false
 
 permissions:
-  # タグを push するために write 権限が必要
   contents: write
+  id-token: write
 
 jobs:
-  publish-package:
+  publish-api-shop:
+    if: inputs.target == 'api-shop'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -51,6 +59,7 @@ jobs:
       - name: Determine next tag
         id: tag
         env:
+          PREFIX: packages/api-shop/v
           BUMP: ${{ inputs.bump }}
         run: .github/scripts/publish/next-tag.sh
 
@@ -59,3 +68,44 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: .github/scripts/publish/tag-and-push.sh
 
+  publish-api-shop-npm:
+    if: inputs.target == 'api-shop-npm'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Determine next tag
+        id: tag
+        env:
+          PREFIX: packages/api-shop-npm/v
+          BUMP: ${{ inputs.bump }}
+        run: .github/scripts/publish/next-tag.sh
+
+      - name: Build & version npm package
+        working-directory: packages/api-shop-npm
+        run: |
+          version="${TAG#packages/api-shop-npm/v}"
+          npm install
+          npm version "${version}" --no-git-tag-version
+          npm run build
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+
+      - name: Publish to Cloudsmith
+        uses: kenyamaneko/overload-party-common/.github/actions/publish-to-cloudsmith@main
+        with:
+          format: npm
+          package-path: packages/api-shop-npm
+
+      - name: Tag and push
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: .github/scripts/publish/tag-and-push.sh

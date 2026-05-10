@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# next-tag.sh — Go module の次バージョンタグを算出する。
-# 入力: BUMP (patch|minor|major), 出力: GITHUB_OUTPUT に "tag=..." を書き込み。
+# 指定 prefix のタグから最新を見つけ、bump レベルに応じて次バージョンを算出する。
+# 入力: PREFIX (例: packages/api-shop/v) / BUMP (patch|minor|major)、出力: GITHUB_OUTPUT に "tag=..." を書き込み。
 set -euo pipefail
 
-prefix="packages/api-shop/v"
-latest=$(git tag --list "${prefix}*" --sort=-v:refname | head -n1 || true)
+: "${PREFIX:?PREFIX env required}"
+: "${BUMP:?BUMP env required}"
+
+latest=$(git tag --list "${PREFIX}*" --sort=-v:refname | head -n1 || true)
 if [ -z "${latest}" ]; then
-  next="${prefix}0.1.0"
+  next="${PREFIX}0.1.0"
 else
-  ver="${latest#${prefix}}"
+  ver="${latest#${PREFIX}}"
   IFS='.' read -r major minor patch <<EOF
 ${ver}
 EOF
@@ -18,6 +20,6 @@ EOF
     major) major=$((major + 1)); minor=0; patch=0 ;;
     *) echo "unknown bump: ${BUMP}" >&2; exit 1 ;;
   esac
-  next="${prefix}${major}.${minor}.${patch}"
+  next="${PREFIX}${major}.${minor}.${patch}"
 fi
 echo "tag=${next}" >> "${GITHUB_OUTPUT}"

@@ -7,6 +7,11 @@ vendor/
 .DS_Store
 go.work
 go.work.sum
+
+# npm packages
+node_modules/
+packages/*-npm/dist/
+packages/*-npm/package-lock.json
 .claude/*
 !.claude/docs.yaml
 !.claude/docs/

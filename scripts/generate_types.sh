@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# generate_types.sh — data/{openapi,asyncapi}.yaml から packages/api-shop の Go 型を再生成する。
-#
-# REST 部分は oapi-codegen、Pub/Sub 部分は overload-party-asyncapi-codegen-tools (common 由来) を使う。
+# data/{openapi,asyncapi}.yaml から packages/api-shop (Go) と packages/api-shop-npm (TS) の型を再生成する。
+# REST 部分は oapi-codegen / openapi-typescript、Pub/Sub 部分は asyncapi-codegen-tools を使う。
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -14,3 +13,7 @@ asyncapi-codegen \
   --input data/asyncapi.yaml \
   --output packages/api-shop/asyncapi_gen.go \
   --package apishop
+
+npx --yes openapi-typescript@7 \
+  data/openapi.yaml \
+  --output packages/api-shop-npm/src/openapi.gen.ts
