@@ -17,7 +17,8 @@ permissions:
 
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  # ADR-038 に従い、deploy 中断による half-deploy リスクを避けるため cancel しない
+  cancel-in-progress: false
 
 env:
   PROJECT_ID: keyandnotes-platform
@@ -28,6 +29,7 @@ env:
 jobs:
   resolve-env:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       env_name: ${{ steps.resolve.outputs.env_name }}
     steps:
@@ -43,6 +45,7 @@ jobs:
   push-image:
     needs: [resolve-env]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # GitHub Environments の保護ルール (approvers 等) を適用するために environment を宣言する
     environment: ${{ needs.resolve-env.outputs.env_name }}
     steps:
