@@ -32,21 +32,21 @@ func TestServer_DefaultResponses(t *testing.T) {
 		{
 			name:       "GetProducts 既定は 200 + 空配列",
 			method:     http.MethodGet,
-			path:       "/internal/v1/players/p-1/products",
+			path:       "/api/v1/shop/products",
 			reqBody:    nil,
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "Purchase 既定は 204 No Content",
 			method:     http.MethodPost,
-			path:       "/internal/v1/players/p-1/purchase",
+			path:       "/api/v1/shop/purchase",
 			reqBody:    []byte(`{}`),
 			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "Subscribe 既定は 200 + 空 Response",
 			method:     http.MethodPost,
-			path:       "/internal/v1/players/p-1/subscribe",
+			path:       "/api/v1/shop/subscribe",
 			reqBody:    []byte(`{}`),
 			wantStatus: http.StatusOK,
 		},
@@ -59,6 +59,7 @@ func TestServer_DefaultResponses(t *testing.T) {
 
 			req, _ := http.NewRequest(tt.method, srv.URL()+tt.path, bytes.NewReader(tt.reqBody))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Player-Id", "p-1")
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -92,25 +93,29 @@ func TestServer_SelectFactionFn_ReceivesRequest(t *testing.T) {
 	assert.Equal(t, "SHE", gotFaction)
 }
 
-// PurchaseFn は apishop.PurchaseRequest を typed で受け取れる。
+// PurchaseFn は X-Player-Id ヘッダ由来の playerID と apishop.PurchaseRequest を typed で受け取れる。
 func TestServer_PurchaseFn_ReceivesTypedRequest(t *testing.T) {
 	srv := apishopserverfake.NewServer()
 	defer srv.Close()
 
+	var gotPlayerID string
 	var gotReq apishop.PurchaseRequest
-	srv.PurchaseFn = func(_ string, req apishop.PurchaseRequest) (int, any) {
+	srv.PurchaseFn = func(playerID string, req apishop.PurchaseRequest) (int, any) {
+		gotPlayerID = playerID
 		gotReq = req
 		return http.StatusNoContent, nil
 	}
 
 	reqBody := []byte(`{"product_id":"faction_tenki","platform":"ios","purchase_token":"tok-1"}`)
-	req, _ := http.NewRequest(http.MethodPost, srv.URL()+"/internal/v1/players/p-1/purchase", bytes.NewReader(reqBody))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL()+"/api/v1/shop/purchase", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Player-Id", "p-1")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	assert.Equal(t, "p-1", gotPlayerID)
 	assert.Equal(t, "faction_tenki", gotReq.ProductID)
 	assert.Equal(t, apishop.PlatformIos, gotReq.Platform)
 	assert.Equal(t, "tok-1", gotReq.PurchaseToken)
@@ -130,8 +135,9 @@ func TestServer_SubscribeFn_ReturnsTypedExpiry(t *testing.T) {
 	}
 
 	reqBody := []byte(`{}`)
-	req, _ := http.NewRequest(http.MethodPost, srv.URL()+"/internal/v1/players/p-1/subscribe", bytes.NewReader(reqBody))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL()+"/api/v1/shop/subscribe", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Player-Id", "p-1")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
