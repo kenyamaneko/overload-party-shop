@@ -30,10 +30,7 @@ func NewShopHandler(shopService shopServicer) *ShopHandler {
 
 // GetProducts はプレイヤー向け商品一覧を返す。
 func (h *ShopHandler) GetProducts(c *gin.Context) {
-	playerID, ok := playerIDFromHeader(c)
-	if !ok {
-		return
-	}
+	playerID := c.GetString(PlayerIDContextKey)
 
 	products, err := h.shopService.GetProducts(c.Request.Context(), playerID)
 	if err != nil {
@@ -51,10 +48,7 @@ func (h *ShopHandler) GetProducts(c *gin.Context) {
 
 // Purchase は単発購入リクエストを処理する。
 func (h *ShopHandler) Purchase(c *gin.Context) {
-	playerID, ok := playerIDFromHeader(c)
-	if !ok {
-		return
-	}
+	playerID := c.GetString(PlayerIDContextKey)
 
 	var req apishop.PurchaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -75,10 +69,7 @@ func (h *ShopHandler) Purchase(c *gin.Context) {
 
 // Subscribe はサブスクリプション購入リクエストを処理する。
 func (h *ShopHandler) Subscribe(c *gin.Context) {
-	playerID, ok := playerIDFromHeader(c)
-	if !ok {
-		return
-	}
+	playerID := c.GetString(PlayerIDContextKey)
 
 	var req apishop.PurchaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
