@@ -43,24 +43,27 @@ type Server struct {
 	// SelectFactionFn は POST /internal/v1/players/{playerID}/select-faction の応答を決定する (nil は 200 + 空 body)。
 	SelectFactionFn func(playerID string, req SelectFactionRequest) (int, any)
 
-	// GetProductsFn は GET /internal/v1/players/{playerID}/products の応答を決定する (nil は 200 + 空 Products)。
+	// GetProductsFn は GET /api/v1/shop/products の応答を決定する (nil は 200 + 空 Products)。playerID は X-Player-Id ヘッダから取る。
 	GetProductsFn func(playerID string) (int, any)
 
-	// PurchaseFn は POST /internal/v1/players/{playerID}/purchase の応答を決定する (nil は 204)。
+	// PurchaseFn は POST /api/v1/shop/purchase の応答を決定する (nil は 204)。playerID は X-Player-Id ヘッダから取る。
 	PurchaseFn func(playerID string, req apishop.PurchaseRequest) (int, any)
 
-	// SubscribeFn は POST /internal/v1/players/{playerID}/subscribe の応答を決定する (nil は 200 + 空 body)。
+	// SubscribeFn は POST /api/v1/shop/subscribe の応答を決定する (nil は 200 + 空 body)。playerID は X-Player-Id ヘッダから取る。
 	SubscribeFn func(playerID string, req apishop.PurchaseRequest) (int, any)
 }
+
+// playerIDHeader は shop が gateway から受け取る player_id ヘッダ名。
+const playerIDHeader = "X-Player-Id"
 
 // NewServer は起動済み Server を返す。テスト終了時に Close() すること。
 func NewServer() *Server {
 	s := &Server{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /internal/v1/players/{playerID}/select-faction", s.handleSelectFaction)
-	mux.HandleFunc("GET /internal/v1/players/{playerID}/products", s.handleGetProducts)
-	mux.HandleFunc("POST /internal/v1/players/{playerID}/purchase", s.handlePurchase)
-	mux.HandleFunc("POST /internal/v1/players/{playerID}/subscribe", s.handleSubscribe)
+	mux.HandleFunc("GET /api/v1/shop/products", s.handleGetProducts)
+	mux.HandleFunc("POST /api/v1/shop/purchase", s.handlePurchase)
+	mux.HandleFunc("POST /api/v1/shop/subscribe", s.handleSubscribe)
 	s.srv = httptest.NewServer(mux)
 	return s
 }
@@ -94,7 +97,7 @@ func (s *Server) handleGetProducts(w http.ResponseWriter, r *http.Request) {
 	fn := s.GetProductsFn
 	s.mu.Unlock()
 
-	playerID := r.PathValue("playerID")
+	playerID := r.Header.Get(playerIDHeader)
 	if fn == nil {
 		writeJSON(w, http.StatusOK, ProductsResponse{Products: []apishop.ProductResponse{}})
 		return
@@ -111,7 +114,7 @@ func (s *Server) handlePurchase(w http.ResponseWriter, r *http.Request) {
 	fn := s.PurchaseFn
 	s.mu.Unlock()
 
-	playerID := r.PathValue("playerID")
+	playerID := r.Header.Get(playerIDHeader)
 	if fn == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -128,7 +131,7 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 	fn := s.SubscribeFn
 	s.mu.Unlock()
 
-	playerID := r.PathValue("playerID")
+	playerID := r.Header.Get(playerIDHeader)
 	if fn == nil {
 		writeJSON(w, http.StatusOK, SubscribeResponse{})
 		return
