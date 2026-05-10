@@ -18,6 +18,9 @@ import (
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
+// testPlayerID は handler テストで context に注入する固定 player_id。
+const testPlayerID = "player-1"
+
 type fakeShopServicer struct {
 	getProductsFn func(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error)
 	purchaseFn    func(ctx context.Context, playerID, productID, pf, purchaseToken string) error
@@ -36,8 +39,15 @@ func (f *fakeShopServicer) Subscribe(ctx context.Context, playerID, productID, p
 	return f.subscribeFn(ctx, playerID, productID, pf, purchaseToken)
 }
 
+// newShopTestServer は handler 単体テスト用に gin engine を組み立てる。
+// 認証 middleware は通さず context に testPlayerID を直接注入することで、
+// handler が context 経由で player_id を読むことを検証する。
 func newShopTestServer(svc shopServicer) *gin.Engine {
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(PlayerIDContextKey, testPlayerID)
+		c.Next()
+	})
 	h := NewShopHandler(svc)
 	api := r.Group("/api/v1/shop")
 	api.GET("/products", h.GetProducts)
@@ -46,16 +56,13 @@ func newShopTestServer(svc shopServicer) *gin.Engine {
 	return r
 }
 
-// withPlayerIDHeader は handler が要求する X-Player-Id ヘッダを request にセットする。
-func withPlayerIDHeader(req *http.Request, playerID string) *http.Request {
-	req.Header.Set(playerIDHeader, playerID)
-	return req
-}
-
 // GetProducts の成功パスは usecase の戻り値を {"products":[...]} で wrap する。
+// context に注入された player_id がそのまま usecase に渡る点も併せて確認する。
 func TestGetProducts_Success(t *testing.T) {
+	var observedPlayerID string
 	svc := &fakeShopServicer{
-		getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
+		getProductsFn: func(_ context.Context, playerID string) ([]domain.ProductWithOwnership, error) {
+			observedPlayerID = playerID
 			return []domain.ProductWithOwnership{
 				{
 					ProductView: domain.SubscriptionProduct{
@@ -68,9 +75,10 @@ func TestGetProducts_Success(t *testing.T) {
 	}
 	r := newShopTestServer(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, withPlayerIDHeader(httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil), "player-1"))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil))
 
 	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, testPlayerID, observedPlayerID, "context 経由の player_id が usecase に伝搬する")
 	var resp struct {
 		Products []apishop.ProductResponse `json:"products"`
 	}
@@ -78,21 +86,6 @@ func TestGetProducts_Success(t *testing.T) {
 	require.Len(t, resp.Products, 1)
 	assert.Equal(t, "p1", resp.Products[0].ProductID)
 	assert.True(t, resp.Products[0].IsOwned)
-}
-
-// GetProducts は X-Player-Id ヘッダ欠落時に 401 を返す (handler 内で usecase 呼び出しに到達しない)。
-func TestGetProducts_MissingPlayerIDHeader(t *testing.T) {
-	svc := &fakeShopServicer{
-		getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
-			t.Fatal("usecase が呼ばれてはならない")
-			return nil, nil
-		},
-	}
-	r := newShopTestServer(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil))
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 // GetProducts の usecase エラーは respondError 経由で HTTP ステータスに変換される。
@@ -104,7 +97,7 @@ func TestGetProducts_PropagatesServiceError(t *testing.T) {
 	}
 	r := newShopTestServer(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, withPlayerIDHeader(httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil), "player-1"))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
@@ -121,7 +114,7 @@ func TestPurchase_Success(t *testing.T) {
 	})
 	r := newShopTestServer(svc)
 	w := httptest.NewRecorder()
-	req := withPlayerIDHeader(httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(body)), "player-1")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
@@ -173,7 +166,7 @@ func TestPurchase_ErrorResponses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newShopTestServer(tt.svc)
 			w := httptest.NewRecorder()
-			req := withPlayerIDHeader(httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(tt.body)), "player-1")
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			r.ServeHTTP(w, req)
 
@@ -197,7 +190,7 @@ func TestSubscribe_Success(t *testing.T) {
 	})
 	r := newShopTestServer(svc)
 	w := httptest.NewRecorder()
-	req := withPlayerIDHeader(httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(body)), "player-1")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
@@ -243,7 +236,7 @@ func TestSubscribe_ErrorResponses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newShopTestServer(tt.svc)
 			w := httptest.NewRecorder()
-			req := withPlayerIDHeader(httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(tt.body)), "player-1")
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			r.ServeHTTP(w, req)
 

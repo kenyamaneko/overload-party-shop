@@ -8,10 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 // New は shop の HTTP ルーターを構築する。appleWH / googleWH が nil なら該当 webhook ルートを登録しない。
-func New(shopH *rest.ShopHandler, appleWH *rest.AppleWebhookHandler, googleWH *rest.GoogleWebhookHandler) *gin.Engine {
+func New(shopH *rest.ShopHandler, appleWH *rest.AppleWebhookHandler, googleWH *rest.GoogleWebhookHandler, authVerifier port.InternalAuthVerifier) *gin.Engine {
 	r := gin.New()
 	r.Use(requestLogger(), gin.Recovery())
 
@@ -20,6 +21,7 @@ func New(shopH *rest.ShopHandler, appleWH *rest.AppleWebhookHandler, googleWH *r
 	})
 
 	api := r.Group("/api/v1/shop")
+	api.Use(rest.VerifyInternalAuth(authVerifier))
 	{
 		api.GET("/products", shopH.GetProducts)
 		api.POST("/purchase", shopH.Purchase)

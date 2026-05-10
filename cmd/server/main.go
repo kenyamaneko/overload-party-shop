@@ -14,10 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/config"
 	shopadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
 	googleadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/google"
+	"github.com/kenyamaneko/overload-party-shop/internal/adapter/internalauth"
 	shoppubsub "github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
+	"github.com/kenyamaneko/overload-party-shop/internal/config"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/worker"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
@@ -205,7 +206,10 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) htt
 			subscription.NewGoogleNotifier(subRepo, vfs.googleSub),
 		)
 	}
-	return router.New(shopH, appleWH, googleWH)
+	authVerifier := internalauth.NewVerifier(
+		internalauth.StaticHS256Resolver([]byte(cfg.InternalAuthSecret), internalauth.DefaultKeyID),
+	)
+	return router.New(shopH, appleWH, googleWH, authVerifier)
 }
 
 // buildOutboxTicker は outbox 消費フローの relay と worker ticker を組み立てる。

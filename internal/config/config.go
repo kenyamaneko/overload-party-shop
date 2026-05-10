@@ -34,6 +34,9 @@ type Config struct {
 
 	IAPMode IAPMode
 
+	// InternalAuthSecret は内部サービス間 JWT (HS256) 検証の共有秘密鍵。
+	InternalAuthSecret string
+
 	// Apple IAP
 	AppleKeyID         string
 	AppleIssuerID      string
@@ -63,6 +66,7 @@ func FromEnv() (*Config, error) {
 		FactionAcquiredTopic:   os.Getenv("FACTION_ACQUIRED_TOPIC"),
 		PremiumUpdatedTopic:    os.Getenv("PREMIUM_UPDATED_TOPIC"),
 		IAPMode:                IAPMode(os.Getenv("IAP_MODE")),
+		InternalAuthSecret:     os.Getenv("INTERNAL_AUTH_SECRET"),
 		AppleEnvironment:       os.Getenv("APPLE_ENVIRONMENT"),
 	}
 
@@ -90,6 +94,9 @@ func FromEnv() (*Config, error) {
 	}
 	if cfg.PremiumUpdatedTopic == "" {
 		return nil, fmt.Errorf("config: PREMIUM_UPDATED_TOPIC is required")
+	}
+	if cfg.InternalAuthSecret == "" {
+		return nil, fmt.Errorf("config: INTERNAL_AUTH_SECRET is required")
 	}
 
 	if err := loadOutboxConfig(cfg); err != nil {
