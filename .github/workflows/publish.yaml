@@ -37,6 +37,7 @@ jobs:
   publish-api-shop:
     if: inputs.target == 'api-shop'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,6 +72,7 @@ jobs:
   publish-api-shop-npm:
     if: inputs.target == 'api-shop-npm'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4

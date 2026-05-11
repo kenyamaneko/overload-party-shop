@@ -4,22 +4,37 @@ name: CI
 on:
   pull_request:
     branches: [main, develop, "release/**"]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.vscode/**'
+      - '.gitignore'
+      - 'LICENSE'
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  check-source-branch:
-    if: github.base_ref == 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Validate source branch
-        run: .github/scripts/ci/check-source-branch.sh "${{ github.head_ref }}"
+  # check-source-branch ジョブは GitFlow 強制 (main へは release/* または hotfix/* のみ)
+  # を CI で強制していたが、運用実態 (feature → main の直 PR が常態化) と乖離しているため
+  # 一時無効化する。フロー戦略の整合は別 issue で扱う。戻すときは下のブロックを uncomment する。
+  # check-source-branch:
+  #   if: github.base_ref == 'main'
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 5
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #     - name: Validate source branch
+  #       run: .github/scripts/ci/check-source-branch.sh "${{ github.head_ref }}"
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,6 +64,7 @@ jobs:
 
   test-unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,6 +84,7 @@ jobs:
 
   test-integration:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -103,6 +120,7 @@ jobs:
 
   image-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -127,6 +145,7 @@ jobs:
 
   codegen-sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
