@@ -9,15 +9,26 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 func init() {
 	gin.SetMode(gin.TestMode)
 }
 
+// fakeRouterVerifier は router 単体テスト用の port.InternalAuthVerifier 最小 fake。
+// webhook / health の検証では auth middleware の経路を通らないため Verify は呼ばれない。
+type fakeRouterVerifier struct{}
+
+func (fakeRouterVerifier) Verify(string) (string, error) { return "", nil }
+
+func testVerifier() port.InternalAuthVerifier {
+	return fakeRouterVerifier{}
+}
+
 // /health は webhook の登録状態に関わらず常に 200 を返す。
 func TestNew_HealthEndpoint(t *testing.T) {
-	r := New(rest.NewShopHandler(nil), nil, nil)
+	r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -81,7 +92,7 @@ func TestNew_WebhookRouteRegistration(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := New(rest.NewShopHandler(nil), tt.appleWH, tt.googleWH)
+			r := New(rest.NewShopHandler(nil), tt.appleWH, tt.googleWH, testVerifier())
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, tt.path, nil))
 			assert.Equal(t, tt.wantCode, w.Code)

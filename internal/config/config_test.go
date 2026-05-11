@@ -28,6 +28,7 @@ var allEnvKeys = []string{
 	"OUTBOX_BATCH_SIZE",
 	"OUTBOX_FAILURE_THRESHOLD",
 	"OUTBOX_VISIBILITY_TIMEOUT",
+	"INTERNAL_AUTH_SECRET",
 }
 
 // setEnv は allEnvKeys を一括で上書きする。envs に無いキーは "" (未設定相当) として
@@ -65,6 +66,7 @@ var validLocalEnv = map[string]string{
 	"OUTBOX_BATCH_SIZE":         "100",
 	"OUTBOX_FAILURE_THRESHOLD":  "5",
 	"OUTBOX_VISIBILITY_TIMEOUT": "30s",
+	"INTERNAL_AUTH_SECRET":      "test-internal-auth-secret-do-not-use-in-prod-xxxxx",
 }
 
 func TestFromEnv_Success(t *testing.T) {
@@ -91,6 +93,7 @@ func TestFromEnv_Success(t *testing.T) {
 				assert.Equal(t, "card-pack-purchased", cfg.CardPackPurchasedTopic)
 				assert.Equal(t, "faction-acquired", cfg.FactionAcquiredTopic)
 				assert.Equal(t, "premium-updated", cfg.PremiumUpdatedTopic)
+				assert.Equal(t, "test-internal-auth-secret-do-not-use-in-prod-xxxxx", cfg.InternalAuthSecret)
 			},
 		},
 		{
@@ -274,6 +277,11 @@ func TestFromEnv_Errors(t *testing.T) {
 			name:    "OUTBOX_VISIBILITY_TIMEOUT が 1ms 未満ならエラー",
 			envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "500us"}),
 			wantErr: "OUTBOX_VISIBILITY_TIMEOUT must be >= 1ms",
+		},
+		{
+			name:    "INTERNAL_AUTH_SECRET が未設定ならエラー",
+			envs:    mergeEnv(validLocalEnv, map[string]string{"INTERNAL_AUTH_SECRET": ""}),
+			wantErr: "INTERNAL_AUTH_SECRET is required",
 		},
 	}
 	for _, tt := range tests {
