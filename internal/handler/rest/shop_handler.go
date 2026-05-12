@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/presenter"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
@@ -30,7 +31,7 @@ func NewShopHandler(shopService shopServicer) *ShopHandler {
 
 // GetProducts はプレイヤー向け商品一覧を返す。
 func (h *ShopHandler) GetProducts(c *gin.Context) {
-	playerID := c.GetString(PlayerIDContextKey)
+	playerID := c.GetString(internalauth.PlayerIDContextKey)
 
 	products, err := h.shopService.GetProducts(c.Request.Context(), playerID)
 	if err != nil {
@@ -48,7 +49,7 @@ func (h *ShopHandler) GetProducts(c *gin.Context) {
 
 // Purchase は単発購入リクエストを処理する。
 func (h *ShopHandler) Purchase(c *gin.Context) {
-	playerID := c.GetString(PlayerIDContextKey)
+	playerID := c.GetString(internalauth.PlayerIDContextKey)
 
 	var req apishop.PurchaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -69,7 +70,7 @@ func (h *ShopHandler) Purchase(c *gin.Context) {
 
 // Subscribe はサブスクリプション購入リクエストを処理する。
 func (h *ShopHandler) Subscribe(c *gin.Context) {
-	playerID := c.GetString(PlayerIDContextKey)
+	playerID := c.GetString(internalauth.PlayerIDContextKey)
 
 	var req apishop.PurchaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

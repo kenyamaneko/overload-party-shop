@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/purchase"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
@@ -45,7 +46,7 @@ func (f *fakeShopServicer) Subscribe(ctx context.Context, playerID, productID, p
 func newShopTestServer(svc shopServicer) *gin.Engine {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set(PlayerIDContextKey, testPlayerID)
+		c.Set(internalauth.PlayerIDContextKey, testPlayerID)
 		c.Next()
 	})
 	h := NewShopHandler(svc)
