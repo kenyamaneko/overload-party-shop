@@ -28,7 +28,7 @@ env:
 
 jobs:
   resolve-env:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     timeout-minutes: 5
     outputs:
       env_name: ${{ steps.resolve.outputs.env_name }}
@@ -44,7 +44,7 @@ jobs:
 
   push-image:
     needs: [resolve-env]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     timeout-minutes: 30
     # GitHub Environments の保護ルール (approvers 等) を適用するために environment を宣言する
     environment: ${{ needs.resolve-env.outputs.env_name }}
