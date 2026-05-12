@@ -14,9 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
+	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	shopadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
 	googleadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/google"
-	"github.com/kenyamaneko/overload-party-shop/internal/adapter/internalauth"
 	shoppubsub "github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
 	"github.com/kenyamaneko/overload-party-shop/internal/config"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
