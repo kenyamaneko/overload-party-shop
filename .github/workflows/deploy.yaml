@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: deploy-${{ github.ref }}
-  # ADR-038 に従い、deploy 中断による half-deploy リスクを避けるため cancel しない
+  # deploy 中断による half-deploy リスクを避けるため cancel しない
   cancel-in-progress: false
 
 env:
