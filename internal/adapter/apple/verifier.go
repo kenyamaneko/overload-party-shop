@@ -4,14 +4,12 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -27,25 +25,26 @@ const (
 
 // Verifier は App Store Server API v2 を使用して port.ReceiptVerifier を実装する。
 type Verifier struct {
-	keyID      string
-	issuerID   string
-	bundleID   string
-	privateKey *ecdsa.PrivateKey
-	baseURL    string
-	httpClient *http.Client
+	keyID       string
+	issuerID    string
+	bundleID    string
+	privateKey  *ecdsa.PrivateKey
+	baseURL     string
+	httpClient  *http.Client
+	jwsVerifier port.AppleJWSVerifier
 }
 
 // NewVerifier はファイルシステムから PEM 鍵を読み込んで Apple verifier を構築する。
-func NewVerifier(keyID, issuerID, bundleID, privateKeyPath, environment string) (*Verifier, error) {
+func NewVerifier(keyID, issuerID, bundleID, privateKeyPath, environment string, jwsVerifier port.AppleJWSVerifier) (*Verifier, error) {
 	keyData, err := os.ReadFile(privateKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read apple private key: %w", err)
 	}
-	return NewVerifierFromPEM(keyID, issuerID, bundleID, keyData, environment)
+	return NewVerifierFromPEM(keyID, issuerID, bundleID, keyData, environment, jwsVerifier)
 }
 
 // NewVerifierFromPEM はメモリ上の P-256 秘密鍵から Apple verifier を構築する。environment は "Production" / "Sandbox"。
-func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, environment string) (*Verifier, error) {
+func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, environment string, jwsVerifier port.AppleJWSVerifier) (*Verifier, error) {
 	block, _ := pem.Decode(pemData)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
@@ -67,12 +66,13 @@ func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, enviro
 	}
 
 	return &Verifier{
-		keyID:      keyID,
-		issuerID:   issuerID,
-		bundleID:   bundleID,
-		privateKey: ecKey,
-		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: appleAPITimeout},
+		keyID:       keyID,
+		issuerID:    issuerID,
+		bundleID:    bundleID,
+		privateKey:  ecKey,
+		baseURL:     baseURL,
+		httpClient:  &http.Client{Timeout: appleAPITimeout},
+		jwsVerifier: jwsVerifier,
 	}, nil
 }
 
@@ -113,7 +113,7 @@ func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*p
 		return nil, fmt.Errorf("decode Apple response: %w", err)
 	}
 
-	txnInfo, err := decodeJWSPayload(apiResp.SignedTransactionInfo)
+	txnInfo, err := v.decodeJWSPayload(apiResp.SignedTransactionInfo)
 	if err != nil {
 		return nil, fmt.Errorf("decode transaction info: %w", err)
 	}
@@ -172,12 +172,12 @@ func (v *Verifier) VerifySubscription(ctx context.Context, purchaseToken string)
 
 	lastTxn := apiResp.Data[0].LastTransactions[0]
 
-	txnInfo, err := decodeJWSPayload(lastTxn.SignedTransactionInfo)
+	txnInfo, err := v.decodeJWSPayload(lastTxn.SignedTransactionInfo)
 	if err != nil {
 		return nil, fmt.Errorf("decode transaction info: %w", err)
 	}
 
-	renewalInfo, err := decodeJWSRenewalPayload(lastTxn.SignedRenewalInfo)
+	renewalInfo, err := v.decodeJWSRenewalPayload(lastTxn.SignedRenewalInfo)
 	if err != nil {
 		return nil, fmt.Errorf("decode renewal info: %w", err)
 	}
@@ -218,18 +218,11 @@ type appleRenewalInfo struct {
 	AutoRenewStatus int `json:"autoRenewStatus"`
 }
 
-// decodeJWSPayload は JWS から署名検証なしで payload を抽出する。
-// 信頼は App Store Server API への JWT bearer auth に委譲している (webhook 経路では JWSVerifier を使う)。
-// TODO: 本番前に Apple root cert に対する署名検証を追加する。
-func decodeJWSPayload(jws string) (*appleTransactionInfo, error) {
-	parts := strings.Split(jws, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid JWS format")
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+// decodeJWSPayload は Apple JWS を検証してから transaction payload を抽出する。
+func (v *Verifier) decodeJWSPayload(jws string) (*appleTransactionInfo, error) {
+	payload, err := v.jwsVerifier.Verify(jws)
 	if err != nil {
-		return nil, fmt.Errorf("decode JWS payload: %w", err)
+		return nil, fmt.Errorf("verify JWS: %w", err)
 	}
 
 	var info appleTransactionInfo
@@ -239,15 +232,11 @@ func decodeJWSPayload(jws string) (*appleTransactionInfo, error) {
 	return &info, nil
 }
 
-func decodeJWSRenewalPayload(jws string) (*appleRenewalInfo, error) {
-	parts := strings.Split(jws, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid JWS format")
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+// decodeJWSRenewalPayload は Apple JWS を検証してから renewal payload を抽出する。
+func (v *Verifier) decodeJWSRenewalPayload(jws string) (*appleRenewalInfo, error) {
+	payload, err := v.jwsVerifier.Verify(jws)
 	if err != nil {
-		return nil, fmt.Errorf("decode JWS payload: %w", err)
+		return nil, fmt.Errorf("verify JWS: %w", err)
 	}
 
 	var info appleRenewalInfo

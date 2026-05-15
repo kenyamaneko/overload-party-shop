@@ -160,9 +160,10 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 		slog.Info("skipping verifier init and webhook route registration", "iap_mode", "local")
 		return verifiers{}, nil
 	}
+	ajws := shopadapter.NewJWSVerifier()
 	av, err := shopadapter.NewVerifierFromPEM(
 		cfg.AppleKeyID, cfg.AppleIssuerID, cfg.AppleBundleID,
-		cfg.ApplePrivateKeyPEM, cfg.AppleEnvironment,
+		cfg.ApplePrivateKeyPEM, cfg.AppleEnvironment, ajws,
 	)
 	if err != nil {
 		return verifiers{}, fmt.Errorf("apple verifier: %w", err)
@@ -175,7 +176,6 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 	if err != nil {
 		return verifiers{}, fmt.Errorf("google sub verifier: %w", err)
 	}
-	ajws := shopadapter.NewJWSVerifier()
 	return verifiers{apple: av, google: gv, googleSub: gsv, appleJWS: ajws}, nil
 }
 
