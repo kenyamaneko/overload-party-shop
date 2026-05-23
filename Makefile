@@ -1,4 +1,4 @@
-.PHONY: build test test-integration vet fmt run tidy db-up db-down db-reset generate-types help
+.PHONY: build test test-integration vet fmt run tidy db-up db-down db-reset generate-types generate-products-seed help
 
 APP := overload-party-shop
 
@@ -22,6 +22,9 @@ fmt: ## Format code
 
 generate-types: ## Re-generate packages/api-shop/{openapi,asyncapi}_gen.go from data/{openapi,asyncapi}.yaml (requires oapi-codegen and asyncapi-codegen on PATH)
 	scripts/generate_types.sh
+
+generate-products-seed: ## Re-generate db/seed/products_seed.sql from data/products.yaml (requires pyyaml)
+	python3 scripts/generate_products_seed.py
 
 db-up: ## Start local Postgres (docker compose)
 	docker compose up -d postgres
