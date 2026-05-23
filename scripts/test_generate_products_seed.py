@@ -15,9 +15,9 @@ def _write_yaml(path: Path, data: dict) -> None:
 
 
 class TestGenerateFactionSet:
-    """faction_set 商品 1 件が本表 + product_faction + product_card_pack に展開されることを固定する."""
+    """faction_set 商品が本表 + product_faction + product_card_pack の 3 INSERT に展開されることを固定する."""
 
-    def test_emits_three_inserts(self, tmp_path: Path) -> None:
+    def test_emits_three_upsert_blocks(self, tmp_path: Path) -> None:
         src = tmp_path / "products.yaml"
         out = tmp_path / "out.sql"
         _write_yaml(
@@ -39,23 +39,44 @@ class TestGenerateFactionSet:
         )
         gen.generate(src, out)
         sql = out.read_text(encoding="utf-8")
-        assert "Code generated" in sql
+        assert "Auto-generated" in sql
         assert "INSERT INTO shop.products" in sql
-        assert "'faction_set_she'" in sql
-        assert "'SHE Pack'" in sql
-        assert "'faction_set'" in sql
-        assert "980" in sql
-        assert "'SHE 陣営のカードセット'" in sql
-        assert "TRUE" in sql
+        assert "('faction_set_she', 'SHE Pack', 'faction_set', 980, 'SHE 陣営のカードセット', NULL, true)" in sql
         assert "INSERT INTO shop.product_faction" in sql
-        assert "'SHE'" in sql
+        assert "('faction_set_she', 'SHE')" in sql
         assert "INSERT INTO shop.product_card_pack" in sql
+        assert "('faction_set_she', 'faction_set_she')" in sql
+
+
+class TestIdempotency:
+    """ON CONFLICT DO UPDATE で再実行が安全であることを固定する (card と同じ pattern)."""
+
+    def test_products_upsert_clause(self, tmp_path: Path) -> None:
+        src = tmp_path / "products.yaml"
+        out = tmp_path / "out.sql"
+        _write_yaml(
+            src,
+            {
+                "products": [
+                    {"product_id": "x", "name": "A", "type": "faction_set", "price": 1, "is_active": True, "faction": "SHE", "card_pack_id": "faction_set_she"},
+                ]
+            },
+        )
+        gen.generate(src, out)
+        sql = out.read_text(encoding="utf-8")
+        # 本表
+        assert "ON CONFLICT (product_id) DO UPDATE SET" in sql
+        assert "name        = EXCLUDED.name" in sql
+        assert "price       = EXCLUDED.price" in sql
+        # 副表
+        assert "faction = EXCLUDED.faction" in sql
+        assert "card_pack_id = EXCLUDED.card_pack_id" in sql
 
 
 class TestGenerateCardPack:
     """card_pack 商品は本表 + product_card_pack のみ (faction 副表は出さない)."""
 
-    def test_emits_two_inserts(self, tmp_path: Path) -> None:
+    def test_emits_two_upsert_blocks(self, tmp_path: Path) -> None:
         src = tmp_path / "products.yaml"
         out = tmp_path / "out.sql"
         _write_yaml(
@@ -105,40 +126,39 @@ class TestSqlEscaping:
         )
         gen.generate(src, out)
         sql = out.read_text(encoding="utf-8")
-        # シングルクオートを 2 重化してエスケープ
         assert "'Bob''s Pack'" in sql
         assert "'with ''quote'''" in sql
 
 
 class TestValidation:
-    """_validate のエラー仕様."""
+    """validate のエラー仕様."""
 
     def test_missing_required_key_raises(self):
         with pytest.raises(ValueError, match=r"missing required key 'name'"):
-            gen._validate([{"product_id": "x", "type": "faction_set", "price": 0, "is_active": True}])
+            gen.validate([{"product_id": "x", "type": "faction_set", "price": 0, "is_active": True}])
 
     def test_duplicate_product_id_raises(self):
         with pytest.raises(ValueError, match=r"duplicate product_id 'x'"):
-            gen._validate([
+            gen.validate([
                 {"product_id": "x", "name": "A", "type": "faction_set", "price": 1, "is_active": True, "faction": "SHE", "card_pack_id": "faction_set_she"},
                 {"product_id": "x", "name": "B", "type": "faction_set", "price": 1, "is_active": True, "faction": "Tenki", "card_pack_id": "faction_set_tenki"},
             ])
 
     def test_unsupported_type_raises(self):
         with pytest.raises(ValueError, match=r"unsupported type 'ghost'"):
-            gen._validate([
+            gen.validate([
                 {"product_id": "x", "name": "A", "type": "ghost", "price": 1, "is_active": True},
             ])
 
     def test_faction_set_without_faction_raises(self):
         with pytest.raises(ValueError, match=r"requires 'faction'"):
-            gen._validate([
+            gen.validate([
                 {"product_id": "x", "name": "A", "type": "faction_set", "price": 1, "is_active": True, "card_pack_id": "faction_set_she"},
             ])
 
     def test_faction_set_without_card_pack_id_raises(self):
         with pytest.raises(ValueError, match=r"requires 'card_pack_id'"):
-            gen._validate([
+            gen.validate([
                 {"product_id": "x", "name": "A", "type": "faction_set", "price": 1, "is_active": True, "faction": "SHE"},
             ])
 
@@ -167,5 +187,5 @@ class TestNullableFields:
         )
         gen.generate(src, out)
         sql = out.read_text(encoding="utf-8")
-        # description, image_url とも未指定なので NULL
+        # description, image_url とも未指定で NULL
         assert "NULL, NULL" in sql
