@@ -12,6 +12,7 @@ services:
       - "5432:5432"
     volumes:
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./db/seed/products_seed.sql:/docker-entrypoint-initdb.d/02_products_seed.sql:ro
       - shop_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U shop"]

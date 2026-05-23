@@ -13,3 +13,7 @@ node_modules/
 packages/*-npm/dist/
 packages/*-npm/package-lock.json
 .claude/*
+
+# Python
+__pycache__/
+*.pyc

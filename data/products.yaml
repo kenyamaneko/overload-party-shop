@@ -1,0 +1,50 @@
+# Shop product master (SSoT for shop.products + 型別副表).
+#
+# 直接編集してよいのは本ファイルのみ。db/seed/products_seed.sql は
+# scripts/generate_products_seed.py で生成される。
+#
+# product type と必須付帯フィールドの対応:
+#   faction_set    → faction (shop.product_faction) + card_pack_id (shop.product_card_pack)
+#   card_pack      → card_pack_id (shop.product_card_pack)
+#   cosmetic       → (将来追加) item_type + item_no
+#   subscription   → (将来追加) period_months
+#
+# card_pack_id は overload-party-card/data/card_packs.yaml の packs[*].pack_id に
+# 含まれる必要がある (overload-party-common 側 CI で cross-repo 検証予定)。
+
+products:
+  - product_id: faction_set_she
+    name: SHE Pack
+    type: faction_set
+    price: 980
+    description: SHE 陣営のカードセット
+    is_active: true
+    faction: SHE
+    card_pack_id: faction_set_she
+
+  - product_id: faction_set_tenki
+    name: Tenki Pack
+    type: faction_set
+    price: 980
+    description: 天気使い陣営のカードセット
+    is_active: true
+    faction: Tenki
+    card_pack_id: faction_set_tenki
+
+  - product_id: faction_set_sugar
+    name: Sugar Pack
+    type: faction_set
+    price: 980
+    description: しゅがーらぼ陣営のカードセット
+    is_active: true
+    faction: Sugar
+    card_pack_id: faction_set_sugar
+
+  - product_id: faction_set_tuners
+    name: Tuners Pack
+    type: faction_set
+    price: 980
+    description: 調律部陣営のカードセット
+    is_active: true
+    faction: Tuners
+    card_pack_id: faction_set_tuners
