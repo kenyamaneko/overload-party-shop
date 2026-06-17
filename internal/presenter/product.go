@@ -45,8 +45,8 @@ func ToProductResponses(items []domain.ProductWithOwnership) ([]apishop.ProductR
 // buildProductContent は per-type 商品ビューから wire の content フィールド (map) を構築する。
 // faction_set => {"faction": "<faction>"}, cosmetic => {"item_type":"...","item_no":...},
 // subscription => {} (型固有属性なし)。
-func buildProductContent(pv domain.ProductView) (map[string]interface{}, error) {
-	switch p := pv.(type) {
+func buildProductContent(productView domain.ProductView) (map[string]interface{}, error) {
+	switch p := productView.(type) {
 	case domain.FactionSetProduct:
 		return map[string]interface{}{"faction": p.Faction}, nil
 	case domain.CosmeticProduct:
@@ -54,6 +54,6 @@ func buildProductContent(pv domain.ProductView) (map[string]interface{}, error) 
 	case domain.SubscriptionProduct:
 		return map[string]interface{}{}, nil
 	default:
-		return nil, fmt.Errorf("unknown product view type %T", pv)
+		return nil, fmt.Errorf("unknown product view type %T", productView)
 	}
 }

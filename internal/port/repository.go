@@ -45,14 +45,14 @@ type PurchaseLookupRepo interface {
 
 // SubscriptionRepo はサブスクリプション + Apple/Google トークンマッピングの CRUD。
 type SubscriptionRepo interface {
-	CreateSubscription(ctx context.Context, sub *domain.Subscription, platform, purchaseToken string, event OutboxEvent) error
+	CreateSubscription(ctx context.Context, subscription *domain.Subscription, platform, purchaseToken string, event OutboxEvent) error
 	// GetLatestSubscription は player の最新サブスクリプション 1 行を platform 横断で返す。
 	GetLatestSubscription(ctx context.Context, playerID string) (*domain.Subscription, error)
 	FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*domain.Subscription, error)
 	// UpdateSubscription は outbox 行を伴わない更新 (cancelled 遷移用)。
-	UpdateSubscription(ctx context.Context, sub *domain.Subscription) error
+	UpdateSubscription(ctx context.Context, subscription *domain.Subscription) error
 	// UpdateSubscriptionWithEvent は subscriptions 更新と outbox 行 INSERT を同一 tx で行う。
-	UpdateSubscriptionWithEvent(ctx context.Context, sub *domain.Subscription, event OutboxEvent) error
+	UpdateSubscriptionWithEvent(ctx context.Context, subscription *domain.Subscription, event OutboxEvent) error
 }
 
 // GameConfigRepo はゲーム設定値を読み取る。キー不在は ErrNotFound。

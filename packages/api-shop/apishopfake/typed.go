@@ -11,9 +11,9 @@ import (
 
 // PublishFactionAcquired は TopicFactionAcquired へ FactionAcquiredEvent を 1 件発行する。
 // EventID / Timestamp 未設定なら UUIDv4 / 現在時刻を補完、EventType は常に上書きする。
-func PublishFactionAcquired(ctx context.Context, p *Publisher, ev apishop.FactionAcquiredEvent) error {
-	ev = fillFactionAcquiredDefaults(ev)
-	data, err := json.Marshal(ev)
+func PublishFactionAcquired(ctx context.Context, p *Publisher, event apishop.FactionAcquiredEvent) error {
+	event = fillFactionAcquiredDefaults(event)
+	data, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal FactionAcquiredEvent: %w", err)
 	}
@@ -22,9 +22,9 @@ func PublishFactionAcquired(ctx context.Context, p *Publisher, ev apishop.Factio
 
 // PublishCardPackPurchased は TopicCardPackPurchased へ CardPackPurchasedEvent を 1 件発行する。
 // EventID / Timestamp 未設定なら UUIDv4 / 現在時刻を補完、EventType は常に上書きする。
-func PublishCardPackPurchased(ctx context.Context, p *Publisher, ev apishop.CardPackPurchasedEvent) error {
-	ev = fillCardPackPurchasedDefaults(ev)
-	data, err := json.Marshal(ev)
+func PublishCardPackPurchased(ctx context.Context, p *Publisher, event apishop.CardPackPurchasedEvent) error {
+	event = fillCardPackPurchasedDefaults(event)
+	data, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal CardPackPurchasedEvent: %w", err)
 	}
@@ -33,9 +33,9 @@ func PublishCardPackPurchased(ctx context.Context, p *Publisher, ev apishop.Card
 
 // PublishPremiumUpdated は TopicPremiumUpdated へ PremiumUpdatedEvent を 1 件発行する。
 // 他 Publish ヘルパと同じ補完に加え、Source 空なら PremiumUpdatedSourceShop を埋める。
-func PublishPremiumUpdated(ctx context.Context, p *Publisher, ev apishop.PremiumUpdatedEvent) error {
-	ev = fillPremiumDefaults(ev)
-	data, err := json.Marshal(ev)
+func PublishPremiumUpdated(ctx context.Context, p *Publisher, event apishop.PremiumUpdatedEvent) error {
+	event = fillPremiumDefaults(event)
+	data, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal PremiumUpdatedEvent: %w", err)
 	}
@@ -108,40 +108,40 @@ func waitTypedFromChan[T any](ch <-chan []byte, topic string, timeout time.Durat
 }
 
 // fillFactionAcquiredDefaults は EventType を上書きし、EventID / Timestamp 未設定なら補完する。
-func fillFactionAcquiredDefaults(ev apishop.FactionAcquiredEvent) apishop.FactionAcquiredEvent {
-	ev.EventType = apishop.EventTypeFactionAcquired
-	if ev.EventID == "" {
-		ev.EventID = newEventID()
+func fillFactionAcquiredDefaults(event apishop.FactionAcquiredEvent) apishop.FactionAcquiredEvent {
+	event.EventType = apishop.EventTypeFactionAcquired
+	if event.EventID == "" {
+		event.EventID = newEventID()
 	}
-	if ev.Timestamp.IsZero() {
-		ev.Timestamp = time.Now().UTC()
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
 	}
-	return ev
+	return event
 }
 
 // fillCardPackPurchasedDefaults は fillFactionAcquiredDefaults の CardPackPurchasedEvent 版。
-func fillCardPackPurchasedDefaults(ev apishop.CardPackPurchasedEvent) apishop.CardPackPurchasedEvent {
-	ev.EventType = apishop.EventTypeCardPackPurchased
-	if ev.EventID == "" {
-		ev.EventID = newEventID()
+func fillCardPackPurchasedDefaults(event apishop.CardPackPurchasedEvent) apishop.CardPackPurchasedEvent {
+	event.EventType = apishop.EventTypeCardPackPurchased
+	if event.EventID == "" {
+		event.EventID = newEventID()
 	}
-	if ev.Timestamp.IsZero() {
-		ev.Timestamp = time.Now().UTC()
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
 	}
-	return ev
+	return event
 }
 
 // fillPremiumDefaults は fillFactionAcquiredDefaults の PremiumUpdatedEvent 版 (Source 未設定なら shop)。
-func fillPremiumDefaults(ev apishop.PremiumUpdatedEvent) apishop.PremiumUpdatedEvent {
-	ev.EventType = apishop.EventTypePremiumUpdated
-	if ev.EventID == "" {
-		ev.EventID = newEventID()
+func fillPremiumDefaults(event apishop.PremiumUpdatedEvent) apishop.PremiumUpdatedEvent {
+	event.EventType = apishop.EventTypePremiumUpdated
+	if event.EventID == "" {
+		event.EventID = newEventID()
 	}
-	if ev.Timestamp.IsZero() {
-		ev.Timestamp = time.Now().UTC()
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
 	}
-	if ev.Source == "" {
-		ev.Source = apishop.PremiumUpdatedSourceShop
+	if event.Source == "" {
+		event.Source = apishop.PremiumUpdatedSourceShop
 	}
-	return ev
+	return event
 }

@@ -42,17 +42,17 @@ type appleNotificationTxn struct {
 
 // AppleNotifier は Apple App Store Server Notifications V2 の webhook を処理する。
 type AppleNotifier struct {
-	subRepo     port.SubscriptionRepo
-	jwsVerifier port.AppleJWSVerifier
+	subscriptionRepo port.SubscriptionRepo
+	jwsVerifier      port.AppleJWSVerifier
 }
 
 func NewAppleNotifier(
-	subRepo port.SubscriptionRepo,
+	subscriptionRepo port.SubscriptionRepo,
 	jwsVerifier port.AppleJWSVerifier,
 ) *AppleNotifier {
 	return &AppleNotifier{
-		subRepo:     subRepo,
-		jwsVerifier: jwsVerifier,
+		subscriptionRepo: subscriptionRepo,
+		jwsVerifier:      jwsVerifier,
 	}
 }
 
@@ -68,45 +68,45 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 		return fmt.Errorf("%w: %w", ErrDecodeTransactionInfo, err)
 	}
 
-	sub, err := n.subRepo.FindSubscriptionByToken(ctx, domain.PlatformIOS, txnInfo.OriginalTransactionID)
+	subscription, err := n.subscriptionRepo.FindSubscriptionByToken(ctx, domain.PlatformIOS, txnInfo.OriginalTransactionID)
 	if err != nil {
 		return fmt.Errorf("find subscription: %w", err)
 	}
-	if sub == nil {
+	if subscription == nil {
 		return fmt.Errorf("%w: token=%s", ErrSubscriptionNotFound, txnInfo.OriginalTransactionID)
 	}
 
 	switch notif.NotificationType {
 	case appleNotifDIDRenew:
 		expiresAt := time.UnixMilli(txnInfo.ExpiresDate)
-		sub.CurrentPeriodEnd = expiresAt
-		sub.Status = domain.SubscriptionStatusActive
-		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, sub, true, &expiresAt); err != nil {
+		subscription.CurrentPeriodEnd = expiresAt
+		subscription.Status = domain.SubscriptionStatusActive
+		subscription.UpdatedAt = time.Now()
+		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, true, &expiresAt); err != nil {
 			return err
 		}
 
 	case appleNotifExpired, appleNotifGracePeriodExpired:
-		sub.Status = domain.SubscriptionStatusExpired
-		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
+		subscription.Status = domain.SubscriptionStatusExpired
+		subscription.UpdatedAt = time.Now()
+		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
 
 	case appleNotifRevoke:
-		sub.Status = domain.SubscriptionStatusRevoked
-		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
+		subscription.Status = domain.SubscriptionStatusRevoked
+		subscription.UpdatedAt = time.Now()
+		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
 
 	case appleNotifDIDChangeRenewStatus:
 		if notif.Subtype == appleSubtypeAutoRenewDisabled {
-			sub.Status = domain.SubscriptionStatusCancelled
-			sub.UpdatedAt = time.Now()
+			subscription.Status = domain.SubscriptionStatusCancelled
+			subscription.UpdatedAt = time.Now()
 			// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
 			// (エンタイトルメント維持契約: docs/ARCHITECTURE.md)。
-			if err := writeNoEvent(ctx, n.subRepo, sub); err != nil {
+			if err := writeNoEvent(ctx, n.subscriptionRepo, subscription); err != nil {
 				return err
 			}
 		} else {

@@ -24,7 +24,7 @@ func NewPurchaseLookupRepository(pool *pgxpool.Pool) *PurchaseLookupRepository {
 }
 
 func (r *PurchaseLookupRepository) FindPurchaseByToken(ctx context.Context, platform, purchaseToken string) (*domain.OneTimePurchase, error) {
-	table, err := purchaseTokenTableForPlatform(platform)
+	table, err := resolvePurchaseTokenTable(platform)
 	if err != nil {
 		return nil, err
 	}

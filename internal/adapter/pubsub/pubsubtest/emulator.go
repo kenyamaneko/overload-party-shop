@@ -145,12 +145,12 @@ func (e *Emulator) CreateTopic(t *testing.T, prefix string) string {
 type SubscribeOption func(*subscribeOpts)
 
 type subscribeOpts struct {
-	manualAck bool
+	isManualAck bool
 }
 
 // WithManualAck は受信メッセージを自動 ack せず、テスト側で Message.Ack() を呼ぶまで保留する。
 func WithManualAck() SubscribeOption {
-	return func(o *subscribeOpts) { o.manualAck = true }
+	return func(o *subscribeOpts) { o.isManualAck = true }
 }
 
 // Subscribe は指定 topic に UUID suffix 付きの subscription を作成して受信ループを起動する。
@@ -161,14 +161,14 @@ func (e *Emulator) Subscribe(t *testing.T, topicID string, opts ...SubscribeOpti
 		opt(o)
 	}
 
-	subID := fmt.Sprintf("%s-sub-%s", topicID, uuid.NewString()[:8])
+	subscriptionID := fmt.Sprintf("%s-sub-%s", topicID, uuid.NewString()[:8])
 	ctx := context.Background()
 	_, err := e.client.SubscriptionAdminClient.CreateSubscription(ctx, &pubsubpb.Subscription{
-		Name:  fmt.Sprintf("projects/%s/subscriptions/%s", e.projectID, subID),
+		Name:  fmt.Sprintf("projects/%s/subscriptions/%s", e.projectID, subscriptionID),
 		Topic: fmt.Sprintf("projects/%s/topics/%s", e.projectID, topicID),
 	})
 	if err != nil {
-		t.Fatalf("create subscription %s: %v", subID, err)
+		t.Fatalf("create subscription %s: %v", subscriptionID, err)
 	}
 
 	// buffered channel で receive goroutine の blocking を避ける。サイズは
@@ -177,7 +177,7 @@ func (e *Emulator) Subscribe(t *testing.T, topicID string, opts ...SubscribeOpti
 	receiveCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
-	subscriber := e.client.Subscriber(subID)
+	subscriber := e.client.Subscriber(subscriptionID)
 	go func() {
 		defer close(done)
 		// Receive は長時間ブロッキング。ctx キャンセルで return する。
@@ -186,7 +186,7 @@ func (e *Emulator) Subscribe(t *testing.T, topicID string, opts ...SubscribeOpti
 				Data:       m.Data,
 				Attributes: m.Attributes,
 			}
-			if o.manualAck {
+			if o.isManualAck {
 				msg.Ack = m.Ack
 			} else {
 				m.Ack()
@@ -209,7 +209,7 @@ func (e *Emulator) Subscribe(t *testing.T, topicID string, opts ...SubscribeOpti
 		s.stop()
 		// subscription 削除は best-effort (container ごと捨てるので必須ではない)。
 		_ = e.client.SubscriptionAdminClient.DeleteSubscription(context.Background(), &pubsubpb.DeleteSubscriptionRequest{
-			Subscription: fmt.Sprintf("projects/%s/subscriptions/%s", e.projectID, subID),
+			Subscription: fmt.Sprintf("projects/%s/subscriptions/%s", e.projectID, subscriptionID),
 		})
 	})
 	return s

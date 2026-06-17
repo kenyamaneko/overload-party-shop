@@ -39,17 +39,17 @@ const (
 // GoogleNotifier は Google Play RTDN webhook を処理する。
 // RTDN payload には expiry が含まれないため expiryFetcher (Play Developer API) で取得する。
 type GoogleNotifier struct {
-	subRepo       port.SubscriptionRepo
-	expiryFetcher port.GoogleSubVerifier
+	subscriptionRepo port.SubscriptionRepo
+	expiryFetcher    port.GoogleSubVerifier
 }
 
 func NewGoogleNotifier(
-	subRepo port.SubscriptionRepo,
+	subscriptionRepo port.SubscriptionRepo,
 	expiryFetcher port.GoogleSubVerifier,
 ) *GoogleNotifier {
 	return &GoogleNotifier{
-		subRepo:       subRepo,
-		expiryFetcher: expiryFetcher,
+		subscriptionRepo: subscriptionRepo,
+		expiryFetcher:    expiryFetcher,
 	}
 }
 
@@ -71,11 +71,11 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 	}
 
 	notif := rtdn.SubscriptionNotification
-	sub, err := n.subRepo.FindSubscriptionByToken(ctx, domain.PlatformAndroid, notif.PurchaseToken)
+	subscription, err := n.subscriptionRepo.FindSubscriptionByToken(ctx, domain.PlatformAndroid, notif.PurchaseToken)
 	if err != nil {
 		return fmt.Errorf("find subscription: %w", err)
 	}
-	if sub == nil {
+	if subscription == nil {
 		return fmt.Errorf("%w: token=%s", ErrSubscriptionNotFound, notif.PurchaseToken)
 	}
 
@@ -88,33 +88,33 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 		if err != nil {
 			return fmt.Errorf("get subscription expiry from Google: %w", err)
 		}
-		sub.Status = domain.SubscriptionStatusActive
-		sub.CurrentPeriodEnd = newExpiry
-		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, sub, true, &newExpiry); err != nil {
+		subscription.Status = domain.SubscriptionStatusActive
+		subscription.CurrentPeriodEnd = newExpiry
+		subscription.UpdatedAt = time.Now()
+		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, true, &newExpiry); err != nil {
 			return err
 		}
 
 	case googleSubExpired:
-		sub.Status = domain.SubscriptionStatusExpired
-		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
+		subscription.Status = domain.SubscriptionStatusExpired
+		subscription.UpdatedAt = time.Now()
+		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubRevoked:
-		sub.Status = domain.SubscriptionStatusRevoked
-		sub.UpdatedAt = time.Now()
-		if err := writeWithEvent(ctx, n.subRepo, sub, false, nil); err != nil {
+		subscription.Status = domain.SubscriptionStatusRevoked
+		subscription.UpdatedAt = time.Now()
+		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubCanceled:
-		sub.Status = domain.SubscriptionStatusCancelled
-		sub.UpdatedAt = time.Now()
+		subscription.Status = domain.SubscriptionStatusCancelled
+		subscription.UpdatedAt = time.Now()
 		// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
 		// (エンタイトルメント維持契約: docs/ARCHITECTURE.md)。
-		if err := writeNoEvent(ctx, n.subRepo, sub); err != nil {
+		if err := writeNoEvent(ctx, n.subscriptionRepo, subscription); err != nil {
 			return err
 		}
 

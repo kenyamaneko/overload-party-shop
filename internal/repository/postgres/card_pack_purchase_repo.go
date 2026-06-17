@@ -55,15 +55,15 @@ func (r *CardPackPurchaseRepository) CreatePurchase(ctx context.Context, purchas
 }
 
 func (r *CardPackPurchaseRepository) HasPlayerCardPack(ctx context.Context, playerID, cardPackID string) (bool, error) {
-	var exists bool
+	var isOwned bool
 	if err := r.pool.QueryRow(ctx,
 		`SELECT EXISTS(
 			SELECT 1 FROM shop.player_owned_card_packs
 			WHERE player_id = $1 AND card_pack_id = $2
 		)`,
 		playerID, cardPackID,
-	).Scan(&exists); err != nil {
+	).Scan(&isOwned); err != nil {
 		return false, fmt.Errorf("query owned card pack: %w", err)
 	}
-	return exists, nil
+	return isOwned, nil
 }

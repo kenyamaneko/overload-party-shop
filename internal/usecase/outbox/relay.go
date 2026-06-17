@@ -62,30 +62,30 @@ func (r *Relay) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("claim unpublished: %w", err)
 	}
-	for _, ev := range claimed {
-		r.processOne(ctx, ev)
+	for _, event := range claimed {
+		r.processOne(ctx, event)
 	}
 	return nil
 }
 
 // processOne は 1 行の publish と結果記録を行う (同バッチ内の他行を止めないため返り値なし)。
-func (r *Relay) processOne(ctx context.Context, ev port.ClaimedOutboxEvent) {
-	pubErr := r.pub.Publish(ctx, ev.EventType, ev.Payload)
+func (r *Relay) processOne(ctx context.Context, event port.ClaimedOutboxEvent) {
+	pubErr := r.pub.Publish(ctx, event.EventType, event.Payload)
 	if pubErr == nil {
-		if err := r.store.MarkPublished(ctx, ev.EventID); err != nil {
-			slog.Error("mark published failed", "event_id", ev.EventID, "error", err)
+		if err := r.store.MarkPublished(ctx, event.EventID); err != nil {
+			slog.Error("mark published failed", "event_id", event.EventID, "error", err)
 		}
 		return
 	}
-	attempts := ev.FailureCount + 1
+	attempts := event.FailureCount + 1
 	if attempts >= r.failureThreshold {
 		slog.Error("outbox event stuck",
-			"event_id", ev.EventID, "event_type", ev.EventType, "attempts", attempts, "error", pubErr)
+			"event_id", event.EventID, "event_type", event.EventType, "attempts", attempts, "error", pubErr)
 	} else {
 		slog.Warn("outbox publish failed",
-			"event_id", ev.EventID, "event_type", ev.EventType, "attempts", attempts, "error", pubErr)
+			"event_id", event.EventID, "event_type", event.EventType, "attempts", attempts, "error", pubErr)
 	}
-	if err := r.store.RecordFailure(ctx, ev.EventID, pubErr.Error()); err != nil {
-		slog.Error("record failure failed", "event_id", ev.EventID, "error", err)
+	if err := r.store.RecordFailure(ctx, event.EventID, pubErr.Error()); err != nil {
+		slog.Error("record failure failed", "event_id", event.EventID, "error", err)
 	}
 }

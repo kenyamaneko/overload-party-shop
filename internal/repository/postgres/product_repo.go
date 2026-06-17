@@ -50,11 +50,11 @@ func (r *ProductRepository) GetActiveProducts(ctx context.Context) ([]domain.Pro
 
 	var products []domain.ProductView
 	for rows.Next() {
-		pv, err := scanProductRow(rows)
+		productView, err := scanProductRow(rows)
 		if err != nil {
 			return nil, err
 		}
-		products = append(products, pv)
+		products = append(products, productView)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate products: %w", err)
@@ -69,14 +69,14 @@ func (r *ProductRepository) GetProductByID(ctx context.Context, productID string
 		 WHERE p.product_id = $1`,
 		productID)
 
-	pv, err := scanProductRow(row)
+	productView, err := scanProductRow(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("product %s: %w", productID, port.ErrNotFound)
 		}
 		return nil, err
 	}
-	return pv, nil
+	return productView, nil
 }
 
 // scanProductRow は LEFT JOIN 結果 1 行を Scan して domain factory に委譲する。

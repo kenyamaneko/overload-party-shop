@@ -89,7 +89,7 @@ func TestErrorClassificationToStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.wantStatus, errorStatus(tt.err))
+			assert.Equal(t, tt.wantStatus, resolveErrorStatus(tt.err))
 		})
 	}
 }

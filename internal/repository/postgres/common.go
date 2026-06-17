@@ -11,7 +11,7 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-func purchaseTokenTableForPlatform(platform string) (string, error) {
+func resolvePurchaseTokenTable(platform string) (string, error) {
 	switch platform {
 	case domain.PlatformIOS:
 		return "shop.apple_purchase_tokens", nil
@@ -25,7 +25,7 @@ func purchaseTokenTableForPlatform(platform string) (string, error) {
 // insertOneTimePurchaseAndToken は one_time_purchases と対応する token テーブルへの挿入を同一 tx で行う。
 // 既存 token があれば created=false で existing purchase_id を埋めて返す。
 func insertOneTimePurchaseAndToken(ctx context.Context, tx pgx.Tx, purchase *domain.OneTimePurchase, platform, purchaseToken string) (created bool, err error) {
-	table, err := purchaseTokenTableForPlatform(platform)
+	table, err := resolvePurchaseTokenTable(platform)
 	if err != nil {
 		return false, err
 	}
