@@ -126,7 +126,7 @@ func run() error {
 		}
 	}()
 
-	vfs, err := setupVerifiers(ctx, cfg)
+	verifierSet, err := setupVerifiers(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func run() error {
 		return err
 	}
 
-	handler := buildHTTPHandler(cfg, pool, vfs)
+	handler := buildHTTPHandler(cfg, pool, verifierSet)
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           handler,
@@ -180,36 +180,36 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 }
 
 // buildHTTPHandler は repo / usecase / handler の配線を組み立てる。
-func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, vfs verifiers) http.Handler {
+func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifiers) http.Handler {
 	productRepo := postgres.NewProductRepository(pool)
 	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(pool)
 	cardPackPurchaseRepo := postgres.NewCardPackPurchaseRepository(pool)
 	itemPurchaseRepo := postgres.NewItemPurchaseRepository(pool)
 	purchaseLookup := postgres.NewPurchaseLookupRepository(pool)
-	subRepo := postgres.NewSubscriptionRepository(pool)
+	subscriptionRepo := postgres.NewSubscriptionRepository(pool)
 
 	shopSvc := purchase.New(
 		productRepo, factionPurchaseRepo, cardPackPurchaseRepo, itemPurchaseRepo, purchaseLookup,
-		subRepo,
-		vfs.apple, vfs.google,
+		subscriptionRepo,
+		verifierSet.apple, verifierSet.google,
 	)
-	shopH := rest.NewShopHandler(shopSvc)
+	shopHandler := rest.NewShopHandler(shopSvc)
 	var (
-		appleWH  *rest.AppleWebhookHandler
-		googleWH *rest.GoogleWebhookHandler
+		appleWebhookHandler  *rest.AppleWebhookHandler
+		googleWebhookHandler *rest.GoogleWebhookHandler
 	)
 	if cfg.IAPMode == config.IAPModeProduction {
-		appleWH = rest.NewAppleWebhookHandler(
-			subscription.NewAppleNotifier(subRepo, vfs.appleJWS),
+		appleWebhookHandler = rest.NewAppleWebhookHandler(
+			subscription.NewAppleNotifier(subscriptionRepo, verifierSet.appleJWS),
 		)
-		googleWH = rest.NewGoogleWebhookHandler(
-			subscription.NewGoogleNotifier(subRepo, vfs.googleSub),
+		googleWebhookHandler = rest.NewGoogleWebhookHandler(
+			subscription.NewGoogleNotifier(subscriptionRepo, verifierSet.googleSub),
 		)
 	}
 	authVerifier := internalauth.NewVerifier(
 		internalauth.StaticHS256Resolver([]byte(cfg.InternalAuthSecret), internalauth.DefaultKeyID),
 	)
-	return router.New(shopH, appleWH, googleWH, authVerifier)
+	return router.New(shopHandler, appleWebhookHandler, googleWebhookHandler, authVerifier)
 }
 
 // buildOutboxTicker は outbox 消費フローの relay と worker ticker を組み立てる。

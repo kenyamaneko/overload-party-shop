@@ -19,7 +19,7 @@ import (
 // 網羅し、errors.Is で意図した sentinel に一致することを確認する。
 //
 // AppleWebhook / GoogleWebhook / GetHealth は apishopserverfake に handler が無く、
-// statusError logic は他 endpoint で十分カバーされるため本テストでは扱わない。
+// newStatusError logic は他 endpoint で十分カバーされるため本テストでは扱わない。
 
 func TestClient_ListPlayerProducts_StatusMapping(t *testing.T) {
 	cases := []struct {

@@ -23,7 +23,7 @@ func NewSubscriptionRepository(pool *pgxpool.Pool) *SubscriptionRepository {
 	return &SubscriptionRepository{pool: pool}
 }
 
-func subscriptionTokenTableForPlatform(platform string) (string, error) {
+func resolveSubscriptionTokenTable(platform string) (string, error) {
 	switch platform {
 	case domain.PlatformIOS:
 		return "shop.apple_subscription_tokens", nil
@@ -34,8 +34,8 @@ func subscriptionTokenTableForPlatform(platform string) (string, error) {
 	}
 }
 
-func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *domain.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
-	tokenTable, err := subscriptionTokenTableForPlatform(platform)
+func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, subscription *domain.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
+	tokenTable, err := resolveSubscriptionTokenTable(platform)
 	if err != nil {
 		return err
 	}
@@ -49,16 +49,16 @@ func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, sub *do
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO shop.subscriptions (player_id, product_id, status, current_period_start, current_period_end, created_at, updated_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING subscription_id`,
-		sub.PlayerID, sub.ProductID, sub.Status,
-		sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
-		sub.CreatedAt, sub.UpdatedAt,
-	).Scan(&sub.SubscriptionID); err != nil {
+		subscription.PlayerID, subscription.ProductID, subscription.Status,
+		subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd,
+		subscription.CreatedAt, subscription.UpdatedAt,
+	).Scan(&subscription.SubscriptionID); err != nil {
 		return fmt.Errorf("insert subscription: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx,
 		fmt.Sprintf(`INSERT INTO %s (token, subscription_id) VALUES ($1, $2)`, tokenTable),
-		purchaseToken, sub.SubscriptionID,
+		purchaseToken, subscription.SubscriptionID,
 	); err != nil {
 		return fmt.Errorf("insert subscription token: %w", err)
 	}
@@ -95,7 +95,7 @@ func (r *SubscriptionRepository) GetLatestSubscription(ctx context.Context, play
 
 // FindSubscriptionByToken は platform に応じた token テーブル経由で subscription を引く。
 func (r *SubscriptionRepository) FindSubscriptionByToken(ctx context.Context, platform, purchaseToken string) (*domain.Subscription, error) {
-	table, err := subscriptionTokenTableForPlatform(platform)
+	table, err := resolveSubscriptionTokenTable(platform)
 	if err != nil {
 		return nil, err
 	}
@@ -131,14 +131,14 @@ func scanSubscription(row pgx.Row) (*domain.Subscription, error) {
 }
 
 // UpdateSubscription は subscriptions 行のみを更新する (outbox 行を伴わない)。
-func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *domain.Subscription) error {
+func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, subscription *domain.Subscription) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := updateSubscriptionRow(ctx, tx, sub); err != nil {
+	if err := updateSubscriptionRow(ctx, tx, subscription); err != nil {
 		return err
 	}
 
@@ -149,14 +149,14 @@ func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, sub *do
 }
 
 // UpdateSubscriptionWithEvent は subscriptions 更新と outbox 行 INSERT を同一 tx で行う。
-func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context, sub *domain.Subscription, event port.OutboxEvent) error {
+func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context, subscription *domain.Subscription, event port.OutboxEvent) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := updateSubscriptionRow(ctx, tx, sub); err != nil {
+	if err := updateSubscriptionRow(ctx, tx, subscription); err != nil {
 		return err
 	}
 	if err := writeOutboxEvent(ctx, tx, event); err != nil {
@@ -169,7 +169,7 @@ func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context
 	return nil
 }
 
-func updateSubscriptionRow(ctx context.Context, tx pgx.Tx, sub *domain.Subscription) error {
+func updateSubscriptionRow(ctx context.Context, tx pgx.Tx, subscription *domain.Subscription) error {
 	if _, err := tx.Exec(ctx,
 		`UPDATE shop.subscriptions SET
 			status = $1,
@@ -177,10 +177,10 @@ func updateSubscriptionRow(ctx context.Context, tx pgx.Tx, sub *domain.Subscript
 			current_period_end = $3,
 			updated_at = $4
 		  WHERE subscription_id = $5`,
-		sub.Status,
-		sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
-		sub.UpdatedAt,
-		sub.SubscriptionID,
+		subscription.Status,
+		subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd,
+		subscription.UpdatedAt,
+		subscription.SubscriptionID,
 	); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
 	}

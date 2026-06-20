@@ -89,7 +89,7 @@ func (c *Client) GetHealth(ctx context.Context) (*apishop.HealthResponse, error)
 	if resp.JSON200 != nil {
 		return resp.JSON200, nil
 	}
-	return nil, statusError("GetHealth", resp.StatusCode())
+	return nil, newStatusError("GetHealth", resp.StatusCode())
 }
 
 // ListPlayerProducts は playerID の所持プロダクト一覧を返す。
@@ -102,7 +102,7 @@ func (c *Client) ListPlayerProducts(ctx context.Context, playerID string) (*apis
 	if resp.JSON200 != nil {
 		return resp.JSON200, nil
 	}
-	return nil, statusError("ListPlayerProducts", resp.StatusCode())
+	return nil, newStatusError("ListPlayerProducts", resp.StatusCode())
 }
 
 // PurchaseProduct は単発購入を実行する。
@@ -116,7 +116,7 @@ func (c *Client) PurchaseProduct(ctx context.Context, playerID string, req apish
 	if resp.JSON200 != nil {
 		return resp.JSON200, nil
 	}
-	return nil, statusError("PurchaseProduct", resp.StatusCode())
+	return nil, newStatusError("PurchaseProduct", resp.StatusCode())
 }
 
 // SubscribeProduct はサブスクリプション購入を実行する。
@@ -130,7 +130,7 @@ func (c *Client) SubscribeProduct(ctx context.Context, playerID string, req apis
 	if resp.JSON200 != nil {
 		return resp.JSON200, nil
 	}
-	return nil, statusError("SubscribeProduct", resp.StatusCode())
+	return nil, newStatusError("SubscribeProduct", resp.StatusCode())
 }
 
 // AppleWebhook は Apple App Store からの webhook 通知を受け取る (server-to-server)。
@@ -142,7 +142,7 @@ func (c *Client) AppleWebhook(ctx context.Context, req apishop.AppleNotification
 	if resp.StatusCode() == http.StatusOK {
 		return nil
 	}
-	return statusError("AppleWebhook", resp.StatusCode())
+	return newStatusError("AppleWebhook", resp.StatusCode())
 }
 
 // GoogleWebhook は Google Play からの RTDN 通知を受け取る (server-to-server)。
@@ -154,11 +154,11 @@ func (c *Client) GoogleWebhook(ctx context.Context, req apishop.GoogleRTDNMessag
 	if resp.StatusCode() == http.StatusOK {
 		return nil
 	}
-	return statusError("GoogleWebhook", resp.StatusCode())
+	return newStatusError("GoogleWebhook", resp.StatusCode())
 }
 
-// statusError は HTTP status code を sentinel error (errors.Is 分岐可能) に変換する。
-func statusError(op string, code int) error {
+// newStatusError は HTTP status code を sentinel error (errors.Is 分岐可能) に変換する。
+func newStatusError(op string, code int) error {
 	var sentinel error
 	switch {
 	case code == http.StatusUnauthorized:

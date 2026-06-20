@@ -11,8 +11,8 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
-// errorStatus はドメインエラーを HTTP ステータスコードに変換する (default は 500)。
-func errorStatus(err error) int {
+// resolveErrorStatus はドメインエラーを HTTP ステータスコードに変換する (default は 500)。
+func resolveErrorStatus(err error) int {
 	switch {
 	case isNotFound(err):
 		return http.StatusNotFound
@@ -28,7 +28,7 @@ func errorStatus(err error) int {
 }
 
 func respondError(c *gin.Context, err error) {
-	c.JSON(errorStatus(err), gin.H{"error": err.Error()})
+	c.JSON(resolveErrorStatus(err), gin.H{"error": err.Error()})
 }
 
 // isNotFound は対象リソースが見つからない類のエラーか判定する。

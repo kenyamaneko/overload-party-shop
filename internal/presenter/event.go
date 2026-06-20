@@ -10,13 +10,13 @@ import (
 
 // ToCardPackPurchasedWire は domain event を wire payload に詰め替えて event_type と marshal 済み bytes を返す。
 // usecase は戻り値の eventType と payload をそのまま port.OutboxEvent に格納できる (apishop の import 不要)。
-func ToCardPackPurchasedWire(ev domain.CardPackPurchasedEvent) (eventType string, payload []byte, err error) {
+func ToCardPackPurchasedWire(event domain.CardPackPurchasedEvent) (eventType string, payload []byte, err error) {
 	wire := apishop.CardPackPurchasedEvent{
 		EventType:  apishop.EventTypeCardPackPurchased,
-		EventID:    ev.EventID,
-		Timestamp:  ev.Timestamp,
-		PlayerID:   ev.PlayerID,
-		CardPackID: ev.CardPackID,
+		EventID:    event.EventID,
+		Timestamp:  event.Timestamp,
+		PlayerID:   event.PlayerID,
+		CardPackID: event.CardPackID,
 	}
 	payload, err = json.Marshal(wire)
 	if err != nil {
@@ -26,13 +26,13 @@ func ToCardPackPurchasedWire(ev domain.CardPackPurchasedEvent) (eventType string
 }
 
 // ToFactionAcquiredWire は ToCardPackPurchasedWire の FactionAcquiredEvent 版。
-func ToFactionAcquiredWire(ev domain.FactionAcquiredEvent) (eventType string, payload []byte, err error) {
+func ToFactionAcquiredWire(event domain.FactionAcquiredEvent) (eventType string, payload []byte, err error) {
 	wire := apishop.FactionAcquiredEvent{
 		EventType: apishop.EventTypeFactionAcquired,
-		EventID:   ev.EventID,
-		Timestamp: ev.Timestamp,
-		PlayerID:  ev.PlayerID,
-		Faction:   ev.Faction,
+		EventID:   event.EventID,
+		Timestamp: event.Timestamp,
+		PlayerID:  event.PlayerID,
+		Faction:   event.Faction,
 	}
 	payload, err = json.Marshal(wire)
 	if err != nil {
@@ -42,14 +42,14 @@ func ToFactionAcquiredWire(ev domain.FactionAcquiredEvent) (eventType string, pa
 }
 
 // ToPremiumUpdatedWire は ToCardPackPurchasedWire の PremiumUpdatedEvent 版。Source は shop 固定。
-func ToPremiumUpdatedWire(ev domain.PremiumUpdatedEvent) (eventType string, payload []byte, err error) {
+func ToPremiumUpdatedWire(event domain.PremiumUpdatedEvent) (eventType string, payload []byte, err error) {
 	wire := apishop.PremiumUpdatedEvent{
 		EventType:        apishop.EventTypePremiumUpdated,
-		EventID:          ev.EventID,
-		Timestamp:        ev.Timestamp,
-		PlayerID:         ev.PlayerID,
-		IsPremium:        ev.IsPremium,
-		PremiumExpiresAt: ev.PremiumExpiresAt,
+		EventID:          event.EventID,
+		Timestamp:        event.Timestamp,
+		PlayerID:         event.PlayerID,
+		IsPremium:        event.IsPremium,
+		PremiumExpiresAt: event.PremiumExpiresAt,
 		Source:           apishop.PremiumUpdatedSourceShop,
 	}
 	payload, err = json.Marshal(wire)

@@ -52,8 +52,8 @@ func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase
 		return false, fmt.Errorf("insert owned card pack: %w", err)
 	}
 
-	for _, ev := range eventsOnCreate {
-		if err := writeOutboxEvent(ctx, tx, ev); err != nil {
+	for _, event := range eventsOnCreate {
+		if err := writeOutboxEvent(ctx, tx, event); err != nil {
 			return false, err
 		}
 	}

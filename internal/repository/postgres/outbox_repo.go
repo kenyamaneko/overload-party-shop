@@ -15,11 +15,11 @@ import (
 var _ port.OutboxStore = (*OutboxRepository)(nil)
 
 // writeOutboxEvent はビジネス行と同一 tx 内で outbox 行を INSERT する。
-func writeOutboxEvent(ctx context.Context, tx pgx.Tx, ev port.OutboxEvent) error {
+func writeOutboxEvent(ctx context.Context, tx pgx.Tx, event port.OutboxEvent) error {
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO shop.outbox_events (event_id, event_type, payload)
 		 VALUES ($1, $2, $3)`,
-		ev.EventID, ev.EventType, ev.Payload,
+		event.EventID, event.EventType, event.Payload,
 	); err != nil {
 		return fmt.Errorf("insert outbox event: %w", err)
 	}
@@ -66,11 +66,11 @@ func (r *OutboxRepository) ClaimUnpublished(ctx context.Context, limit int, visi
 
 	var claimed []port.ClaimedOutboxEvent
 	for rows.Next() {
-		var ev port.ClaimedOutboxEvent
-		if err := rows.Scan(&ev.EventID, &ev.EventType, &ev.Payload, &ev.FailureCount); err != nil {
+		var event port.ClaimedOutboxEvent
+		if err := rows.Scan(&event.EventID, &event.EventType, &event.Payload, &event.FailureCount); err != nil {
 			return nil, fmt.Errorf("scan claimed row: %w", err)
 		}
-		claimed = append(claimed, ev)
+		claimed = append(claimed, event)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate claimed rows: %w", err)

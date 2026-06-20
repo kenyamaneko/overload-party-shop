@@ -16,8 +16,8 @@ import (
 // shopServicer は shop handler が依存する usecase の狭い contract。
 type shopServicer interface {
 	GetProducts(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error)
-	Purchase(ctx context.Context, playerID, productID, pf, purchaseToken string) error
-	Subscribe(ctx context.Context, playerID, productID, pf, purchaseToken string) (*time.Time, error)
+	Purchase(ctx context.Context, playerID, productID, platform, purchaseToken string) error
+	Subscribe(ctx context.Context, playerID, productID, platform, purchaseToken string) (*time.Time, error)
 }
 
 // ShopHandler は商品カタログ・購入・サブスクリプションの REST ハンドラを提供する。

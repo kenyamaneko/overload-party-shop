@@ -51,15 +51,15 @@ func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *d
 }
 
 func (r *ItemPurchaseRepository) HasPlayerItem(ctx context.Context, playerID, itemType string, itemNo int64) (bool, error) {
-	var exists bool
+	var isOwned bool
 	err := r.pool.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM shop.player_items
 		                 WHERE player_id = $1 AND item_type = $2 AND item_no = $3)`,
-		playerID, itemType, itemNo).Scan(&exists)
+		playerID, itemType, itemNo).Scan(&isOwned)
 	if err != nil {
 		return false, fmt.Errorf("query has player item: %w", err)
 	}
-	return exists, nil
+	return isOwned, nil
 }
 
 func (r *ItemPurchaseRepository) ListPlayerItems(ctx context.Context, playerID string) ([]*domain.PlayerItem, error) {

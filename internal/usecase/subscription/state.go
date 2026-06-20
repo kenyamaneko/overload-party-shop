@@ -14,36 +14,36 @@ import (
 )
 
 // IsEntitled はサブスクリプションが指定時刻に特典有効かを返す。未知の status はエラー。
-func IsEntitled(sub *domain.Subscription, now time.Time) (bool, error) {
-	if sub == nil {
+func IsEntitled(subscription *domain.Subscription, now time.Time) (bool, error) {
+	if subscription == nil {
 		return false, nil
 	}
-	switch sub.Status {
+	switch subscription.Status {
 	case domain.SubscriptionStatusActive,
 		domain.SubscriptionStatusCancelled,
 		domain.SubscriptionStatusGracePeriod:
-		return sub.CurrentPeriodEnd.After(now), nil
+		return subscription.CurrentPeriodEnd.After(now), nil
 	case domain.SubscriptionStatusExpired,
 		domain.SubscriptionStatusRevoked:
 		return false, nil
 	default:
-		return false, fmt.Errorf("subscription: unknown status %q", sub.Status)
+		return false, fmt.Errorf("subscription: unknown status %q", subscription.Status)
 	}
 }
 
 // writeWithEvent は subscription 行の更新と premium-updated event の outbox enqueue を同一 tx で行う。
 func writeWithEvent(
 	ctx context.Context,
-	subRepo port.SubscriptionRepo,
-	sub *domain.Subscription,
+	subscriptionRepo port.SubscriptionRepo,
+	subscription *domain.Subscription,
 	isPremium bool,
 	expiresAt *time.Time,
 ) error {
-	ev, err := buildPremiumUpdatedEvent(sub.PlayerID, isPremium, expiresAt)
+	event, err := buildPremiumUpdatedEvent(subscription.PlayerID, isPremium, expiresAt)
 	if err != nil {
 		return fmt.Errorf("build premium-updated: %w", err)
 	}
-	if err := subRepo.UpdateSubscriptionWithEvent(ctx, sub, ev); err != nil {
+	if err := subscriptionRepo.UpdateSubscriptionWithEvent(ctx, subscription, event); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
 	}
 	return nil
@@ -73,8 +73,8 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 }
 
 // writeNoEvent は subscription 行を更新し、premium-updated を発行しない (cancelled 遷移用)。
-func writeNoEvent(ctx context.Context, subRepo port.SubscriptionRepo, sub *domain.Subscription) error {
-	if err := subRepo.UpdateSubscription(ctx, sub); err != nil {
+func writeNoEvent(ctx context.Context, subscriptionRepo port.SubscriptionRepo, subscription *domain.Subscription) error {
+	if err := subscriptionRepo.UpdateSubscription(ctx, subscription); err != nil {
 		return fmt.Errorf("update subscription: %w", err)
 	}
 	return nil
