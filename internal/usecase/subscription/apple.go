@@ -13,13 +13,13 @@ import (
 
 // Apple App Store Server Notification V2 の通知種別。
 const (
-	appleNotifDIDRenew             = "DID_RENEW"
-	appleNotifExpired              = "EXPIRED"
-	appleNotifGracePeriodExpired   = "GRACE_PERIOD_EXPIRED"
-	appleNotifRevoke               = "REVOKE"
-	appleNotifDIDChangeRenewStatus = "DID_CHANGE_RENEWAL_STATUS"
-	appleSubtypeAutoRenewEnabled   = "AUTO_RENEW_ENABLED"
-	appleSubtypeAutoRenewDisabled  = "AUTO_RENEW_DISABLED"
+	appleNotificationDIDRenew             = "DID_RENEW"
+	appleNotificationExpired              = "EXPIRED"
+	appleNotificationGracePeriodExpired   = "GRACE_PERIOD_EXPIRED"
+	appleNotificationRevoke               = "REVOKE"
+	appleNotificationDIDChangeRenewStatus = "DID_CHANGE_RENEWAL_STATUS"
+	appleSubtypeAutoRenewEnabled          = "AUTO_RENEW_ENABLED"
+	appleSubtypeAutoRenewDisabled         = "AUTO_RENEW_DISABLED"
 )
 
 // AppleNotificationPayload は Apple App Store Server Notifications V2 のリクエストボディ。
@@ -77,7 +77,7 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 	}
 
 	switch notif.NotificationType {
-	case appleNotifDIDRenew:
+	case appleNotificationDIDRenew:
 		expiresAt := time.UnixMilli(txnInfo.ExpiresDate)
 		subscription.CurrentPeriodEnd = expiresAt
 		subscription.Status = domain.SubscriptionStatusActive
@@ -86,21 +86,21 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 			return err
 		}
 
-	case appleNotifExpired, appleNotifGracePeriodExpired:
+	case appleNotificationExpired, appleNotificationGracePeriodExpired:
 		subscription.Status = domain.SubscriptionStatusExpired
 		subscription.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
 
-	case appleNotifRevoke:
+	case appleNotificationRevoke:
 		subscription.Status = domain.SubscriptionStatusRevoked
 		subscription.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
 
-	case appleNotifDIDChangeRenewStatus:
+	case appleNotificationDIDChangeRenewStatus:
 		if notif.Subtype == appleSubtypeAutoRenewDisabled {
 			subscription.Status = domain.SubscriptionStatusCancelled
 			subscription.UpdatedAt = time.Now()
