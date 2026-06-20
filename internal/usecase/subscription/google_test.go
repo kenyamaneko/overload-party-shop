@@ -66,26 +66,26 @@ func TestHandleGoogleNotification_PublishesEvent(t *testing.T) {
 	}{
 		{
 			name:            "更新",
-			notifType:       googleSubRenewed,
+			notifType:       googleSubscriptionRenewed,
 			initialStatus:   domain.SubscriptionStatusActive,
 			expectedStatus:  domain.SubscriptionStatusActive,
 			expectedPremium: true,
 		},
 		{
 			name:           "取消（revoke）",
-			notifType:      googleSubRevoked,
+			notifType:      googleSubscriptionRevoked,
 			initialStatus:  domain.SubscriptionStatusActive,
 			expectedStatus: domain.SubscriptionStatusRevoked,
 		},
 		{
 			name:           "期限切れ",
-			notifType:      googleSubExpired,
+			notifType:      googleSubscriptionExpired,
 			initialStatus:  domain.SubscriptionStatusActive,
 			expectedStatus: domain.SubscriptionStatusExpired,
 		},
 		{
 			name:            "期限切れからの復活",
-			notifType:       googleSubRecovered,
+			notifType:       googleSubscriptionRecovered,
 			initialStatus:   domain.SubscriptionStatusExpired,
 			expectedStatus:  domain.SubscriptionStatusActive,
 			expectedPremium: true,
@@ -132,7 +132,7 @@ func TestHandleGoogleNotification_NoPublish(t *testing.T) {
 	}{
 		{
 			name:           "自動更新キャンセル（cancelled 遷移）",
-			notifType:      googleSubCanceled,
+			notifType:      googleSubscriptionCanceled,
 			initialStatus:  domain.SubscriptionStatusActive,
 			expectedStatus: domain.SubscriptionStatusCancelled,
 		},
@@ -190,7 +190,7 @@ func TestHandleGoogleNotification_EarlyReturn(t *testing.T) {
 			name: "subscription notification だが token が DB に無い",
 			rtdn: map[string]interface{}{
 				"subscriptionNotification": map[string]interface{}{
-					"notificationType": googleSubExpired,
+					"notificationType": googleSubscriptionExpired,
 					"purchaseToken":    "nonexistent-google-token",
 					"subscriptionId":   "premium_monthly",
 				},
@@ -228,28 +228,28 @@ func TestHandleGoogleNotification_VerifierPaths(t *testing.T) {
 	}{
 		{
 			name:          "verifier 未設定＋更新通知",
-			notifType:     googleSubRenewed,
+			notifType:     googleSubscriptionRenewed,
 			initialStatus: domain.SubscriptionStatusActive,
 			configure:     withNilVerifier,
 			wantSubs:      "google subscription verifier not configured",
 		},
 		{
 			name:          "verifier 未設定＋復活通知",
-			notifType:     googleSubRecovered,
+			notifType:     googleSubscriptionRecovered,
 			initialStatus: domain.SubscriptionStatusExpired,
 			configure:     withNilVerifier,
 			wantSubs:      "google subscription verifier not configured",
 		},
 		{
 			name:          "verifier エラー＋更新通知",
-			notifType:     googleSubRenewed,
+			notifType:     googleSubscriptionRenewed,
 			initialStatus: domain.SubscriptionStatusActive,
 			configure:     withVerifierError,
 			wantSubs:      "get subscription expiry from Google",
 		},
 		{
 			name:          "verifier エラー＋復活通知",
-			notifType:     googleSubRecovered,
+			notifType:     googleSubscriptionRecovered,
 			initialStatus: domain.SubscriptionStatusExpired,
 			configure:     withVerifierError,
 			wantSubs:      "get subscription expiry from Google",
