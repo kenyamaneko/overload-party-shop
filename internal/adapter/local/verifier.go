@@ -1,0 +1,28 @@
+package local
+
+import (
+	"context"
+
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
+)
+
+// Verifier はローカルモード用に全レシートを valid 扱いする port.ReceiptVerifier の stub 実装。
+// 実 IAP 認証情報なしで購入・サブスクリプションフローを通すために使う。
+type Verifier struct{}
+
+// NewVerifier はローカルモード用の Verifier を構築する。
+func NewVerifier() *Verifier {
+	return &Verifier{}
+}
+
+var _ port.ReceiptVerifier = (*Verifier)(nil)
+
+// VerifyPurchase はレシートを検証せず常に有効として返す。
+func (v *Verifier) VerifyPurchase(_ context.Context, purchaseToken string) (*port.VerifyResult, error) {
+	return &port.VerifyResult{IsValid: true, TransactionID: purchaseToken}, nil
+}
+
+// VerifySubscription はレシートを検証せず常に有効として返す。
+func (v *Verifier) VerifySubscription(_ context.Context, purchaseToken string) (*port.SubscriptionInfo, error) {
+	return &port.SubscriptionInfo{IsValid: true, TransactionID: purchaseToken}, nil
+}
