@@ -17,6 +17,7 @@ import (
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	shopadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
 	googleadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/google"
+	localadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/local"
 	shoppubsub "github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
 	"github.com/kenyamaneko/overload-party-shop/internal/config"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
@@ -154,11 +155,12 @@ func run() error {
 	return runHTTPAndWorker(ctx, srv, outboxTicker)
 }
 
-// setupVerifiers は IAP_MODE に応じて Apple/Google verifier を初期化する。local モードでは全て nil。
+// setupVerifiers は IAP_MODE に応じて Apple/Google verifier を初期化する。
 func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) {
 	if cfg.IAPMode != config.IAPModeProduction {
-		slog.Info("skipping verifier init and webhook route registration", "iap_mode", "local")
-		return verifiers{}, nil
+		slog.Info("using local IAP verifier; webhook routes not registered", "iap_mode", "local")
+		localVerifier := localadapter.NewVerifier()
+		return verifiers{apple: localVerifier, google: localVerifier}, nil
 	}
 	ajws := shopadapter.NewJWSVerifier()
 	av, err := shopadapter.NewVerifierFromPEM(
