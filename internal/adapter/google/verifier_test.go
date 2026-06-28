@@ -24,13 +24,6 @@ const (
 	expiryTimeMillis   = int64(1_800_000_000_000)
 )
 
-// Google Play Developer API の PurchaseState enum 値。
-const (
-	purchaseStatePurchased = 0
-	purchaseStateCanceled  = 1
-	purchaseStatePending   = 2
-)
-
 // newStubService は指定したステータスとボディを返すテストサーバへ向けた androidpublisher.Service を構築する。
 func newStubService(t *testing.T, status int, body string) *androidpublisher.Service {
 	t.Helper()
