@@ -22,6 +22,9 @@ const (
 	testOrderID        = "GPA.3300-0000-0000-00000"
 	purchaseTimeMillis = int64(1_700_000_000_000)
 	expiryTimeMillis   = int64(1_800_000_000_000)
+
+	purchaseStateCanceled = 1
+	purchaseStatePending  = 2
 )
 
 // newStubService は指定したステータスとボディを返すテストサーバへ向けた androidpublisher.Service を構築する。

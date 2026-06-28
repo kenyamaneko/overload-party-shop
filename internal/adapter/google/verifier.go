@@ -12,12 +12,7 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-// Google Play Developer API の purchaseState。VerifyPurchase は purchased のみを有効とみなす。
-const (
-	purchaseStatePurchased = 0
-	purchaseStateCanceled  = 1
-	purchaseStatePending   = 2
-)
+const purchaseStatePurchased = 0
 
 // Verifier は Google Play Developer API を使用して port.ReceiptVerifier を実装する。
 type Verifier struct {
