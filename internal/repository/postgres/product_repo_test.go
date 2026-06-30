@@ -82,35 +82,36 @@ func TestProductRepository_GetProductByID(t *testing.T) {
 	tests := []struct {
 		name      string
 		productID string
-		wantName  string
-		wantErrIs error
+		check     func(t *testing.T, got domain.ProductView, err error)
 	}{
 		{
 			name:      "存在するIDは取得成功",
 			productID: "faction_she",
-			wantName:  "SHE Pack",
+			check: func(t *testing.T, got domain.ProductView, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, "SHE Pack", got.Common().Name)
+			},
 		},
 		{
 			name:      "存在しないIDはErrNotFound",
 			productID: "missing",
-			wantErrIs: port.ErrNotFound,
+			check: func(t *testing.T, _ domain.ProductView, err error) {
+				assert.ErrorIs(t, err, port.ErrNotFound)
+			},
 		},
 		{
 			name:      "空文字IDはErrNotFound",
 			productID: "",
-			wantErrIs: port.ErrNotFound,
+			check: func(t *testing.T, _ domain.ProductView, err error) {
+				assert.ErrorIs(t, err, port.ErrNotFound)
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := repo.GetProductByID(ctx, tt.productID)
-			if tt.wantErrIs != nil {
-				assert.ErrorIs(t, err, tt.wantErrIs)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantName, got.Common().Name)
+			tt.check(t, got, err)
 		})
 	}
 }

@@ -14,8 +14,8 @@ import (
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
 // newFactionPurchaseEvents は faction_set 購入時に shop が enqueue する
@@ -314,24 +314,45 @@ func TestFactionPurchaseRepository_ListOwnedFactions(t *testing.T) {
 	tests := []struct {
 		name     string
 		playerID string
-		want     []string
-		wantErr  bool
+		check    func(t *testing.T, got []string, err error)
 	}{
-		{name: "userAはSHEのみ取得", playerID: userA, want: []string{"SHE"}},
-		{name: "userBはSHEとTenkiを取得", playerID: userB, want: []string{"SHE", "Tenki"}},
-		{name: "所有行のないuserCは空", playerID: userC, want: nil},
-		{name: "player_IDが空文字(UUID不正)はエラー", playerID: "", wantErr: true},
+		{
+			name:     "userAはSHEのみ取得",
+			playerID: userA,
+			check: func(t *testing.T, got []string, err error) {
+				require.NoError(t, err)
+				assert.ElementsMatch(t, []string{"SHE"}, got)
+			},
+		},
+		{
+			name:     "userBはSHEとTenkiを取得",
+			playerID: userB,
+			check: func(t *testing.T, got []string, err error) {
+				require.NoError(t, err)
+				assert.ElementsMatch(t, []string{"SHE", "Tenki"}, got)
+			},
+		},
+		{
+			name:     "所有行のないuserCは空",
+			playerID: userC,
+			check: func(t *testing.T, got []string, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, got)
+			},
+		},
+		{
+			name:     "player_IDが空文字(UUID不正)はエラー",
+			playerID: "",
+			check: func(t *testing.T, _ []string, err error) {
+				assert.Error(t, err)
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := repo.ListOwnedFactions(ctx, tt.playerID)
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.ElementsMatch(t, tt.want, got)
+			tt.check(t, got, err)
 		})
 	}
 }
