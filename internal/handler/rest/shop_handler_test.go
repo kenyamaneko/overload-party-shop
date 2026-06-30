@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,9 +16,14 @@ import (
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/purchase"
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
+
+func init() {
+	gin.SetMode(gin.TestMode)
+}
 
 // testPlayerID は handler テストで context に注入する固定 player_id。
 const testPlayerID = "player-1"
@@ -141,10 +147,12 @@ func TestPurchase_ErrorResponses(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name: "Conflict 分類エラー (既に所有) は 409",
+			name: "Conflict 分類エラー (既に所有) は wrap されていても errors.Is 経由で 409",
 			body: validBody,
 			svc: &fakeShopServicer{
-				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return purchase.ErrAlreadyOwned },
+				purchaseFn: func(_ context.Context, _, _, _, _ string) error {
+					return fmt.Errorf("purchase faction_tenki: %w", purchase.ErrAlreadyOwned)
+				},
 			},
 			wantStatus: http.StatusConflict,
 		},
@@ -174,6 +182,28 @@ func TestPurchase_ErrorResponses(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, w.Code)
 		})
 	}
+}
+
+// TestPurchase_NotFoundReturnsErrorBody は port.ErrNotFound が 404 と {"error": ...} 形式の body に変換されることを確かめる。
+func TestPurchase_NotFoundReturnsErrorBody(t *testing.T) {
+	svc := &fakeShopServicer{
+		purchaseFn: func(_ context.Context, _, _, _, _ string) error { return port.ErrNotFound },
+	}
+	body, _ := json.Marshal(apishop.PurchaseRequest{
+		ProductID:     "faction_tenki",
+		Platform:      "ios",
+		PurchaseToken: "receipt-1",
+	})
+	r := newShopTestServer(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, port.ErrNotFound.Error(), resp["error"])
 }
 
 // Subscribe の成功パスは 202 Accepted と expires_at を返す。

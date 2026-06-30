@@ -61,6 +61,13 @@ func TestAppleWebhookHandler(t *testing.T) {
 			wantCalls:  1,
 		},
 		{
+			name:       "確定的エラー (transaction info decode 失敗) → 200 ack",
+			body:       validBody,
+			svcErr:     fmt.Errorf("wrap: %w", subscription.ErrDecodeTransactionInfo),
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+		},
+		{
 			name:       "一時的エラー (DB 障害等) → 500 でリトライを促す",
 			body:       validBody,
 			svcErr:     errors.New("database unavailable"),
