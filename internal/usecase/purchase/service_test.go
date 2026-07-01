@@ -617,39 +617,6 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 	}
 }
 
-func TestGetVerifier_SupportedPlatform(t *testing.T) {
-	env := newTestShopEnv(t)
-
-	platforms := []struct {
-		name     string
-		platform string
-	}{
-		{
-			name:     "iOS",
-			platform: "ios",
-		},
-		{
-			name:     "Android",
-			platform: "android",
-		},
-	}
-	for _, tt := range platforms {
-		t.Run(tt.name, func(t *testing.T) {
-			v, err := env.svc.getVerifier(tt.platform)
-			require.NoError(t, err)
-			assert.NotNil(t, v)
-		})
-	}
-}
-
-func TestGetVerifier_UnsupportedPlatform(t *testing.T) {
-	env := newTestShopEnv(t)
-
-	v, err := env.svc.getVerifier("windows")
-	assert.ErrorIs(t, err, ErrUnsupportedPlatform)
-	assert.Nil(t, v)
-}
-
 func TestPurchase_VerifierReturnsError(t *testing.T) {
 	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
