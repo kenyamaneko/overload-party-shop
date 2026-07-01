@@ -12,6 +12,8 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
+const purchaseStatePurchased = 0
+
 // Verifier は Google Play Developer API を使用して port.ReceiptVerifier を実装する。
 type Verifier struct {
 	service     *androidpublisher.Service
@@ -46,8 +48,7 @@ func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*p
 		return &port.VerifyResult{IsValid: false}, fmt.Errorf("google Play API: %w", err)
 	}
 
-	// PurchaseState: 0=購入済み, 1=キャンセル, 2=保留中
-	if result.PurchaseState != 0 {
+	if result.PurchaseState != purchaseStatePurchased {
 		return &port.VerifyResult{IsValid: false}, nil
 	}
 

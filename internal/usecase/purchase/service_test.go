@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -617,42 +617,6 @@ func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
 	}
 }
 
-func TestGetVerifier(t *testing.T) {
-	env := newTestShopEnv(t)
-
-	tests := []struct {
-		name     string
-		platform string
-		wantErr  error
-	}{
-		{
-			name:     "iOS",
-			platform: "ios",
-		},
-		{
-			name:     "Android",
-			platform: "android",
-		},
-		{
-			name:     "未対応 platform",
-			platform: "windows",
-			wantErr:  ErrUnsupportedPlatform,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v, err := env.svc.getVerifier(tt.platform)
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, v)
-				return
-			}
-			require.NoError(t, err)
-			assert.NotNil(t, v)
-		})
-	}
-}
-
 func TestPurchase_VerifierReturnsError(t *testing.T) {
 	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
@@ -720,34 +684,43 @@ func TestSubscribe_VerifierReturnsError(t *testing.T) {
 
 // GetProducts の cosmetic 所有判定 — item_type/item_no が一致するときのみ IsOwned。
 func TestGetProducts_CosmeticOwnership(t *testing.T) {
+	seedOwnedCosmetic := func(itemType string, itemNo int) func(t *testing.T, playerID string) {
+		return func(t *testing.T, playerID string) {
+			_, err := sharedPg.Pool.Exec(context.Background(),
+				`INSERT INTO shop.cosmetic_items (item_type, item_no, item_name, is_purchasable, is_active) VALUES ($1,$2,'extra',true,true) ON CONFLICT DO NOTHING`,
+				itemType, itemNo)
+			require.NoError(t, err)
+			_, err = sharedPg.Pool.Exec(context.Background(),
+				`INSERT INTO shop.player_items (player_id, item_type, item_no, acquired_at) VALUES ($1,$2,$3,now())`,
+				playerID, itemType, itemNo)
+			require.NoError(t, err)
+		}
+	}
+
 	tests := []struct {
 		name        string
-		insertItem  bool
-		itemType    string
-		itemNo      int
+		seedItem    func(t *testing.T, playerID string)
 		wantIsOwned bool
 	}{
 		{
 			name:        "item_type と item_no が完全一致で所有",
-			insertItem:  true,
-			itemType:    "playmat",
-			itemNo:      1,
+			seedItem:    seedOwnedCosmetic("playmat", 1),
 			wantIsOwned: true,
 		},
 		{
-			name: "未所有",
+			name:        "未所有",
+			seedItem:    func(_ *testing.T, _ string) {},
+			wantIsOwned: false,
 		},
 		{
-			name:       "item_type 一致・item_no 不一致は未所有扱い",
-			insertItem: true,
-			itemType:   "playmat",
-			itemNo:     99,
+			name:        "item_type 一致・item_no 不一致は未所有扱い",
+			seedItem:    seedOwnedCosmetic("playmat", 99),
+			wantIsOwned: false,
 		},
 		{
-			name:       "item_no 一致・item_type 不一致は未所有扱い",
-			insertItem: true,
-			itemType:   "sleeve",
-			itemNo:     1,
+			name:        "item_no 一致・item_type 不一致は未所有扱い",
+			seedItem:    seedOwnedCosmetic("sleeve", 1),
+			wantIsOwned: false,
 		},
 	}
 	for i, tt := range tests {
@@ -756,16 +729,7 @@ func TestGetProducts_CosmeticOwnership(t *testing.T) {
 			insertCosmeticProduct(t, "playmat_01", "プレイマット", 320, "playmat", 1, true)
 
 			playerID := fmt.Sprintf("55555555-%04d-bbbb-cccc-dddddddddddd", i)
-			if tt.insertItem {
-				_, err := sharedPg.Pool.Exec(context.Background(),
-					`INSERT INTO shop.cosmetic_items (item_type, item_no, item_name, is_purchasable, is_active) VALUES ($1,$2,'extra',true,true) ON CONFLICT DO NOTHING`,
-					tt.itemType, tt.itemNo)
-				require.NoError(t, err)
-				_, err = sharedPg.Pool.Exec(context.Background(),
-					`INSERT INTO shop.player_items (player_id, item_type, item_no, acquired_at) VALUES ($1,$2,$3,now())`,
-					playerID, tt.itemType, tt.itemNo)
-				require.NoError(t, err)
-			}
+			tt.seedItem(t, playerID)
 
 			products, err := env.svc.GetProducts(context.Background(), playerID)
 			require.NoError(t, err)

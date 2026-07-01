@@ -16,26 +16,26 @@ import (
 // 基本契約を固定する。
 func TestStream_ConsumesAndExposesHandlerResult(t *testing.T) {
 	tests := []struct {
-		name        string
-		handlerFn   func(ctx context.Context, data []byte) error
-		payload     []byte
-		wantHandled error
+		name          string
+		handlerFn     func(ctx context.Context, data []byte) error
+		payload       []byte
+		assertHandled func(t *testing.T, got error)
 	}{
 		{
 			name: "handler nil 戻り: ack 相当を handled に流す",
 			handlerFn: func(_ context.Context, _ []byte) error {
 				return nil
 			},
-			payload:     []byte(`{"k":"v"}`),
-			wantHandled: nil,
+			payload:       []byte(`{"k":"v"}`),
+			assertHandled: func(t *testing.T, got error) { assert.NoError(t, got) },
 		},
 		{
 			name: "handler error 戻り: nack 相当を handled に流す",
 			handlerFn: func(_ context.Context, _ []byte) error {
 				return errors.New("boom")
 			},
-			payload:     []byte(`{}`),
-			wantHandled: errors.New("boom"),
+			payload:       []byte(`{}`),
+			assertHandled: func(t *testing.T, got error) { assert.EqualError(t, got, "boom") },
 		},
 	}
 
@@ -52,12 +52,7 @@ func TestStream_ConsumesAndExposesHandlerResult(t *testing.T) {
 
 			require.NoError(t, pub.Publish(ctx, "t", tt.payload))
 
-			got := stream.ExpectHandled(t, time.Second)
-			if tt.wantHandled == nil {
-				assert.NoError(t, got)
-			} else {
-				assert.EqualError(t, got, tt.wantHandled.Error())
-			}
+			tt.assertHandled(t, stream.ExpectHandled(t, time.Second))
 		})
 	}
 }
