@@ -1,8 +1,10 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -10,6 +12,7 @@ import (
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
 
 func init() {
@@ -26,7 +29,36 @@ func testVerifier() internalauth.Verifier {
 	return fakeRouterVerifier{}
 }
 
-// /health は webhook の登録状態に関わらず常に 200 を返す。
+// fakeAppleNotifier は webhook が handler を経て notifier まで到達したかを呼び出し回数で観測する。
+type fakeAppleNotifier struct {
+	calls int
+}
+
+// HandleNotification は Apple webhook の到達を記録する。
+func (f *fakeAppleNotifier) HandleNotification(_ context.Context, _ string) error {
+	f.calls++
+	return nil
+}
+
+// fakeGoogleNotifier は webhook が handler を経て notifier まで到達したかを呼び出し回数で観測する。
+type fakeGoogleNotifier struct {
+	calls int
+}
+
+// HandleNotification は Google webhook の到達を記録する。
+func (f *fakeGoogleNotifier) HandleNotification(_ context.Context, _ subscription.GoogleRTDNMessage) error {
+	f.calls++
+	return nil
+}
+
+const (
+	appleWebhookPath  = "/webhook/apple"
+	googleWebhookPath = "/webhook/google"
+	appleValidBody    = `{"signedPayload":"fake-jws"}`
+	googleValidBody   = `{"message":{"data":"fake-base64"}}`
+)
+
+// TestNew_HealthEndpoint は /health が webhook の登録状態に関わらず常に 200 を返すことを固定する。
 func TestNew_HealthEndpoint(t *testing.T) {
 	r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
 	w := httptest.NewRecorder()
@@ -34,68 +66,84 @@ func TestNew_HealthEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-// nil handler の webhook はルート自体を登録しないこと、登録時は handler に到達することを固定する。
-// (未登録は 404、登録済は body 空で 400 が返るため登録/未登録が区別できる)
-func TestNew_WebhookRouteRegistration(t *testing.T) {
-	registeredApple := rest.NewAppleWebhookHandler(nil)
-	registeredGoogle := rest.NewGoogleWebhookHandler(nil)
-
+// TestNew_RegisteredWebhookRouteReachesNotifier は登録済 webhook ルートが valid リクエストを
+// handler 経由で notifier まで届け ack (200) を返すこと、および片側登録が他方のルートを
+// 巻き込まず未登録 (404) のままであることを固定する。
+func TestNew_RegisteredWebhookRouteReachesNotifier(t *testing.T) {
 	tests := []struct {
-		name     string
-		appleWH  *rest.AppleWebhookHandler
-		googleWH *rest.GoogleWebhookHandler
-		path     string
-		wantCode int
+		name        string
+		path        string
+		body        string
+		siblingPath string
+		build       func() (*rest.AppleWebhookHandler, *rest.GoogleWebhookHandler, func() int)
 	}{
 		{
-			name:     "両方 nil: /webhook/apple は未登録で 404",
-			path:     "/webhook/apple",
-			wantCode: http.StatusNotFound,
+			name:        "apple のみ登録",
+			path:        appleWebhookPath,
+			body:        appleValidBody,
+			siblingPath: googleWebhookPath,
+			build: func() (*rest.AppleWebhookHandler, *rest.GoogleWebhookHandler, func() int) {
+				n := &fakeAppleNotifier{}
+				return rest.NewAppleWebhookHandler(n), nil, func() int { return n.calls }
+			},
 		},
 		{
-			name:     "両方 nil: /webhook/google は未登録で 404",
-			path:     "/webhook/google",
-			wantCode: http.StatusNotFound,
-		},
-		{
-			name:     "apple のみ登録: /webhook/apple は handler 到達で 400",
-			appleWH:  registeredApple,
-			path:     "/webhook/apple",
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name:     "apple のみ登録: /webhook/google は未登録で 404",
-			appleWH:  registeredApple,
-			path:     "/webhook/google",
-			wantCode: http.StatusNotFound,
-		},
-		{
-			name:     "google のみ登録: /webhook/google は handler 到達で 400",
-			googleWH: registeredGoogle,
-			path:     "/webhook/google",
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name:     "両方登録: /webhook/apple は handler 到達で 400",
-			appleWH:  registeredApple,
-			googleWH: registeredGoogle,
-			path:     "/webhook/apple",
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name:     "両方登録: /webhook/google は handler 到達で 400",
-			appleWH:  registeredApple,
-			googleWH: registeredGoogle,
-			path:     "/webhook/google",
-			wantCode: http.StatusBadRequest,
+			name:        "google のみ登録",
+			path:        googleWebhookPath,
+			body:        googleValidBody,
+			siblingPath: appleWebhookPath,
+			build: func() (*rest.AppleWebhookHandler, *rest.GoogleWebhookHandler, func() int) {
+				n := &fakeGoogleNotifier{}
+				return nil, rest.NewGoogleWebhookHandler(n), func() int { return n.calls }
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := New(rest.NewShopHandler(nil), tt.appleWH, tt.googleWH, testVerifier())
+			appleWH, googleWH, notifierCalls := tt.build()
+			r := New(rest.NewShopHandler(nil), appleWH, googleWH, testVerifier())
+
 			w := httptest.NewRecorder()
-			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, tt.path, nil))
-			assert.Equal(t, tt.wantCode, w.Code)
+			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, 1, notifierCalls())
+
+			sibling := httptest.NewRecorder()
+			r.ServeHTTP(sibling, httptest.NewRequest(http.MethodPost, tt.siblingPath, nil))
+			assert.Equal(t, http.StatusNotFound, sibling.Code)
+		})
+	}
+}
+
+// TestNew_NilWebhookHandlerLeavesRouteUnregistered は nil の webhook handler ではルート自体が
+// 登録されず、valid リクエストでも 404 を返すことを固定する。
+func TestNew_NilWebhookHandlerLeavesRouteUnregistered(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "apple",
+			path: appleWebhookPath,
+			body: appleValidBody,
+		},
+		{
+			name: "google",
+			path: googleWebhookPath,
+			body: googleValidBody,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusNotFound, w.Code)
 		})
 	}
 }
