@@ -1,14 +1,18 @@
 package router
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
 )
 
@@ -17,13 +21,34 @@ func init() {
 }
 
 // fakeRouterVerifier は router 単体テスト用の internalauth.Verifier 最小 fake。
-// webhook / health の検証では auth middleware の経路を通らないため Verify は呼ばれない。
-type fakeRouterVerifier struct{}
+type fakeRouterVerifier struct {
+	playerID string
+	err      error
+}
 
-func (fakeRouterVerifier) Verify(string) (string, error) { return "", nil }
+// Verify は固定の playerID / err を返す。
+func (f fakeRouterVerifier) Verify(string) (string, error) { return f.playerID, f.err }
 
 func testVerifier() internalauth.Verifier {
 	return fakeRouterVerifier{}
+}
+
+// stubShopService は固定値を返す shop usecase スタブ。
+type stubShopService struct{}
+
+// GetProducts は商品なしを返す。
+func (stubShopService) GetProducts(context.Context, string) ([]domain.ProductWithOwnership, error) {
+	return []domain.ProductWithOwnership{}, nil
+}
+
+// Purchase は常に成功する。
+func (stubShopService) Purchase(context.Context, string, string, string, string) error {
+	return nil
+}
+
+// Subscribe は期限なしで成功する。
+func (stubShopService) Subscribe(context.Context, string, string, string, string) (*time.Time, error) {
+	return nil, nil
 }
 
 // /health は webhook の登録状態に関わらず常に 200 を返す。
@@ -98,4 +123,62 @@ func TestNew_WebhookRouteRegistration(t *testing.T) {
 			assert.Equal(t, tt.wantCode, w.Code)
 		})
 	}
+}
+
+// TestNew_ApiRouteRequiresInternalAuth は /api/v1/shop 配下が auth header 欠落で
+// 401 を返し handler に到達しないことを確かめる。
+func TestNew_ApiRouteRequiresInternalAuth(t *testing.T) {
+	r := New(rest.NewShopHandler(stubShopService{}), nil, nil, fakeRouterVerifier{playerID: "TST-PLAYER-1"})
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{
+			name:   "GET /products は auth header 欠落で 401",
+			method: http.MethodGet,
+			path:   "/api/v1/shop/products",
+		},
+		{
+			name:   "POST /purchase は auth header 欠落で 401",
+			method: http.MethodPost,
+			path:   "/api/v1/shop/purchase",
+		},
+		{
+			name:   "POST /subscribe は auth header 欠落で 401",
+			method: http.MethodPost,
+			path:   "/api/v1/shop/subscribe",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
+			assert.Equal(t, http.StatusUnauthorized, w.Code)
+		})
+	}
+}
+
+// TestNew_ApiRouteRejectsVerifierError は verifier が error を返すと 401 を返し
+// handler に到達しないことを確かめる。
+func TestNew_ApiRouteRejectsVerifierError(t *testing.T) {
+	r := New(rest.NewShopHandler(stubShopService{}), nil, nil, fakeRouterVerifier{err: errors.New("invalid token")})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil)
+	req.Header.Set(internalauth.HeaderName, "any.token")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// TestNew_ApiRouteWithValidTokenReachesHandler は verifier を通過したリクエストが
+// handler の成功応答まで到達することを確かめる。
+func TestNew_ApiRouteWithValidTokenReachesHandler(t *testing.T) {
+	r := New(rest.NewShopHandler(stubShopService{}), nil, nil, fakeRouterVerifier{playerID: "TST-PLAYER-1"})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil)
+	req.Header.Set(internalauth.HeaderName, "any.token")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
 }
