@@ -19,9 +19,6 @@ var (
 	// ErrUnauthorized は status 401。
 	ErrUnauthorized = errors.New("apishopclient: unauthorized")
 
-	// ErrForbidden は status 403。
-	ErrForbidden = errors.New("apishopclient: forbidden")
-
 	// ErrBadRequest は status 400。
 	ErrBadRequest = errors.New("apishopclient: bad request")
 
@@ -165,8 +162,6 @@ func newStatusError(op string, code int) error {
 		sentinel = ErrUnauthorized
 	case code == http.StatusPaymentRequired:
 		sentinel = ErrPaymentRequired
-	case code == http.StatusForbidden:
-		sentinel = ErrForbidden
 	case code == http.StatusNotFound:
 		sentinel = ErrNotFound
 	case code == http.StatusBadRequest:
