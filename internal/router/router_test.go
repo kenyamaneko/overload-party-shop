@@ -22,19 +22,6 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// fakeRouterVerifier は router 単体テスト用の internalauth.Verifier 最小 fake。
-type fakeRouterVerifier struct {
-	playerID string
-	err      error
-}
-
-// Verify は固定の playerID / err を返す。
-func (f fakeRouterVerifier) Verify(string) (string, error) { return f.playerID, f.err }
-
-func testVerifier() internalauth.Verifier {
-	return fakeRouterVerifier{}
-}
-
 // stubShopService は固定値を返す shop usecase スタブ。
 type stubShopService struct{}
 
@@ -93,7 +80,7 @@ func postWebhook(r http.Handler, path, body string) *httptest.ResponseRecorder {
 
 // TestNew_HealthEndpoint は /health が webhook の登録状態に関わらず常に 200 を返すことを固定する。
 func TestNew_HealthEndpoint(t *testing.T) {
-	r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
+	r := New(rest.NewShopHandler(nil), nil, nil, &internalauth.MockVerifier{})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -103,7 +90,7 @@ func TestNew_HealthEndpoint(t *testing.T) {
 // notifier まで届き ack (200) が返ること、google 側は未登録 (404) のままであることを固定する。
 func TestNew_AppleWebhookReachesNotifier(t *testing.T) {
 	n := &fakeAppleNotifier{}
-	r := New(rest.NewShopHandler(nil), rest.NewAppleWebhookHandler(n), nil, testVerifier())
+	r := New(rest.NewShopHandler(nil), rest.NewAppleWebhookHandler(n), nil, &internalauth.MockVerifier{})
 
 	w := postWebhook(r, appleWebhookPath, appleValidBody)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -117,7 +104,7 @@ func TestNew_AppleWebhookReachesNotifier(t *testing.T) {
 // notifier まで届き ack (200) が返ること、apple 側は未登録 (404) のままであることを固定する。
 func TestNew_GoogleWebhookReachesNotifier(t *testing.T) {
 	n := &fakeGoogleNotifier{}
-	r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier())
+	r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), &internalauth.MockVerifier{})
 
 	w := postWebhook(r, googleWebhookPath, googleValidBody)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -148,7 +135,7 @@ func TestNew_NilWebhookHandlerLeavesRouteUnregistered(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
+			r := New(rest.NewShopHandler(nil), nil, nil, &internalauth.MockVerifier{})
 			w := postWebhook(r, tt.path, tt.body)
 			assert.Equal(t, http.StatusNotFound, w.Code)
 		})
@@ -158,7 +145,8 @@ func TestNew_NilWebhookHandlerLeavesRouteUnregistered(t *testing.T) {
 // TestNew_ApiRouteRequiresInternalAuth は /api/v1/shop 配下が auth header 欠落で
 // 401 を返し handler に到達しないことを確かめる。
 func TestNew_ApiRouteRequiresInternalAuth(t *testing.T) {
-	r := New(rest.NewShopHandler(stubShopService{}), nil, nil, fakeRouterVerifier{playerID: "TST-PLAYER-1"})
+	// VerifyFn 未設定: header 欠落時は middleware が verifier に到達しないことの検出を兼ねる
+	r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{})
 
 	cases := []struct {
 		name   string
@@ -194,7 +182,9 @@ func TestNew_ApiRouteRequiresInternalAuth(t *testing.T) {
 // TestNew_ApiRouteRejectsVerifierError は verifier が error を返すと 401 を返し
 // handler に到達しないことを確かめる。
 func TestNew_ApiRouteRejectsVerifierError(t *testing.T) {
-	r := New(rest.NewShopHandler(stubShopService{}), nil, nil, fakeRouterVerifier{err: errors.New("invalid token")})
+	r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{
+		VerifyFn: func(string) (string, error) { return "", errors.New("invalid token") },
+	})
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil)
 	req.Header.Set(internalauth.HeaderName, "any.token")
@@ -205,7 +195,9 @@ func TestNew_ApiRouteRejectsVerifierError(t *testing.T) {
 // TestNew_ApiRouteWithValidTokenReachesHandler は verifier を通過したリクエストが
 // handler の成功応答まで到達することを確かめる。
 func TestNew_ApiRouteWithValidTokenReachesHandler(t *testing.T) {
-	r := New(rest.NewShopHandler(stubShopService{}), nil, nil, fakeRouterVerifier{playerID: "TST-PLAYER-1"})
+	r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{
+		VerifyFn: func(string) (string, error) { return "TST-PLAYER-1", nil },
+	})
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil)
 	req.Header.Set(internalauth.HeaderName, "any.token")
