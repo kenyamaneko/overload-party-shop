@@ -58,6 +58,15 @@ const (
 	googleValidBody   = `{"message":{"data":"fake-base64"}}`
 )
 
+// postWebhook は JSON body 付き POST を router に投げ、レスポンスを返す。
+func postWebhook(r http.Handler, path, body string) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	return w
+}
+
 // TestNew_HealthEndpoint は /health が webhook の登録状態に関わらず常に 200 を返すことを固定する。
 func TestNew_HealthEndpoint(t *testing.T) {
 	r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
@@ -66,55 +75,32 @@ func TestNew_HealthEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-// TestNew_RegisteredWebhookRouteReachesNotifier は登録済 webhook ルートが valid リクエストを
-// handler 経由で notifier まで届け ack (200) を返すこと、および片側登録が他方のルートを
-// 巻き込まず未登録 (404) のままであることを固定する。
-func TestNew_RegisteredWebhookRouteReachesNotifier(t *testing.T) {
-	tests := []struct {
-		name        string
-		path        string
-		body        string
-		siblingPath string
-		build       func() (*rest.AppleWebhookHandler, *rest.GoogleWebhookHandler, func() int)
-	}{
-		{
-			name:        "apple のみ登録",
-			path:        appleWebhookPath,
-			body:        appleValidBody,
-			siblingPath: googleWebhookPath,
-			build: func() (*rest.AppleWebhookHandler, *rest.GoogleWebhookHandler, func() int) {
-				n := &fakeAppleNotifier{}
-				return rest.NewAppleWebhookHandler(n), nil, func() int { return n.calls }
-			},
-		},
-		{
-			name:        "google のみ登録",
-			path:        googleWebhookPath,
-			body:        googleValidBody,
-			siblingPath: appleWebhookPath,
-			build: func() (*rest.AppleWebhookHandler, *rest.GoogleWebhookHandler, func() int) {
-				n := &fakeGoogleNotifier{}
-				return nil, rest.NewGoogleWebhookHandler(n), func() int { return n.calls }
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			appleWH, googleWH, notifierCalls := tt.build()
-			r := New(rest.NewShopHandler(nil), appleWH, googleWH, testVerifier())
+// TestNew_AppleWebhookReachesNotifier は apple のみ登録した router で valid リクエストが
+// notifier まで届き ack (200) が返ること、google 側は未登録 (404) のままであることを固定する。
+func TestNew_AppleWebhookReachesNotifier(t *testing.T) {
+	n := &fakeAppleNotifier{}
+	r := New(rest.NewShopHandler(nil), rest.NewAppleWebhookHandler(n), nil, testVerifier())
 
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
-			req.Header.Set("Content-Type", "application/json")
-			r.ServeHTTP(w, req)
-			assert.Equal(t, http.StatusOK, w.Code)
-			assert.Equal(t, 1, notifierCalls())
+	w := postWebhook(r, appleWebhookPath, appleValidBody)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, n.calls)
 
-			sibling := httptest.NewRecorder()
-			r.ServeHTTP(sibling, httptest.NewRequest(http.MethodPost, tt.siblingPath, nil))
-			assert.Equal(t, http.StatusNotFound, sibling.Code)
-		})
-	}
+	sibling := postWebhook(r, googleWebhookPath, googleValidBody)
+	assert.Equal(t, http.StatusNotFound, sibling.Code)
+}
+
+// TestNew_GoogleWebhookReachesNotifier は google のみ登録した router で valid リクエストが
+// notifier まで届き ack (200) が返ること、apple 側は未登録 (404) のままであることを固定する。
+func TestNew_GoogleWebhookReachesNotifier(t *testing.T) {
+	n := &fakeGoogleNotifier{}
+	r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier())
+
+	w := postWebhook(r, googleWebhookPath, googleValidBody)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, n.calls)
+
+	sibling := postWebhook(r, appleWebhookPath, appleValidBody)
+	assert.Equal(t, http.StatusNotFound, sibling.Code)
 }
 
 // TestNew_NilWebhookHandlerLeavesRouteUnregistered は nil の webhook handler ではルート自体が
@@ -139,10 +125,7 @@ func TestNew_NilWebhookHandlerLeavesRouteUnregistered(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
-			req.Header.Set("Content-Type", "application/json")
-			r.ServeHTTP(w, req)
+			w := postWebhook(r, tt.path, tt.body)
 			assert.Equal(t, http.StatusNotFound, w.Code)
 		})
 	}
