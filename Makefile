@@ -1,4 +1,4 @@
-.PHONY: build test test-integration vet fmt run tidy db-up db-down db-reset generate-types generate-products-seed help
+.PHONY: build test test-integration vet fmt run tidy down generate-types generate-products-seed help
 
 APP := overload-party-shop
 
@@ -26,31 +26,12 @@ generate-types: ## Re-generate packages/api-shop/{openapi,asyncapi}_gen.go from 
 generate-products-seed: ## Re-generate db/seed/products_seed.sql from data/products.yaml (requires pyyaml)
 	python3 scripts/generate_products_seed.py
 
-db-up: ## Start local Postgres (docker compose)
-	docker compose up -d postgres
+down: ## Stop the local stack and remove volumes
+	HOST_GOMODCACHE=$$(go env GOMODCACHE) docker compose down -v
 
-db-down: ## Stop local Postgres
-	docker compose down
-
-db-reset: ## Drop volume and recreate DB
-	docker compose down -v
-	docker compose up -d postgres
-
-run: db-up ## Run shop server locally against compose Postgres (local env 込み)
-	PORT=9006 \
-	DATABASE_CONN="host=localhost port=5432 dbname=shop user=shop password=shop sslmode=disable" \
-	GOOGLE_CLOUD_PROJECT=shop-local \
-	CARD_PACK_PURCHASED_TOPIC=card-pack-purchased \
-	FACTION_ACQUIRED_TOPIC=faction-acquired \
-	PREMIUM_UPDATED_TOPIC=premium-updated \
-	IAP_MODE=local \
-	OUTBOX_POLL_INTERVAL=1s \
-	OUTBOX_BATCH_SIZE=100 \
-	OUTBOX_FAILURE_THRESHOLD=5 \
-	OUTBOX_VISIBILITY_TIMEOUT=30s \
-	PUBSUB_EMULATOR_HOST=localhost:8085 \
-	FIRESTORE_EMULATOR_HOST=localhost:9041 \
-	go run ./cmd/server
+run: ## Run the full local stack (app + infra) in compose; edit source and restart `shop` to reload
+	GOWORK=off GOPRIVATE=github.com/kenyamaneko/* go mod download
+	HOST_GOMODCACHE=$$(go env GOMODCACHE) docker compose up
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
