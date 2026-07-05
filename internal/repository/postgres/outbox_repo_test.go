@@ -15,8 +15,8 @@ import (
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
 // normalizeJSON は JSONB round-trip で付与される空白等の差異を吸収する。
@@ -53,7 +53,7 @@ func insertOutboxRow(t *testing.T, testIdx, seedIdx int, payload []byte) uuid.UU
 	return id
 }
 
-// markPublished は seed 後に published_at を埋める（既配信行のシミュレーション）。
+// markPublishedDirectly は seed 後に published_at を埋める（既配信行のシミュレーション）。
 func markPublishedDirectly(t *testing.T, id uuid.UUID) {
 	t.Helper()
 	_, err := sharedPg.Pool.Exec(context.Background(),
@@ -128,177 +128,175 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 	repo := postgres.NewOutboxRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	const failureThreshold = 3
+	t.Run("未配信イベントの claim", func(t *testing.T) {
+		const failureThreshold = 3
 
-	tests := []struct {
-		name              string
-		seeds             []seed
-		limit             int
-		visibilityTimeout time.Duration
-		failureThreshold  int
-		wantPayloads      []string // order-insensitive. 空スライスは「何も claim されない」を表す。
-	}{
-		{
-			name: "未配信行を payload そのままで返す",
-			seeds: []seed{
-				{payload: `{"k":"a"}`, insert: insertUnpublished},
-				{payload: `{"k":"b"}`, insert: insertUnpublished},
+		tests := []struct {
+			name              string
+			seeds             []seed
+			limit             int
+			visibilityTimeout time.Duration
+			failureThreshold  int
+			wantPayloads      []string // order-insensitive. 空スライスは「何も claim されない」を表す。
+		}{
+			{
+				name: "未配信行があるとき、payload そのままで返す",
+				seeds: []seed{
+					{payload: `{"k":"a"}`, insert: insertUnpublished},
+					{payload: `{"k":"b"}`, insert: insertUnpublished},
+				},
+				limit:             10,
+				visibilityTimeout: defaultVisibility,
+				failureThreshold:  defaultFailureThreshold,
+				wantPayloads:      []string{`{"k":"a"}`, `{"k":"b"}`},
 			},
-			limit:             10,
-			visibilityTimeout: defaultVisibility,
-			failureThreshold:  defaultFailureThreshold,
-			wantPayloads:      []string{`{"k":"a"}`, `{"k":"b"}`},
-		},
-		{
-			name: "published_at が埋まった行はスキップ",
-			seeds: []seed{
-				{payload: `{"k":"old"}`, insert: insertAlreadyPublished},
-				{payload: `{"k":"new"}`, insert: insertUnpublished},
+			{
+				name: "published_at が埋まった行があるとき、スキップする",
+				seeds: []seed{
+					{payload: `{"k":"old"}`, insert: insertAlreadyPublished},
+					{payload: `{"k":"new"}`, insert: insertUnpublished},
+				},
+				limit:             10,
+				visibilityTimeout: defaultVisibility,
+				failureThreshold:  defaultFailureThreshold,
+				wantPayloads:      []string{`{"k":"new"}`},
 			},
-			limit:             10,
-			visibilityTimeout: defaultVisibility,
-			failureThreshold:  defaultFailureThreshold,
-			wantPayloads:      []string{`{"k":"new"}`},
-		},
-		{
-			name: "visibility timeout 以内に試行された行はスキップ (in-flight 扱い)",
-			seeds: []seed{
-				{payload: `{"k":"in-flight"}`, insert: insertInFlight(5 * time.Second)},
-				{payload: `{"k":"available"}`, insert: insertUnpublished},
+			{
+				name: "visibility timeout 以内に試行された行があるとき、in-flight としてスキップする",
+				seeds: []seed{
+					{payload: `{"k":"in-flight"}`, insert: insertInFlight(5 * time.Second)},
+					{payload: `{"k":"available"}`, insert: insertUnpublished},
+				},
+				limit:             10,
+				visibilityTimeout: defaultVisibility,
+				failureThreshold:  defaultFailureThreshold,
+				wantPayloads:      []string{`{"k":"available"}`},
 			},
-			limit:             10,
-			visibilityTimeout: defaultVisibility,
-			failureThreshold:  defaultFailureThreshold,
-			wantPayloads:      []string{`{"k":"available"}`},
-		},
-		{
-			name: "visibility timeout を超えた行は再 claim 対象 (worker クラッシュ後の再試行)",
-			seeds: []seed{
-				{payload: `{"k":"recovered"}`, insert: insertInFlight(60 * time.Second)},
+			{
+				name: "visibility timeout を超えた行があるとき、再 claim 対象にする (worker クラッシュ後の再試行)",
+				seeds: []seed{
+					{payload: `{"k":"recovered"}`, insert: insertInFlight(60 * time.Second)},
+				},
+				limit:             10,
+				visibilityTimeout: defaultVisibility,
+				failureThreshold:  defaultFailureThreshold,
+				wantPayloads:      []string{`{"k":"recovered"}`},
 			},
-			limit:             10,
-			visibilityTimeout: defaultVisibility,
-			failureThreshold:  defaultFailureThreshold,
-			wantPayloads:      []string{`{"k":"recovered"}`},
-		},
-		{
-			name:              "未配信行がなければ空で返す",
-			seeds:             nil,
-			limit:             10,
-			visibilityTimeout: defaultVisibility,
-			failureThreshold:  defaultFailureThreshold,
-			wantPayloads:      []string{},
-		},
-		{
-			name: "failure_count が閾値に達した行はスキップ",
-			seeds: []seed{
-				{payload: `{"k":"exhausted"}`, insert: insertExhausted(failureThreshold)},
-				{payload: `{"k":"healthy"}`, insert: insertUnpublished},
+			{
+				name:              "未配信行が無いとき、空で返す",
+				seeds:             nil,
+				limit:             10,
+				visibilityTimeout: defaultVisibility,
+				failureThreshold:  defaultFailureThreshold,
+				wantPayloads:      []string{},
 			},
-			limit:             10,
-			visibilityTimeout: defaultVisibility,
-			failureThreshold:  failureThreshold,
-			wantPayloads:      []string{`{"k":"healthy"}`},
-		},
-	}
+			{
+				name: "failure_count が閾値に達した行があるとき、スキップする",
+				seeds: []seed{
+					{payload: `{"k":"exhausted"}`, insert: insertExhausted(failureThreshold)},
+					{payload: `{"k":"healthy"}`, insert: insertUnpublished},
+				},
+				limit:             10,
+				visibilityTimeout: defaultVisibility,
+				failureThreshold:  failureThreshold,
+				wantPayloads:      []string{`{"k":"healthy"}`},
+			},
+		}
 
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		for i, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				sharedPg.Truncate(t)
+				for j, s := range tt.seeds {
+					s.insert(t, i, j, s.payload)
+				}
+
+				claimed, err := repo.ClaimUnpublished(ctx, tt.limit, tt.visibilityTimeout, tt.failureThreshold)
+				require.NoError(t, err)
+
+				got := make([]string, len(claimed))
+				for k, ev := range claimed {
+					got[k] = string(ev.Payload)
+				}
+				assert.ElementsMatch(t, tt.wantPayloads, normalizeJSON(t, got))
+			})
+		}
+
+		t.Run("limit を超えて claim せず、claim されなかった行は未試行のまま残る", func(t *testing.T) {
+			// どの行が選ばれるかは同 ms 挿入時に不定なので、件数のみで固定する。
 			sharedPg.Truncate(t)
-			for j, s := range tt.seeds {
-				s.insert(t, i, j, s.payload)
+
+			const totalSeeded = 3
+			const limit = 2
+			for j := range totalSeeded {
+				insertUnpublished(t, 0, j, fmt.Sprintf(`{"k":"%d"}`, j))
 			}
 
-			claimed, err := repo.ClaimUnpublished(ctx, tt.limit, tt.visibilityTimeout, tt.failureThreshold)
+			claimed, err := repo.ClaimUnpublished(ctx, limit, defaultVisibility, defaultFailureThreshold)
+			require.NoError(t, err)
+			assert.Len(t, claimed, limit, "limit で claim 件数が制限される")
+
+			var remaining int
+			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+				`SELECT COUNT(*) FROM shop.outbox_events
+				  WHERE published_at IS NULL AND last_attempted_at IS NULL`,
+			).Scan(&remaining))
+			assert.Equal(t, totalSeeded-limit, remaining, "claim されなかった行は未試行のまま残る")
+		})
+
+		t.Run("claim 成功後、last_attempted_at が now() に更新される", func(t *testing.T) {
+			sharedPg.Truncate(t)
+
+			id := insertOutboxRow(t, 0, 0, []byte(`{"k":"v"}`))
+
+			_, err := repo.ClaimUnpublished(ctx, 10, defaultVisibility, defaultFailureThreshold)
 			require.NoError(t, err)
 
-			got := make([]string, len(claimed))
-			for k, ev := range claimed {
-				got[k] = string(ev.Payload)
-			}
-			assert.ElementsMatch(t, tt.wantPayloads, normalizeJSON(t, got))
+			var lastAttemptedNotNull bool
+			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+				`SELECT last_attempted_at IS NOT NULL FROM shop.outbox_events WHERE event_id = $1`,
+				id).Scan(&lastAttemptedNotNull))
+			assert.True(t, lastAttemptedNotNull, "claim 成功後は last_attempted_at が now() に更新される")
 		})
-	}
-}
-
-// limit の効き目は「claim 件数 <= limit」「残り unpublished = 全体 - claim 数」で固定する。
-// どの行が選ばれるかは同 ms 挿入時に不定なので、本体テーブルから分離して件数のみ検証する。
-func TestOutboxRepository_ClaimUnpublished_RespectsLimit(t *testing.T) {
-	sharedPg.Truncate(t)
-	ctx := context.Background()
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
-
-	const totalSeeded = 3
-	const limit = 2
-	for j := range totalSeeded {
-		insertUnpublished(t, 0, j, fmt.Sprintf(`{"k":"%d"}`, j))
-	}
-
-	claimed, err := repo.ClaimUnpublished(ctx, limit, defaultVisibility, defaultFailureThreshold)
-	require.NoError(t, err)
-	assert.Len(t, claimed, limit, "limit で claim 件数が制限される")
-
-	var remaining int
-	require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM shop.outbox_events
-		  WHERE published_at IS NULL AND last_attempted_at IS NULL`,
-	).Scan(&remaining))
-	assert.Equal(t, totalSeeded-limit, remaining, "claim されなかった行は未試行のまま残る")
-}
-
-// ClaimUnpublished は last_attempted_at を更新する (visibility timeout の不変条件)。
-func TestOutboxRepository_ClaimUnpublished_UpdatesLastAttemptedAt(t *testing.T) {
-	sharedPg.Truncate(t)
-	ctx := context.Background()
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
-
-	id := insertOutboxRow(t, 0, 0, []byte(`{"k":"v"}`))
-
-	_, err := repo.ClaimUnpublished(ctx, 10, defaultVisibility, defaultFailureThreshold)
-	require.NoError(t, err)
-
-	var lastAttemptedNotNull bool
-	require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-		`SELECT last_attempted_at IS NOT NULL FROM shop.outbox_events WHERE event_id = $1`,
-		id).Scan(&lastAttemptedNotNull))
-	assert.True(t, lastAttemptedNotNull, "claim 成功後は last_attempted_at が now() に更新される")
+	})
 }
 
 func TestOutboxRepository_MarkPublished(t *testing.T) {
 	repo := postgres.NewOutboxRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	tests := []struct {
-		name  string
-		seed  seed
-	}{
-		{
-			name: "未配信行を配信済みにする",
-			seed: seed{payload: `{"k":"v"}`, insert: insertUnpublished},
-		},
-		{
-			// 同じ event を別 worker が重複処理しても落ちないこと (at-least-once 契約の一部)。
-			name: "既配信行への再呼び出しは冪等",
-			seed: seed{payload: `{"k":"v"}`, insert: insertAlreadyPublished},
-		},
-	}
+	t.Run("配信済みマーク", func(t *testing.T) {
+		tests := []struct {
+			name string
+			seed seed
+		}{
+			{
+				name: "未配信行のとき、published_at を立て last_error を解除する",
+				seed: seed{payload: `{"k":"v"}`, insert: insertUnpublished},
+			},
+			{
+				// 同じ event を別 worker が重複処理しても落ちないこと (at-least-once 契約の一部)。
+				name: "既配信行に再呼び出ししても、冪等に配信済みのまま",
+				seed: seed{payload: `{"k":"v"}`, insert: insertAlreadyPublished},
+			},
+		}
 
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sharedPg.Truncate(t)
-			id := tt.seed.insert(t, i, 0, tt.seed.payload)
+		for i, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				sharedPg.Truncate(t)
+				id := tt.seed.insert(t, i, 0, tt.seed.payload)
 
-			require.NoError(t, repo.MarkPublished(ctx, id))
+				require.NoError(t, repo.MarkPublished(ctx, id))
 
-			var publishedAtNotNull bool
-			var lastError *string
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT published_at IS NOT NULL, last_error FROM shop.outbox_events WHERE event_id = $1`,
-				id).Scan(&publishedAtNotNull, &lastError))
-			assert.True(t, publishedAtNotNull, "published_at が立つ")
-			assert.Nil(t, lastError, "last_error は解除される")
-		})
-	}
+				var publishedAtNotNull bool
+				var lastError *string
+				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+					`SELECT published_at IS NOT NULL, last_error FROM shop.outbox_events WHERE event_id = $1`,
+					id).Scan(&publishedAtNotNull, &lastError))
+				assert.True(t, publishedAtNotNull, "published_at が立つ")
+				assert.Nil(t, lastError, "last_error は解除される")
+			})
+		}
+	})
 }
 
 func TestOutboxRepository_RecordFailure(t *testing.T) {
@@ -316,54 +314,56 @@ func TestOutboxRepository_RecordFailure(t *testing.T) {
 	}
 	noPrior := func(t *testing.T, id uuid.UUID) {}
 
-	tests := []struct {
-		name             string
-		priorFailures    func(t *testing.T, id uuid.UUID) // 本体呼び出し前の状態作り
-		errMsg           string
-		wantFailureCount int
-		wantLastError    string
-	}{
-		{
-			name:             "初回失敗で failure_count=1、last_error を記録",
-			priorFailures:    noPrior,
-			errMsg:           "pubsub down",
-			wantFailureCount: 1,
-			wantLastError:    "pubsub down",
-		},
-		{
-			name:             "連続失敗で failure_count が積み上がる (死蔵検知の素材)",
-			priorFailures:    recordN(2, "prior"),
-			errMsg:           "still down",
-			wantFailureCount: 3,
-			wantLastError:    "still down",
-		},
-		{
-			name:             "last_error は直近エラーで上書きされる",
-			priorFailures:    recordN(1, "prior"),
-			errMsg:           "newer error",
-			wantFailureCount: 2,
-			wantLastError:    "newer error",
-		},
-	}
+	t.Run("失敗の記録", func(t *testing.T) {
+		tests := []struct {
+			name             string
+			priorFailures    func(t *testing.T, id uuid.UUID) // 本体呼び出し前の状態作り
+			errMsg           string
+			wantFailureCount int
+			wantLastError    string
+		}{
+			{
+				name:             "初回失敗のとき、failure_count=1 で last_error を記録する",
+				priorFailures:    noPrior,
+				errMsg:           "pubsub down",
+				wantFailureCount: 1,
+				wantLastError:    "pubsub down",
+			},
+			{
+				name:             "連続失敗のとき、failure_count が積み上がる (死蔵検知の素材)",
+				priorFailures:    recordN(2, "prior"),
+				errMsg:           "still down",
+				wantFailureCount: 3,
+				wantLastError:    "still down",
+			},
+			{
+				name:             "再失敗のとき、last_error が直近エラーで上書きされる",
+				priorFailures:    recordN(1, "prior"),
+				errMsg:           "newer error",
+				wantFailureCount: 2,
+				wantLastError:    "newer error",
+			},
+		}
 
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sharedPg.Truncate(t)
-			id := insertOutboxRow(t, i, 0, []byte(`{"k":"v"}`))
-			tt.priorFailures(t, id)
+		for i, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				sharedPg.Truncate(t)
+				id := insertOutboxRow(t, i, 0, []byte(`{"k":"v"}`))
+				tt.priorFailures(t, id)
 
-			require.NoError(t, repo.RecordFailure(ctx, id, tt.errMsg))
+				require.NoError(t, repo.RecordFailure(ctx, id, tt.errMsg))
 
-			var fc int
-			var lastError *string
-			var publishedAtNotNull bool
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT failure_count, last_error, published_at IS NOT NULL FROM shop.outbox_events WHERE event_id = $1`,
-				id).Scan(&fc, &lastError, &publishedAtNotNull))
-			assert.Equal(t, tt.wantFailureCount, fc)
-			require.NotNil(t, lastError)
-			assert.Equal(t, tt.wantLastError, *lastError)
-			assert.False(t, publishedAtNotNull, "失敗は published_at に影響しない")
-		})
-	}
+				var fc int
+				var lastError *string
+				var publishedAtNotNull bool
+				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+					`SELECT failure_count, last_error, published_at IS NOT NULL FROM shop.outbox_events WHERE event_id = $1`,
+					id).Scan(&fc, &lastError, &publishedAtNotNull))
+				assert.Equal(t, tt.wantFailureCount, fc)
+				require.NotNil(t, lastError)
+				assert.Equal(t, tt.wantLastError, *lastError)
+				assert.False(t, publishedAtNotNull, "失敗は published_at に影響しない")
+			})
+		}
+	})
 }

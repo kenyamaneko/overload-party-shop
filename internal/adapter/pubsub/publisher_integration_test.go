@@ -115,105 +115,105 @@ func buildPremiumUpdatedOutbox(t *testing.T, playerID string, isPremium bool, ex
 	}
 }
 
-// card-pack-purchased payload が Publisher で送信できる shape であることを固定する
-// (outbox 行を worker が送出する経路の近似)。
-func TestIntegration_PublishCardPackPurchased(t *testing.T) {
-	pub, topics := setupPublisher(t)
-	sub := sharedEmulator.Subscribe(t, topics.cardPackPurchased)
+func TestPublishIntegration(t *testing.T) {
+	t.Run("Publisher の Pub/Sub 配信", func(t *testing.T) {
+		t.Run("card-pack-purchased を publish すると、subscriber に payload がそのまま届く", func(t *testing.T) {
+			// outbox 行を worker が送出する経路の近似。
+			pub, topics := setupPublisher(t)
+			sub := sharedEmulator.Subscribe(t, topics.cardPackPurchased)
 
-	ctx := context.Background()
-	ev := buildCardPackPurchasedOutbox(t, "player-123", "faction_set_tenki")
-	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
+			ctx := context.Background()
+			ev := buildCardPackPurchasedOutbox(t, "player-123", "faction_set_tenki")
+			require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
-	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
-	require.NoError(t, err)
+			msg, err := sub.WaitForMessage(ctx, 5*time.Second)
+			require.NoError(t, err)
 
-	var decoded apishop.CardPackPurchasedEvent
-	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
+			var decoded apishop.CardPackPurchasedEvent
+			require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, apishop.EventTypeCardPackPurchased, decoded.EventType)
-	assert.Equal(t, ev.EventID.String(), decoded.EventID, "payload の eventId は outbox 行の PK と一致する")
-	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
-	assert.Equal(t, "player-123", decoded.PlayerID)
-	assert.Equal(t, "faction_set_tenki", decoded.CardPackID)
-}
+			assert.Equal(t, apishop.EventTypeCardPackPurchased, decoded.EventType)
+			assert.Equal(t, ev.EventID.String(), decoded.EventID, "payload の eventId は outbox 行の PK と一致する")
+			assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
+			assert.Equal(t, "player-123", decoded.PlayerID)
+			assert.Equal(t, "faction_set_tenki", decoded.CardPackID)
+		})
 
-// faction-acquired payload が Publisher で送信できる shape であることを固定する。
-func TestIntegration_PublishFactionAcquired(t *testing.T) {
-	pub, topics := setupPublisher(t)
-	sub := sharedEmulator.Subscribe(t, topics.factionAcquired)
+		t.Run("faction-acquired を publish すると、送信 shape が保たれる", func(t *testing.T) {
+			pub, topics := setupPublisher(t)
+			sub := sharedEmulator.Subscribe(t, topics.factionAcquired)
 
-	ctx := context.Background()
-	ev := buildFactionAcquiredOutbox(t, "player-456", "Tenki")
-	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
+			ctx := context.Background()
+			ev := buildFactionAcquiredOutbox(t, "player-456", "Tenki")
+			require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
-	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
-	require.NoError(t, err)
+			msg, err := sub.WaitForMessage(ctx, 5*time.Second)
+			require.NoError(t, err)
 
-	var decoded apishop.FactionAcquiredEvent
-	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
+			var decoded apishop.FactionAcquiredEvent
+			require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, apishop.EventTypeFactionAcquired, decoded.EventType)
-	assert.Equal(t, ev.EventID.String(), decoded.EventID)
-	assert.Equal(t, "player-456", decoded.PlayerID)
-	assert.Equal(t, "Tenki", decoded.Faction)
-}
+			assert.Equal(t, apishop.EventTypeFactionAcquired, decoded.EventType)
+			assert.Equal(t, ev.EventID.String(), decoded.EventID)
+			assert.Equal(t, "player-456", decoded.PlayerID)
+			assert.Equal(t, "Tenki", decoded.Faction)
+		})
 
-// premium 付与 (expires_at あり) の送信 shape を固定。
-func TestIntegration_PublishPremiumUpdated_Granted(t *testing.T) {
-	pub, topics := setupPublisher(t)
-	sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
+		t.Run("premium 付与 (expires_at あり) を publish すると、送信 shape が保たれる", func(t *testing.T) {
+			pub, topics := setupPublisher(t)
+			sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
 
-	ctx := context.Background()
-	expiresAt := time.Now().Add(30 * 24 * time.Hour).UTC()
-	ev := buildPremiumUpdatedOutbox(t, "player-premium", true, &expiresAt)
-	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
+			ctx := context.Background()
+			expiresAt := time.Now().Add(30 * 24 * time.Hour).UTC()
+			ev := buildPremiumUpdatedOutbox(t, "player-premium", true, &expiresAt)
+			require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
-	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
-	require.NoError(t, err)
+			msg, err := sub.WaitForMessage(ctx, 5*time.Second)
+			require.NoError(t, err)
 
-	var decoded apishop.PremiumUpdatedEvent
-	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
+			var decoded apishop.PremiumUpdatedEvent
+			require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
-	assert.Equal(t, ev.EventID.String(), decoded.EventID)
-	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
-	assert.Equal(t, "player-premium", decoded.PlayerID)
-	assert.True(t, decoded.IsPremium)
-	assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
-	require.NotNil(t, decoded.PremiumExpiresAt)
-	assert.WithinDuration(t, expiresAt, *decoded.PremiumExpiresAt, time.Second)
-}
+			assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
+			assert.Equal(t, ev.EventID.String(), decoded.EventID)
+			assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
+			assert.Equal(t, "player-premium", decoded.PlayerID)
+			assert.True(t, decoded.IsPremium)
+			assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
+			require.NotNil(t, decoded.PremiumExpiresAt)
+			assert.WithinDuration(t, expiresAt, *decoded.PremiumExpiresAt, time.Second)
+		})
 
-// premium 解除 (expires_at=nil) の送信 shape を固定。
-func TestIntegration_PublishPremiumUpdated_Revoked(t *testing.T) {
-	pub, topics := setupPublisher(t)
-	sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
+		t.Run("premium 解除 (expires_at=nil) を publish すると、送信 shape が保たれる", func(t *testing.T) {
+			pub, topics := setupPublisher(t)
+			sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
 
-	ctx := context.Background()
-	ev := buildPremiumUpdatedOutbox(t, "player-not-premium", false, nil)
-	require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
+			ctx := context.Background()
+			ev := buildPremiumUpdatedOutbox(t, "player-not-premium", false, nil)
+			require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
 
-	msg, err := sub.WaitForMessage(ctx, 5*time.Second)
-	require.NoError(t, err)
+			msg, err := sub.WaitForMessage(ctx, 5*time.Second)
+			require.NoError(t, err)
 
-	var decoded apishop.PremiumUpdatedEvent
-	require.NoError(t, json.Unmarshal(msg.Data, &decoded))
+			var decoded apishop.PremiumUpdatedEvent
+			require.NoError(t, json.Unmarshal(msg.Data, &decoded))
 
-	assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
-	assert.Equal(t, ev.EventID.String(), decoded.EventID)
-	assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
-	assert.Equal(t, "player-not-premium", decoded.PlayerID)
-	assert.False(t, decoded.IsPremium)
-	assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
-	assert.Nil(t, decoded.PremiumExpiresAt)
-}
+			assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
+			assert.Equal(t, ev.EventID.String(), decoded.EventID)
+			assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
+			assert.Equal(t, "player-not-premium", decoded.PlayerID)
+			assert.False(t, decoded.IsPremium)
+			assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
+			assert.Nil(t, decoded.PremiumExpiresAt)
+		})
 
-// negative path: publish が呼ばれなければ subscriber は timeout する。
-func TestIntegration_NoPublish_SubscriberTimesOut(t *testing.T) {
-	_, topics := setupPublisher(t)
-	sub := sharedEmulator.Subscribe(t, topics.cardPackPurchased)
+		t.Run("publish しなければ、subscriber は timeout する", func(t *testing.T) {
+			// 正例テストの偽陽性除け。
+			_, topics := setupPublisher(t)
+			sub := sharedEmulator.Subscribe(t, topics.cardPackPurchased)
 
-	_, err := sub.WaitForMessage(context.Background(), 500*time.Millisecond)
-	assert.ErrorIs(t, err, pubsubtest.ErrTimeout)
+			_, err := sub.WaitForMessage(context.Background(), 500*time.Millisecond)
+			assert.ErrorIs(t, err, pubsubtest.ErrTimeout)
+		})
+	})
 }
