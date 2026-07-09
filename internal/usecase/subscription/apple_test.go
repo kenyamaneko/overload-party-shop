@@ -62,156 +62,146 @@ func buildAppleNotificationJWS(notifType, subtype, originalTxnID string, expires
 	})
 }
 
-// publish するケース: status 遷移と premium-updated イベント発火を確認する。
-// publish が起きない notifType (UNKNOWN_TYPE / 自動更新トグル) は
-// TestHandleAppleNotification_NoPublish 側。
-func TestHandleAppleNotification_PublishesEvent(t *testing.T) {
-	tests := []struct {
-		name            string
-		notifType       string
-		initialStatus   string
-		expectedStatus  string
-		expectedPremium bool
-	}{
-		{
-			name:            "更新",
-			notifType:       appleNotificationDIDRenew,
-			initialStatus:   domain.SubscriptionStatusActive,
-			expectedStatus:  domain.SubscriptionStatusActive,
-			expectedPremium: true,
-		},
-		{
-			name:           "期限切れ",
-			notifType:      appleNotificationExpired,
-			initialStatus:  domain.SubscriptionStatusActive,
-			expectedStatus: domain.SubscriptionStatusExpired,
-		},
-		{
-			name:           "猶予期間終了",
-			notifType:      appleNotificationGracePeriodExpired,
-			initialStatus:  domain.SubscriptionStatusActive,
-			expectedStatus: domain.SubscriptionStatusExpired,
-		},
-		{
-			name:           "返金取消",
-			notifType:      appleNotificationRevoke,
-			initialStatus:  domain.SubscriptionStatusActive,
-			expectedStatus: domain.SubscriptionStatusRevoked,
-		},
-		{
-			name:           "既に期限切れ状態での EXPIRED 通知",
-			notifType:      appleNotificationExpired,
-			initialStatus:  domain.SubscriptionStatusExpired,
-			expectedStatus: domain.SubscriptionStatusExpired,
-		},
-	}
+func TestHandleAppleNotification(t *testing.T) {
+	t.Run("Apple 通知の処理", func(t *testing.T) {
+		publishCases := []struct {
+			name            string
+			notifType       string
+			initialStatus   string
+			expectedStatus  string
+			expectedPremium bool
+		}{
+			{
+				name:            "active のとき DID_RENEW 通知で、active のまま isPremium=true が publish される",
+				notifType:       appleNotificationDIDRenew,
+				initialStatus:   domain.SubscriptionStatusActive,
+				expectedStatus:  domain.SubscriptionStatusActive,
+				expectedPremium: true,
+			},
+			{
+				name:           "active のとき EXPIRED 通知で、expired になり isPremium=false が publish される",
+				notifType:      appleNotificationExpired,
+				initialStatus:  domain.SubscriptionStatusActive,
+				expectedStatus: domain.SubscriptionStatusExpired,
+			},
+			{
+				name:           "active のとき GRACE_PERIOD_EXPIRED 通知で、expired になり isPremium=false が publish される",
+				notifType:      appleNotificationGracePeriodExpired,
+				initialStatus:  domain.SubscriptionStatusActive,
+				expectedStatus: domain.SubscriptionStatusExpired,
+			},
+			{
+				name:           "active のとき REVOKE 通知で、revoked になり isPremium=false が publish される",
+				notifType:      appleNotificationRevoke,
+				initialStatus:  domain.SubscriptionStatusActive,
+				expectedStatus: domain.SubscriptionStatusRevoked,
+			},
+			{
+				name:           "expired のとき EXPIRED 通知で、expired のまま isPremium=false が publish される",
+				notifType:      appleNotificationExpired,
+				initialStatus:  domain.SubscriptionStatusExpired,
+				expectedStatus: domain.SubscriptionStatusExpired,
+			},
+		}
+		for i, tt := range publishCases {
+			t.Run(tt.name, func(t *testing.T) {
+				env := newAppleTestEnv(t)
+				token := "apple-token-" + tt.name
+				playerID := fmt.Sprintf("aaaaaaaa-%04d-aaaa-aaaa-aaaaaaaaaaaa", i)
+				createTestSubscription(t, env.subRepo, domain.PlatformIOS, playerID, token, tt.initialStatus)
 
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+				notifPayload := buildAppleNotificationJWS(tt.notifType, "", token, time.Now().UnixMilli())
+				require.NoError(t, env.notifier.HandleNotification(context.Background(), notifPayload))
+
+				updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformIOS, token)
+				require.NoError(t, err)
+				require.NotNil(t, updatedSub)
+				assert.Equal(t, tt.expectedStatus, updatedSub.Status)
+
+				events := selectPremiumUpdatedEvents(t)
+				require.Len(t, events, 1, "premium-updated を 1 回 enqueue")
+				assert.Equal(t, playerID, events[0].PlayerID)
+				assert.Equal(t, tt.expectedPremium, events[0].IsPremium)
+			})
+		}
+
+		noPublishCases := []struct {
+			name           string
+			notifType      string
+			subtype        string
+			initialStatus  string
+			expectedStatus string
+		}{
+			{
+				name:           "active のとき未知の通知タイプでは、active のまま publish されない",
+				notifType:      "UNKNOWN_TYPE",
+				initialStatus:  domain.SubscriptionStatusActive,
+				expectedStatus: domain.SubscriptionStatusActive,
+			},
+			{
+				name:           "active のとき DID_CHANGE_RENEWAL_STATUS 通知の AUTO_RENEW_ENABLED では、active のまま publish されない",
+				notifType:      appleNotificationDIDChangeRenewStatus,
+				subtype:        appleSubtypeAutoRenewEnabled,
+				initialStatus:  domain.SubscriptionStatusActive,
+				expectedStatus: domain.SubscriptionStatusActive,
+			},
+			// AUTO_RENEW_DISABLED は cancelled 遷移だが、current_period_end まで特典維持のため premium-updated を publish しない。
+			{
+				name:           "active のとき DID_CHANGE_RENEWAL_STATUS 通知の AUTO_RENEW_DISABLED では、cancelled になり publish されない",
+				notifType:      appleNotificationDIDChangeRenewStatus,
+				subtype:        appleSubtypeAutoRenewDisabled,
+				initialStatus:  domain.SubscriptionStatusActive,
+				expectedStatus: domain.SubscriptionStatusCancelled,
+			},
+		}
+		for i, tt := range noPublishCases {
+			t.Run(tt.name, func(t *testing.T) {
+				env := newAppleTestEnv(t)
+				token := "apple-nopub-token-" + tt.name
+				playerID := fmt.Sprintf("eeeeeeee-%04d-eeee-eeee-eeeeeeeeeeee", i)
+				createTestSubscription(t, env.subRepo, domain.PlatformIOS, playerID, token, tt.initialStatus)
+
+				notifPayload := buildAppleNotificationJWS(tt.notifType, tt.subtype, token, time.Now().UnixMilli())
+				require.NoError(t, env.notifier.HandleNotification(context.Background(), notifPayload))
+
+				updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformIOS, token)
+				require.NoError(t, err)
+				require.NotNil(t, updatedSub)
+				assert.Equal(t, tt.expectedStatus, updatedSub.Status)
+				assert.Empty(t, selectPremiumUpdatedEvents(t), "publish 無しの契約")
+			})
+		}
+
+		t.Run("存在しない token の通知のとき、ErrSubscriptionNotFound になり publish されない", func(t *testing.T) {
 			env := newAppleTestEnv(t)
-			token := "apple-token-" + tt.name
-			playerID := fmt.Sprintf("aaaaaaaa-%04d-aaaa-aaaa-aaaaaaaaaaaa", i)
-			createTestSubscription(t, env.subRepo, domain.PlatformIOS, playerID, token, tt.initialStatus)
 
-			notifPayload := buildAppleNotificationJWS(tt.notifType, "", token, time.Now().UnixMilli())
-			require.NoError(t, env.notifier.HandleNotification(context.Background(), notifPayload))
-
-			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformIOS, token)
-			require.NoError(t, err)
-			require.NotNil(t, updatedSub)
-			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
-
-			events := selectPremiumUpdatedEvents(t)
-			require.Len(t, events, 1, "premium-updated を 1 回 enqueue")
-			assert.Equal(t, playerID, events[0].PlayerID)
-			assert.Equal(t, tt.expectedPremium, events[0].IsPremium)
+			notifPayload := buildAppleNotificationJWS(appleNotificationExpired, "", "nonexistent-token", time.Now().UnixMilli())
+			err := env.notifier.HandleNotification(context.Background(), notifPayload)
+			assert.ErrorIs(t, err, ErrSubscriptionNotFound)
+			assert.Empty(t, selectPremiumUpdatedEvents(t), "副作用無しの契約")
 		})
-	}
-}
 
-// publish しないケース: status 遷移のみ確認し、premium-updated が enqueue されない
-// ことを契約として固定する (未知 type は no-op、自動更新トグルは entitlement 維持で publish しない)。
-func TestHandleAppleNotification_NoPublish(t *testing.T) {
-	tests := []struct {
-		name           string
-		notifType      string
-		subtype        string
-		initialStatus  string
-		expectedStatus string
-	}{
-		{
-			name:           "未知の通知タイプは無視",
-			notifType:      "UNKNOWN_TYPE",
-			initialStatus:  domain.SubscriptionStatusActive,
-			expectedStatus: domain.SubscriptionStatusActive,
-		},
-		{
-			name:           "自動更新オン（status 変化なし）",
-			notifType:      appleNotificationDIDChangeRenewStatus,
-			subtype:        appleSubtypeAutoRenewEnabled,
-			initialStatus:  domain.SubscriptionStatusActive,
-			expectedStatus: domain.SubscriptionStatusActive,
-		},
-		{
-			name:           "自動更新オフ（cancelled 遷移）",
-			notifType:      appleNotificationDIDChangeRenewStatus,
-			subtype:        appleSubtypeAutoRenewDisabled,
-			initialStatus:  domain.SubscriptionStatusActive,
-			expectedStatus: domain.SubscriptionStatusCancelled,
-		},
-	}
-
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run("JWS として parse できない通知のとき、ErrDecodeNotification になる", func(t *testing.T) {
+			// MockAppleJWSVerifier は no-verify でも 3-part 構造チェックを行うため、不正な入力はここで弾かれる。
 			env := newAppleTestEnv(t)
-			token := "apple-nopub-token-" + tt.name
-			playerID := fmt.Sprintf("eeeeeeee-%04d-eeee-eeee-eeeeeeeeeeee", i)
-			createTestSubscription(t, env.subRepo, domain.PlatformIOS, playerID, token, tt.initialStatus)
-
-			notifPayload := buildAppleNotificationJWS(tt.notifType, tt.subtype, token, time.Now().UnixMilli())
-			require.NoError(t, env.notifier.HandleNotification(context.Background(), notifPayload))
-
-			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformIOS, token)
-			require.NoError(t, err)
-			require.NotNil(t, updatedSub)
-			assert.Equal(t, tt.expectedStatus, updatedSub.Status)
-			assert.Empty(t, selectPremiumUpdatedEvents(t), "publish 無しの契約")
+			err := env.notifier.HandleNotification(context.Background(), "not-a-valid-jws")
+			assert.ErrorIs(t, err, ErrDecodeNotification)
 		})
-	}
-}
 
-func TestHandleAppleNotification_SubscriptionNotFound(t *testing.T) {
-	env := newAppleTestEnv(t)
+		t.Run("内側の signedTransactionInfo が壊れているとき、ErrDecodeTransactionInfo になる", func(t *testing.T) {
+			// 通知 body は valid JWS だが、内側 payload は base64 decode できても JSON unmarshal に失敗するバイト列にする。
+			env := newAppleTestEnv(t)
 
-	notifPayload := buildAppleNotificationJWS(appleNotificationExpired, "", "nonexistent-token", time.Now().UnixMilli())
-	err := env.notifier.HandleNotification(context.Background(), notifPayload)
-	assert.ErrorIs(t, err, ErrSubscriptionNotFound)
-	assert.Empty(t, selectPremiumUpdatedEvents(t), "副作用無しの契約")
-}
+			brokenInnerJWS := "h." + base64.RawURLEncoding.EncodeToString([]byte("not json {{{")) + ".s"
+			notifPayload := buildAppleJWS(map[string]interface{}{
+				"notificationType": appleNotificationExpired,
+				"data": map[string]interface{}{
+					"signedTransactionInfo": brokenInnerJWS,
+				},
+			})
 
-// 通知 body 自体が JWS として parse できないケース。
-// MockAppleJWSVerifier の no-verify モードでも 3-part 構造チェックは行うため
-// invalid な入力はここで弾かれる。
-func TestHandleAppleNotification_InvalidJWS(t *testing.T) {
-	env := newAppleTestEnv(t)
-	err := env.notifier.HandleNotification(context.Background(), "not-a-valid-jws")
-	assert.ErrorIs(t, err, ErrDecodeNotification)
-}
-
-// 通知 body は valid JWS だが内側の signedTransactionInfo が壊れているケース。
-// 内側 payload は base64 decode できても JSON unmarshal に失敗するバイト列にして
-// ErrDecodeTransactionInfo を発火させる。
-func TestHandleAppleNotification_InvalidTransactionInfoJWS(t *testing.T) {
-	env := newAppleTestEnv(t)
-
-	brokenInnerJWS := "h." + base64.RawURLEncoding.EncodeToString([]byte("not json {{{")) + ".s"
-	notifPayload := buildAppleJWS(map[string]interface{}{
-		"notificationType": appleNotificationExpired,
-		"data": map[string]interface{}{
-			"signedTransactionInfo": brokenInnerJWS,
-		},
+			err := env.notifier.HandleNotification(context.Background(), notifPayload)
+			assert.ErrorIs(t, err, ErrDecodeTransactionInfo)
+		})
 	})
-
-	err := env.notifier.HandleNotification(context.Background(), notifPayload)
-	assert.ErrorIs(t, err, ErrDecodeTransactionInfo)
 }

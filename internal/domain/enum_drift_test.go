@@ -11,43 +11,44 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 )
 
-// TestEnumDriftAgainstOpenAPISpec は domain の enum 定数が data/openapi.yaml の宣言と
-// 完全一致することを検証する。SSoT は domain 側で、openapi.yaml は外部公開ドキュメントとして
-// 同じ値集合を持つ必要がある。値の追加・削除・rename が片方だけで起きれば本テストが失敗する。
 func TestEnumDriftAgainstOpenAPISpec(t *testing.T) {
-	spec := loadOpenAPISpec(t)
+	t.Run("domain と openapi.yaml の enum 整合", func(t *testing.T) {
+		// SSoT は domain 側。openapi.yaml は外部公開ドキュメントとして同じ値集合を持つ必要があり、
+		// 値の追加・削除・rename が片方だけで起きれば本テストが失敗する。
+		spec := loadOpenAPISpec(t)
 
-	cases := []struct {
-		name       string
-		schemaName string
-		want       []string
-	}{
-		{
-			name:       "ProductType",
-			schemaName: "ProductType",
-			want: []string{
-				domain.ProductTypeFactionSet,
-				domain.ProductTypeCardPack,
-				domain.ProductTypeCosmetic,
-				domain.ProductTypeSubscription,
+		cases := []struct {
+			name       string
+			schemaName string
+			want       []string
+		}{
+			{
+				name:       "ProductType enum が domain と openapi.yaml で一致する",
+				schemaName: "ProductType",
+				want: []string{
+					domain.ProductTypeFactionSet,
+					domain.ProductTypeCardPack,
+					domain.ProductTypeCosmetic,
+					domain.ProductTypeSubscription,
+				},
 			},
-		},
-		{
-			name:       "Platform",
-			schemaName: "Platform",
-			want: []string{
-				domain.PlatformIOS,
-				domain.PlatformAndroid,
+			{
+				name:       "Platform enum が domain と openapi.yaml で一致する",
+				schemaName: "Platform",
+				want: []string{
+					domain.PlatformIOS,
+					domain.PlatformAndroid,
+				},
 			},
-		},
-	}
+		}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := specEnumValues(t, spec, tc.schemaName)
-			require.ElementsMatch(t, tc.want, got, "domain と openapi.yaml の %s enum が drift している", tc.schemaName)
-		})
-	}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				got := specEnumValues(t, spec, tc.schemaName)
+				require.ElementsMatch(t, tc.want, got, "domain と openapi.yaml の %s enum が drift している", tc.schemaName)
+			})
+		}
+	})
 }
 
 // loadOpenAPISpec は data/openapi.yaml をパースして返す。

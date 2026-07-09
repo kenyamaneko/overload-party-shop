@@ -67,66 +67,63 @@ func postWebhook(r http.Handler, path, body string) *httptest.ResponseRecorder {
 	return w
 }
 
-// TestNew_HealthEndpoint は /health が webhook の登録状態に関わらず常に 200 を返すことを固定する。
-func TestNew_HealthEndpoint(t *testing.T) {
-	r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
-	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-// TestNew_AppleWebhookReachesNotifier は apple のみ登録した router で valid リクエストが
-// notifier まで届き ack (200) が返ること、google 側は未登録 (404) のままであることを固定する。
-func TestNew_AppleWebhookReachesNotifier(t *testing.T) {
-	n := &fakeAppleNotifier{}
-	r := New(rest.NewShopHandler(nil), rest.NewAppleWebhookHandler(n), nil, testVerifier())
-
-	w := postWebhook(r, appleWebhookPath, appleValidBody)
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, 1, n.calls)
-
-	sibling := postWebhook(r, googleWebhookPath, googleValidBody)
-	assert.Equal(t, http.StatusNotFound, sibling.Code)
-}
-
-// TestNew_GoogleWebhookReachesNotifier は google のみ登録した router で valid リクエストが
-// notifier まで届き ack (200) が返ること、apple 側は未登録 (404) のままであることを固定する。
-func TestNew_GoogleWebhookReachesNotifier(t *testing.T) {
-	n := &fakeGoogleNotifier{}
-	r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier())
-
-	w := postWebhook(r, googleWebhookPath, googleValidBody)
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, 1, n.calls)
-
-	sibling := postWebhook(r, appleWebhookPath, appleValidBody)
-	assert.Equal(t, http.StatusNotFound, sibling.Code)
-}
-
-// TestNew_NilWebhookHandlerLeavesRouteUnregistered は nil の webhook handler ではルート自体が
-// 登録されず、valid リクエストでも 404 を返すことを固定する。
-func TestNew_NilWebhookHandlerLeavesRouteUnregistered(t *testing.T) {
-	tests := []struct {
-		name string
-		path string
-		body string
-	}{
-		{
-			name: "apple",
-			path: appleWebhookPath,
-			body: appleValidBody,
-		},
-		{
-			name: "google",
-			path: googleWebhookPath,
-			body: googleValidBody,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+func TestNew(t *testing.T) {
+	t.Run("ルーターの webhook 配線", func(t *testing.T) {
+		t.Run("/health は webhook の登録状態に関わらず 200 を返す", func(t *testing.T) {
 			r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
-			w := postWebhook(r, tt.path, tt.body)
-			assert.Equal(t, http.StatusNotFound, w.Code)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+			assert.Equal(t, http.StatusOK, w.Code)
 		})
-	}
+
+		t.Run("apple webhook のみ登録したとき、apple は notifier に到達し google は 404 のままになる", func(t *testing.T) {
+			n := &fakeAppleNotifier{}
+			r := New(rest.NewShopHandler(nil), rest.NewAppleWebhookHandler(n), nil, testVerifier())
+
+			w := postWebhook(r, appleWebhookPath, appleValidBody)
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, 1, n.calls)
+
+			sibling := postWebhook(r, googleWebhookPath, googleValidBody)
+			assert.Equal(t, http.StatusNotFound, sibling.Code)
+		})
+
+		t.Run("google webhook のみ登録したとき、google は notifier に到達し apple は 404 のままになる", func(t *testing.T) {
+			n := &fakeGoogleNotifier{}
+			r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier())
+
+			w := postWebhook(r, googleWebhookPath, googleValidBody)
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, 1, n.calls)
+
+			sibling := postWebhook(r, appleWebhookPath, appleValidBody)
+			assert.Equal(t, http.StatusNotFound, sibling.Code)
+		})
+
+		t.Run("webhook handler が nil のとき、ルートが未登録のまま 404 になる", func(t *testing.T) {
+			tests := []struct {
+				name string
+				path string
+				body string
+			}{
+				{
+					name: "apple",
+					path: appleWebhookPath,
+					body: appleValidBody,
+				},
+				{
+					name: "google",
+					path: googleWebhookPath,
+					body: googleValidBody,
+				},
+			}
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
+					w := postWebhook(r, tc.path, tc.body)
+					assert.Equal(t, http.StatusNotFound, w.Code)
+				})
+			}
+		})
+	})
 }

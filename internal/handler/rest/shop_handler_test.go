@@ -63,215 +63,213 @@ func newShopTestServer(svc shopServicer) *gin.Engine {
 	return r
 }
 
-// GetProducts の成功パスは usecase の戻り値を {"products":[...]} で wrap する。
-// context に注入された player_id がそのまま usecase に渡る点も併せて確認する。
-func TestGetProducts_Success(t *testing.T) {
-	var observedPlayerID string
-	svc := &fakeShopServicer{
-		getProductsFn: func(_ context.Context, playerID string) ([]domain.ProductWithOwnership, error) {
-			observedPlayerID = playerID
-			return []domain.ProductWithOwnership{
-				{
-					ProductView: domain.SubscriptionProduct{
-						Product: domain.Product{ProductID: "p1", Name: "商品1", Type: domain.ProductTypeSubscription},
+func TestGetProducts(t *testing.T) {
+	t.Run("商品一覧取得", func(t *testing.T) {
+		t.Run("取得に成功するとき、200 で is_owned 付き商品一覧を返し context の player_id を usecase に伝える", func(t *testing.T) {
+			var observedPlayerID string
+			svc := &fakeShopServicer{
+				getProductsFn: func(_ context.Context, playerID string) ([]domain.ProductWithOwnership, error) {
+					observedPlayerID = playerID
+					return []domain.ProductWithOwnership{
+						{
+							ProductView: domain.SubscriptionProduct{
+								Product: domain.Product{ProductID: "p1", Name: "商品1", Type: domain.ProductTypeSubscription},
+							},
+							IsOwned: true,
+						},
+					}, nil
+				},
+			}
+			r := newShopTestServer(svc)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil))
+
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, testPlayerID, observedPlayerID, "context 経由の player_id が usecase に伝搬する")
+			var resp struct {
+				Products []apishop.ProductResponse `json:"products"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			require.Len(t, resp.Products, 1)
+			assert.Equal(t, "p1", resp.Products[0].ProductID)
+			assert.True(t, resp.Products[0].IsOwned)
+		})
+
+		t.Run("usecase がエラーを返すとき、500 になる", func(t *testing.T) {
+			svc := &fakeShopServicer{
+				getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
+					return nil, purchase.ErrVerifyReceipt
+				},
+			}
+			r := newShopTestServer(svc)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil))
+
+			assert.Equal(t, http.StatusInternalServerError, w.Code)
+		})
+	})
+}
+
+func TestPurchase(t *testing.T) {
+	t.Run("商品購入", func(t *testing.T) {
+		t.Run("usecase が成功するとき、202 で message「purchase accepted」と product_id を返す", func(t *testing.T) {
+			svc := &fakeShopServicer{
+				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return nil },
+			}
+			body, _ := json.Marshal(apishop.PurchaseRequest{
+				ProductID:     "faction_tenki",
+				Platform:      "ios",
+				PurchaseToken: "receipt-1",
+			})
+			r := newShopTestServer(svc)
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			r.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusAccepted, w.Code)
+			var resp map[string]interface{}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			assert.Equal(t, "purchase accepted", resp["message"])
+			assert.Equal(t, "faction_tenki", resp["product_id"])
+		})
+
+		validPurchaseBody, _ := json.Marshal(apishop.PurchaseRequest{
+			ProductID:     "faction_tenki",
+			Platform:      "ios",
+			PurchaseToken: "receipt-1",
+		})
+		tests := []struct {
+			name       string
+			body       []byte
+			svc        *fakeShopServicer
+			wantStatus int
+		}{
+			{
+				name: "usecase が ErrAlreadyOwned を wrap したエラーを返すとき、errors.Is 経由で 409 になる",
+				body: validPurchaseBody,
+				svc: &fakeShopServicer{
+					purchaseFn: func(_ context.Context, _, _, _, _ string) error {
+						return fmt.Errorf("purchase faction_tenki: %w", purchase.ErrAlreadyOwned)
 					},
-					IsOwned: true,
 				},
-			}, nil
-		},
-	}
-	r := newShopTestServer(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil))
-
-	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, testPlayerID, observedPlayerID, "context 経由の player_id が usecase に伝搬する")
-	var resp struct {
-		Products []apishop.ProductResponse `json:"products"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Len(t, resp.Products, 1)
-	assert.Equal(t, "p1", resp.Products[0].ProductID)
-	assert.True(t, resp.Products[0].IsOwned)
-}
-
-// GetProducts の usecase エラーは respondError 経由で HTTP ステータスに変換される。
-func TestGetProducts_PropagatesServiceError(t *testing.T) {
-	svc := &fakeShopServicer{
-		getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
-			return nil, purchase.ErrVerifyReceipt
-		},
-	}
-	r := newShopTestServer(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil))
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-// Purchase の成功パスは 202 Accepted と product_id を返す。
-func TestPurchase_Success(t *testing.T) {
-	svc := &fakeShopServicer{
-		purchaseFn: func(_ context.Context, _, _, _, _ string) error { return nil },
-	}
-	body, _ := json.Marshal(apishop.PurchaseRequest{
-		ProductID:     "faction_tenki",
-		Platform:      "ios",
-		PurchaseToken: "receipt-1",
-	})
-	r := newShopTestServer(svc)
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusAccepted, w.Code)
-	var resp map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "purchase accepted", resp["message"])
-	assert.Equal(t, "faction_tenki", resp["product_id"])
-}
-
-// Purchase は usecase エラー分類と body bind 失敗をそれぞれの HTTP ステータスに変換する。
-func TestPurchase_ErrorResponses(t *testing.T) {
-	validBody, _ := json.Marshal(apishop.PurchaseRequest{
-		ProductID:     "faction_tenki",
-		Platform:      "ios",
-		PurchaseToken: "receipt-1",
-	})
-
-	tests := []struct {
-		name       string
-		body       []byte
-		svc        *fakeShopServicer
-		wantStatus int
-	}{
-		{
-			name: "Conflict 分類エラー (既に所有) は wrap されていても errors.Is 経由で 409",
-			body: validBody,
-			svc: &fakeShopServicer{
-				purchaseFn: func(_ context.Context, _, _, _, _ string) error {
-					return fmt.Errorf("purchase faction_tenki: %w", purchase.ErrAlreadyOwned)
+				wantStatus: http.StatusConflict,
+			},
+			{
+				name: "usecase が ErrReceiptVerificationFailed を返すとき、402 になる",
+				body: validPurchaseBody,
+				svc: &fakeShopServicer{
+					purchaseFn: func(_ context.Context, _, _, _, _ string) error { return purchase.ErrReceiptVerificationFailed },
 				},
+				wantStatus: http.StatusPaymentRequired,
 			},
-			wantStatus: http.StatusConflict,
-		},
-		{
-			name: "PaymentFailed 分類エラー (レシート無効) は 402",
-			body: validBody,
-			svc: &fakeShopServicer{
-				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return purchase.ErrReceiptVerificationFailed },
+			{
+				name:       "body が JSON として parse できないとき、400 になる",
+				body:       []byte(`not json`),
+				svc:        &fakeShopServicer{},
+				wantStatus: http.StatusBadRequest,
 			},
-			wantStatus: http.StatusPaymentRequired,
-		},
-		{
-			name:       "JSON として parse できない body は 400 (service 未到達)",
-			body:       []byte(`not json`),
-			svc:        &fakeShopServicer{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := newShopTestServer(tt.svc)
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				r := newShopTestServer(tt.svc)
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(tt.body))
+				req.Header.Set("Content-Type", "application/json")
+				r.ServeHTTP(w, req)
+
+				assert.Equal(t, tt.wantStatus, w.Code)
+			})
+		}
+
+		t.Run("usecase が port.ErrNotFound を返すとき、404 で error フィールドを返す", func(t *testing.T) {
+			svc := &fakeShopServicer{
+				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return port.ErrNotFound },
+			}
+			body, _ := json.Marshal(apishop.PurchaseRequest{
+				ProductID:     "faction_tenki",
+				Platform:      "ios",
+				PurchaseToken: "receipt-1",
+			})
+			r := newShopTestServer(svc)
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(tt.body))
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			r.ServeHTTP(w, req)
 
-			assert.Equal(t, tt.wantStatus, w.Code)
+			require.Equal(t, http.StatusNotFound, w.Code)
+			var resp map[string]string
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			assert.Equal(t, port.ErrNotFound.Error(), resp["error"])
 		})
-	}
+	})
 }
 
-// TestPurchase_NotFoundReturnsErrorBody は port.ErrNotFound が 404 と {"error": ...} 形式の body に変換されることを確かめる。
-func TestPurchase_NotFoundReturnsErrorBody(t *testing.T) {
-	svc := &fakeShopServicer{
-		purchaseFn: func(_ context.Context, _, _, _, _ string) error { return port.ErrNotFound },
-	}
-	body, _ := json.Marshal(apishop.PurchaseRequest{
-		ProductID:     "faction_tenki",
-		Platform:      "ios",
-		PurchaseToken: "receipt-1",
-	})
-	r := newShopTestServer(svc)
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/purchase", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusNotFound, w.Code)
-	var resp map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, port.ErrNotFound.Error(), resp["error"])
-}
-
-// Subscribe の成功パスは 202 Accepted と expires_at を返す。
-func TestSubscribe_Success(t *testing.T) {
-	expiresAt := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
-	svc := &fakeShopServicer{
-		subscribeFn: func(_ context.Context, _, _, _, _ string) (*time.Time, error) {
-			return &expiresAt, nil
-		},
-	}
-	body, _ := json.Marshal(apishop.PurchaseRequest{
-		ProductID:     "premium_monthly",
-		Platform:      "ios",
-		PurchaseToken: "sub-1",
-	})
-	r := newShopTestServer(svc)
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusAccepted, w.Code)
-	var resp map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "subscription accepted", resp["message"])
-	assert.Equal(t, expiresAt.Format(time.RFC3339Nano), resp["expires_at"])
-}
-
-// Subscribe のエラーレスポンス: usecase エラー分類 + body bind 失敗 の HTTP status 変換。
-func TestSubscribe_ErrorResponses(t *testing.T) {
-	validBody, _ := json.Marshal(apishop.PurchaseRequest{
-		ProductID:     "premium_monthly",
-		Platform:      "ios",
-		PurchaseToken: "sub-1",
-	})
-
-	tests := []struct {
-		name       string
-		body       []byte
-		svc        *fakeShopServicer
-		wantStatus int
-	}{
-		{
-			name: "Validation 分類エラー (non-subscription 商品) は 400",
-			body: validBody,
-			svc: &fakeShopServicer{
+func TestSubscribe(t *testing.T) {
+	t.Run("サブスクリプション購入", func(t *testing.T) {
+		t.Run("usecase が成功するとき、202 で message「subscription accepted」と expires_at を返す", func(t *testing.T) {
+			expiresAt := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+			svc := &fakeShopServicer{
 				subscribeFn: func(_ context.Context, _, _, _, _ string) (*time.Time, error) {
-					return nil, purchase.ErrProductNotSubscription
+					return &expiresAt, nil
 				},
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "JSON 不正は 400",
-			body:       []byte(`{broken`),
-			svc:        &fakeShopServicer{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := newShopTestServer(tt.svc)
+			}
+			body, _ := json.Marshal(apishop.PurchaseRequest{
+				ProductID:     "premium_monthly",
+				Platform:      "ios",
+				PurchaseToken: "sub-1",
+			})
+			r := newShopTestServer(svc)
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(tt.body))
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			r.ServeHTTP(w, req)
 
-			assert.Equal(t, tt.wantStatus, w.Code)
+			require.Equal(t, http.StatusAccepted, w.Code)
+			var resp map[string]interface{}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			assert.Equal(t, "subscription accepted", resp["message"])
+			assert.Equal(t, expiresAt.Format(time.RFC3339Nano), resp["expires_at"])
 		})
-	}
+
+		validSubscribeBody, _ := json.Marshal(apishop.PurchaseRequest{
+			ProductID:     "premium_monthly",
+			Platform:      "ios",
+			PurchaseToken: "sub-1",
+		})
+		tests := []struct {
+			name       string
+			body       []byte
+			svc        *fakeShopServicer
+			wantStatus int
+		}{
+			{
+				name: "usecase が ErrProductNotSubscription を返すとき、400 になる",
+				body: validSubscribeBody,
+				svc: &fakeShopServicer{
+					subscribeFn: func(_ context.Context, _, _, _, _ string) (*time.Time, error) {
+						return nil, purchase.ErrProductNotSubscription
+					},
+				},
+				wantStatus: http.StatusBadRequest,
+			},
+			{
+				name:       "body が JSON として parse できないとき、400 になる",
+				body:       []byte(`{broken`),
+				svc:        &fakeShopServicer{},
+				wantStatus: http.StatusBadRequest,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				r := newShopTestServer(tt.svc)
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, "/api/v1/shop/subscribe", bytes.NewReader(tt.body))
+				req.Header.Set("Content-Type", "application/json")
+				r.ServeHTTP(w, req)
+
+				assert.Equal(t, tt.wantStatus, w.Code)
+			})
+		}
+	})
 }
