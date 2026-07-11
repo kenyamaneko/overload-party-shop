@@ -30,61 +30,67 @@ func loadTopicsFromEnv(t *testing.T) publisherTopics {
 	}
 }
 
-// New の入力検証は gpubsub.NewClient 呼び出し前に return する。
-func TestNew_Validation(t *testing.T) {
-	tests := []struct {
-		name      string
-		projectID string
-		override  func(topics *publisherTopics)
-		wantSubs  string
-	}{
-		{
-			name:      "projectID が空",
-			projectID: "",
-			override:  func(*publisherTopics) {},
-			wantSubs:  "projectID is empty",
-		},
-		{
-			name:      "card-pack-purchased topic 名が空",
-			projectID: "test-project",
-			override: func(topics *publisherTopics) {
-				topics.cardPackPurchased = ""
+func TestNew(t *testing.T) {
+	t.Run("New の入力検証", func(t *testing.T) {
+		// 入力検証は gpubsub.NewClient 呼び出し前に return する。
+		tests := []struct {
+			name      string
+			projectID string
+			override  func(topics *publisherTopics)
+			wantSubs  string
+		}{
+			{
+				name:      "projectID が空のとき、projectID is empty エラーになる",
+				projectID: "",
+				override:  func(*publisherTopics) {},
+				wantSubs:  "projectID is empty",
 			},
-			wantSubs: "all topic names are required",
-		},
-		{
-			name:      "faction-acquired topic 名が空",
-			projectID: "test-project",
-			override: func(topics *publisherTopics) {
-				topics.factionAcquired = ""
+			{
+				name:      "card-pack-purchased topic 名が空のとき、all topic names are required エラーになる",
+				projectID: "test-project",
+				override: func(topics *publisherTopics) {
+					topics.cardPackPurchased = ""
+				},
+				wantSubs: "all topic names are required",
 			},
-			wantSubs: "all topic names are required",
-		},
-		{
-			name:      "premium-updated topic 名が空",
-			projectID: "test-project",
-			override: func(topics *publisherTopics) {
-				topics.premiumUpdated = ""
+			{
+				name:      "faction-acquired topic 名が空のとき、all topic names are required エラーになる",
+				projectID: "test-project",
+				override: func(topics *publisherTopics) {
+					topics.factionAcquired = ""
+				},
+				wantSubs: "all topic names are required",
 			},
-			wantSubs: "all topic names are required",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			topics := loadTopicsFromEnv(t)
-			tt.override(&topics)
-			p, err := New(context.Background(), tt.projectID, topics.cardPackPurchased, topics.factionAcquired, topics.premiumUpdated)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantSubs)
-			assert.Nil(t, p)
-		})
-	}
+			{
+				name:      "premium-updated topic 名が空のとき、all topic names are required エラーになる",
+				projectID: "test-project",
+				override: func(topics *publisherTopics) {
+					topics.premiumUpdated = ""
+				},
+				wantSubs: "all topic names are required",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				topics := loadTopicsFromEnv(t)
+				tt.override(&topics)
+				p, err := New(context.Background(), tt.projectID, topics.cardPackPurchased, topics.factionAcquired, topics.premiumUpdated)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantSubs)
+				assert.Nil(t, p)
+			})
+		}
+	})
 }
 
-// Publish は未登録 eventType を Pub/Sub SDK に届く前に弾く。
-func TestPublish_UnknownEventType(t *testing.T) {
-	p := &Publisher{}
-	err := p.Publish(context.Background(), "unknown-event-type", []byte(`{}`))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown event type")
+func TestPublish(t *testing.T) {
+	t.Run("Publish", func(t *testing.T) {
+		t.Run("未登録の event type のとき、unknown event type エラーになる", func(t *testing.T) {
+			// 未登録 eventType は Pub/Sub SDK に届く前に弾く。
+			p := &Publisher{}
+			err := p.Publish(context.Background(), "unknown-event-type", []byte(`{}`))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "unknown event type")
+		})
+	})
 }

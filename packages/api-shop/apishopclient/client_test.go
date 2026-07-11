@@ -22,141 +22,136 @@ import (
 // newStatusError logic は他 endpoint で十分カバーされるため本テストでは扱わない。
 
 func TestClient_ListPlayerProducts_StatusMapping(t *testing.T) {
-	cases := []struct {
-		name       string
-		status     int
-		wantTarget error
-	}{
-		{
-			name:       "401 を受けたとき ErrUnauthorized",
-			status:     http.StatusUnauthorized,
-			wantTarget: apishopclient.ErrUnauthorized,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	t.Run("ListPlayerProducts のステータスマッピング", func(t *testing.T) {
+		t.Run("401 を受けたとき、ErrUnauthorized になる", func(t *testing.T) {
 			srv := apishopserverfake.NewServer()
 			defer srv.Close()
-			srv.GetProductsFn = func(_ string) (int, any) { return tc.status, nil }
+			srv.GetProductsFn = func(_ string) (int, any) { return http.StatusUnauthorized, nil }
 
 			c := newTestClient(t, srv.URL())
 			_, err := c.ListPlayerProducts(context.Background(), "p1")
-			assertSentinel(t, err, tc.wantTarget)
+			assertSentinel(t, err, apishopclient.ErrUnauthorized)
 		})
-	}
+	})
 }
 
 func TestClient_PurchaseProduct_StatusMapping(t *testing.T) {
-	cases := []struct {
-		name       string
-		status     int
-		wantTarget error
-	}{
-		{
-			name:       "400 を受けたとき ErrBadRequest",
-			status:     http.StatusBadRequest,
-			wantTarget: apishopclient.ErrBadRequest,
-		},
-		{
-			name:       "401 を受けたとき ErrUnauthorized",
-			status:     http.StatusUnauthorized,
-			wantTarget: apishopclient.ErrUnauthorized,
-		},
-		{
-			name:       "402 を受けたとき ErrPaymentRequired",
-			status:     http.StatusPaymentRequired,
-			wantTarget: apishopclient.ErrPaymentRequired,
-		},
-		{
-			name:       "404 を受けたとき ErrNotFound",
-			status:     http.StatusNotFound,
-			wantTarget: apishopclient.ErrNotFound,
-		},
-		{
-			name:       "409 を受けたとき ErrConflict",
-			status:     http.StatusConflict,
-			wantTarget: apishopclient.ErrConflict,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := apishopserverfake.NewServer()
-			defer srv.Close()
-			srv.PurchaseFn = func(_ string, _ apishop.PurchaseRequest) (int, any) { return tc.status, nil }
+	t.Run("PurchaseProduct のステータスマッピング", func(t *testing.T) {
+		cases := []struct {
+			name       string
+			status     int
+			wantTarget error
+		}{
+			{
+				name:       "400 を受けたとき、ErrBadRequest になる",
+				status:     http.StatusBadRequest,
+				wantTarget: apishopclient.ErrBadRequest,
+			},
+			{
+				name:       "401 を受けたとき、ErrUnauthorized になる",
+				status:     http.StatusUnauthorized,
+				wantTarget: apishopclient.ErrUnauthorized,
+			},
+			{
+				name:       "402 を受けたとき、ErrPaymentRequired になる",
+				status:     http.StatusPaymentRequired,
+				wantTarget: apishopclient.ErrPaymentRequired,
+			},
+			{
+				name:       "404 を受けたとき、ErrNotFound になる",
+				status:     http.StatusNotFound,
+				wantTarget: apishopclient.ErrNotFound,
+			},
+			{
+				name:       "409 を受けたとき、ErrConflict になる",
+				status:     http.StatusConflict,
+				wantTarget: apishopclient.ErrConflict,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				srv := apishopserverfake.NewServer()
+				defer srv.Close()
+				srv.PurchaseFn = func(_ string, _ apishop.PurchaseRequest) (int, any) { return tc.status, nil }
 
-			c := newTestClient(t, srv.URL())
-			// status mapping 検証のため request body の内容は無関係 (server fake は body を見ず tc.status を返す)。
-			_, err := c.PurchaseProduct(context.Background(), "p1", apishop.PurchaseRequest{})
-			assertSentinel(t, err, tc.wantTarget)
-		})
-	}
+				c := newTestClient(t, srv.URL())
+				// status mapping 検証のため request body の内容は無関係 (server fake は body を見ず tc.status を返す)。
+				_, err := c.PurchaseProduct(context.Background(), "p1", apishop.PurchaseRequest{})
+				assertSentinel(t, err, tc.wantTarget)
+			})
+		}
+	})
 }
 
 func TestClient_SubscribeProduct_StatusMapping(t *testing.T) {
-	cases := []struct {
-		name       string
-		status     int
-		wantTarget error
-	}{
-		{
-			name:       "400 を受けたとき ErrBadRequest",
-			status:     http.StatusBadRequest,
-			wantTarget: apishopclient.ErrBadRequest,
-		},
-		{
-			name:       "401 を受けたとき ErrUnauthorized",
-			status:     http.StatusUnauthorized,
-			wantTarget: apishopclient.ErrUnauthorized,
-		},
-		{
-			name:       "402 を受けたとき ErrPaymentRequired",
-			status:     http.StatusPaymentRequired,
-			wantTarget: apishopclient.ErrPaymentRequired,
-		},
-		{
-			name:       "404 を受けたとき ErrNotFound",
-			status:     http.StatusNotFound,
-			wantTarget: apishopclient.ErrNotFound,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := apishopserverfake.NewServer()
-			defer srv.Close()
-			srv.SubscribeFn = func(_ string, _ apishop.PurchaseRequest) (int, any) { return tc.status, nil }
+	t.Run("SubscribeProduct のステータスマッピング", func(t *testing.T) {
+		cases := []struct {
+			name       string
+			status     int
+			wantTarget error
+		}{
+			{
+				name:       "400 を受けたとき、ErrBadRequest になる",
+				status:     http.StatusBadRequest,
+				wantTarget: apishopclient.ErrBadRequest,
+			},
+			{
+				name:       "401 を受けたとき、ErrUnauthorized になる",
+				status:     http.StatusUnauthorized,
+				wantTarget: apishopclient.ErrUnauthorized,
+			},
+			{
+				name:       "402 を受けたとき、ErrPaymentRequired になる",
+				status:     http.StatusPaymentRequired,
+				wantTarget: apishopclient.ErrPaymentRequired,
+			},
+			{
+				name:       "404 を受けたとき、ErrNotFound になる",
+				status:     http.StatusNotFound,
+				wantTarget: apishopclient.ErrNotFound,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				srv := apishopserverfake.NewServer()
+				defer srv.Close()
+				srv.SubscribeFn = func(_ string, _ apishop.PurchaseRequest) (int, any) { return tc.status, nil }
 
-			c := newTestClient(t, srv.URL())
-			// status mapping 検証のため request body の内容は無関係 (server fake は body を見ず tc.status を返す)。
-			_, err := c.SubscribeProduct(context.Background(), "p1", apishop.PurchaseRequest{})
-			assertSentinel(t, err, tc.wantTarget)
-		})
-	}
+				c := newTestClient(t, srv.URL())
+				// status mapping 検証のため request body の内容は無関係 (server fake は body を見ず tc.status を返す)。
+				_, err := c.SubscribeProduct(context.Background(), "p1", apishop.PurchaseRequest{})
+				assertSentinel(t, err, tc.wantTarget)
+			})
+		}
+	})
 }
 
-// TestClient_RequestEditor は Option pattern の契約 (WithRequestEditorFn で渡した
-// editor が全リクエストに適用される) を検証する。X-Internal-Auth header 注入の
-// 接続点として SDK が機能することを担保する。
 func TestClient_RequestEditor(t *testing.T) {
-	var gotHeader string
-	spy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotHeader = r.Header.Get("X-Internal-Auth")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"products":[]}`))
-	}))
-	defer spy.Close()
+	t.Run("リクエストエディタの適用", func(t *testing.T) {
+		t.Run("WithRequestEditorFn で渡した editor が全リクエストに適用される", func(t *testing.T) {
+			// X-Internal-Auth header 注入の接続点として SDK が機能することを担保する。
+			var gotHeader string
+			spy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotHeader = r.Header.Get("X-Internal-Auth")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"products":[]}`))
+			}))
+			defer spy.Close()
 
-	c, err := apishopclient.New(spy.URL,
-		apishopclient.WithRequestEditorFn(func(_ context.Context, req *http.Request) error {
-			req.Header.Set("X-Internal-Auth", "test-token")
-			return nil
-		}),
-	)
-	require.NoError(t, err)
+			c, err := apishopclient.New(spy.URL,
+				apishopclient.WithRequestEditorFn(func(_ context.Context, req *http.Request) error {
+					req.Header.Set("X-Internal-Auth", "test-token")
+					return nil
+				}),
+			)
+			require.NoError(t, err)
 
-	_, err = c.ListPlayerProducts(context.Background(), "p1")
-	require.NoError(t, err)
-	assert.Equal(t, "test-token", gotHeader)
+			_, err = c.ListPlayerProducts(context.Background(), "p1")
+			require.NoError(t, err)
+			assert.Equal(t, "test-token", gotHeader)
+		})
+	})
 }
 
 func newTestClient(t *testing.T, baseURL string) *apishopclient.Client {
