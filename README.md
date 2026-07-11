@@ -2,7 +2,7 @@
 
 IAP・サブスクリプション・商品管理と Apple/Google webhook を処理する内部マイクロサービス。ポート 9006 で起動する。
 
-詳細は [機能仕様書](docs/FEATURE_SPEC.md) / [サービス設計書](docs/ARCHITECTURE.md) / [API仕様書](docs/API_REFERENCE.md) / [データ設計書](docs/DATA_DESIGN.md) を参照。
+詳細は [機能仕様書](docs/FEATURE_SPEC.md) / [サービス設計書](docs/ARCHITECTURE.md) / [API契約](data/openapi.yaml) / [データ設計書](docs/DATA_DESIGN.md) を参照。
 
 ## アーキテクチャ概要
 
@@ -39,8 +39,8 @@ make test     # Testcontainers でテスト実行（Docker 必須）
 
 ## 公開パッケージ
 
-[packages/api-shop/](packages/api-shop/) に REST 契約型を公開している。[data/models.yaml](data/models.yaml) を編集後に以下で再生成する。
+[packages/api-shop/](packages/api-shop/) に REST / Pub/Sub 契約型を公開している。[data/openapi.yaml](data/openapi.yaml) / [data/asyncapi.yaml](data/asyncapi.yaml) を編集後に以下で再生成する。
 
 ```bash
-python3 scripts/generate_types.py
+make generate-types
 ```

@@ -51,7 +51,7 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 
 ### product_card_pack
 
-`type IN ('faction_set','card_pack')` 商品の付帯属性。`card.card_pack.pack_id` への論理参照 (FK なし、[ADR-031](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/031-shop-products-normalization-and-faction-purchased-decomposition.md) §5)。faction_set 商品は本副表と `product_faction` の両方に行を持つ。
+`type IN ('faction_set','card_pack')` 商品の付帯属性。`card.card_pack.pack_id` への論理参照 (FK なし、[ADR-031](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/031-shop-products-normalization-and-faction-purchased-decomposition.md) の「card 側との責務分界」)。faction_set 商品は本副表と `product_faction` の両方に行を持つ。
 
 - **PK:** `product_id`
 - **FK:** `product_id` → `products(product_id)` ON DELETE CASCADE
