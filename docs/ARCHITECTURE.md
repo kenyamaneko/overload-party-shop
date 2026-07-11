@@ -2,7 +2,7 @@
 
 本ドキュメントは **コードを読んでも一見しては分からない設計意図** だけを残す。実装詳細 (フロー順序・状態遷移の対応・エラー → HTTP ステータス変換・環境変数の一覧) は各ファイルの実装とコメントを一次情報とする。
 
-サービス概要・起動手順は [../README.md](../README.md)、エンドポイントは [API_REFERENCE.md](API_REFERENCE.md)、テーブル定義は [DATA_DESIGN.md](DATA_DESIGN.md) を参照。
+サービス概要・起動手順は [../README.md](../README.md)、エンドポイントは [../data/openapi.yaml](../data/openapi.yaml)、テーブル定義は [DATA_DESIGN.md](DATA_DESIGN.md) を参照。
 
 ## 型のレイヤ分離 (domain / wire / persistence)
 
@@ -14,7 +14,7 @@
 | wire | [packages/api-shop/](../packages/api-shop/) | REST request/response、webhook payload、Pub/Sub event の wire 契約 |
 | persistence | repository 実装内部 | DB 行マッピング (専用の row 型は持たず pgx の positional `Scan` で domain 型へ直接読み書き) |
 
-`packages/api-shop` は別 Go module で `internal/domain` を import できないため依存方向は物理強制される。inter-service event (`CardPackPurchasedEvent` / `FactionAcquiredEvent` / `PremiumUpdatedEvent`) のみ両レイヤに同形状で生成する (producer は domain、外部 subscriber は wire)。重複は [data/models.yaml](../data/models.yaml) からの codegen に閉じ込めている。
+`packages/api-shop` は別 Go module で `internal/domain` を import できないため依存方向は物理強制される。inter-service event (`CardPackPurchasedEvent` / `FactionAcquiredEvent` / `PremiumUpdatedEvent`) のみ両レイヤに同形状で持つ (producer は domain、外部 subscriber は wire)。wire 側は [data/asyncapi.yaml](../data/asyncapi.yaml) からの codegen で生成する。
 
 domain ↔ wire の境界変換は [internal/presenter/](../internal/presenter/) に集約する。
 
@@ -40,7 +40,7 @@ shop は他サービスを直接呼ばない。
 
 ## イベント配信モデル (Transactional Outbox)
 
-shop は **Transactional Outbox パターン** で Pub/Sub 発行を DB commit と atomic に揃える。dual-write 問題 (DB commit と Pub/Sub publish が別トランザクションになり、片方だけが成功して整合が壊れる現象) を構造的に排除するための中核機構。
+shop は **Transactional Outbox パターン** で Pub/Sub 発行を DB commit と atomic に揃える。dual-write 問題 (DB commit と Pub/Sub publish が別トランザクションになり、片方だけが成功して整合が壊れる現象) を構造的に排除するための機構。
 
 ### enqueue: ビジネス行と outbox 行を同一 tx で commit
 
@@ -120,7 +120,7 @@ webhook の deterministic error (decode 失敗 / unknown subscription 等) は *
 
 ## IAP_MODE=local の構造的安全性
 
-`IAP_MODE=local` は開発用モードで、Apple/Google verifier を初期化しない。ここで重要なのは **未認証 POST が nil verifier に到達する経路がコードの構造上存在しない** こと。これは 3 ファイルの合意で成立している:
+`IAP_MODE=local` は開発用モードで、Apple/Google verifier を初期化しない。**未認証 POST が nil verifier に到達する経路はコードの構造上存在しない**。これは 3 ファイルの合意で成立している:
 
 1. `cmd/server/main.go`: `IAP_MODE!=production` のとき verifier 系を全て nil のまま返し、webhookH も nil 構築する
 2. `internal/router/router.go`: `webhookH == nil` のとき `/webhook/*` ルートを **登録しない**

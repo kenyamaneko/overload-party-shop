@@ -222,519 +222,543 @@ func insertSubscription(t *testing.T, sub *domain.Subscription, platform, purcha
 	require.NoError(t, err)
 }
 
-func TestPurchase_FactionSet_Success(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-			return &port.VerifyResult{IsValid: true, TransactionID: "txn-123", ProductID: "faction_tenki"}, nil
-		},
-	}))
+func TestPurchase(t *testing.T) {
+	t.Run("購入", func(t *testing.T) {
+		t.Run("faction_set 商品を購入したとき", func(t *testing.T) {
+			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+					return &port.VerifyResult{IsValid: true, TransactionID: "txn-123", ProductID: "faction_tenki"}, nil
+				},
+			}))
+			insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
 
-	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
+			playerID := "11111111-1111-1111-1111-111111111111"
+			require.NoError(t, env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", "receipt-token-1"))
 
-	err := env.svc.Purchase(context.Background(), "11111111-1111-1111-1111-111111111111", "faction_tenki", "ios", "receipt-token-1")
-	require.NoError(t, err)
+			t.Run("card-pack-purchased event が publish される", func(t *testing.T) {
+				events := selectCardPackPurchasedEvents(t)
+				require.Len(t, events, 1)
+				assert.Equal(t, playerID, events[0].PlayerID)
+				assert.Equal(t, "faction_set_Tenki", events[0].CardPackID)
+			})
 
-	t.Run("publishes card-pack-purchased event", func(t *testing.T) {
-		events := selectCardPackPurchasedEvents(t)
-		require.Len(t, events, 1)
-		assert.Equal(t, "11111111-1111-1111-1111-111111111111", events[0].PlayerID)
-		assert.Equal(t, "faction_set_Tenki", events[0].CardPackID)
-	})
+			t.Run("faction-acquired event が publish される", func(t *testing.T) {
+				events := selectFactionAcquiredEvents(t)
+				require.Len(t, events, 1)
+				assert.Equal(t, playerID, events[0].PlayerID)
+				assert.Equal(t, "Tenki", events[0].Faction)
+			})
 
-	t.Run("publishes faction-acquired event", func(t *testing.T) {
-		events := selectFactionAcquiredEvents(t)
-		require.Len(t, events, 1)
-		assert.Equal(t, "11111111-1111-1111-1111-111111111111", events[0].PlayerID)
-		assert.Equal(t, "Tenki", events[0].Faction)
-	})
+			t.Run("shop 側に owned faction が記録される", func(t *testing.T) {
+				factions, err := env.factionPurchaseRepo.ListOwnedFactions(context.Background(), playerID)
+				require.NoError(t, err)
+				assert.Contains(t, factions, "Tenki")
+			})
 
-	t.Run("writes shop-local owned faction", func(t *testing.T) {
-		factions, err := env.factionPurchaseRepo.ListOwnedFactions(context.Background(), "11111111-1111-1111-1111-111111111111")
-		require.NoError(t, err)
-		assert.Contains(t, factions, "Tenki")
-	})
-
-	t.Run("writes shop-local owned card pack", func(t *testing.T) {
-		owned, err := env.cardPackPurchaseRepo.HasPlayerCardPack(context.Background(), "11111111-1111-1111-1111-111111111111", "faction_set_Tenki")
-		require.NoError(t, err)
-		assert.True(t, owned)
-	})
-}
-
-func TestPurchase_Idempotent(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-			return &port.VerifyResult{IsValid: true, TransactionID: "txn-123"}, nil
-		},
-	}))
-
-	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
-
-	playerID := "22222222-2222-2222-2222-222222222222"
-	ctx := context.Background()
-	require.NoError(t, env.svc.Purchase(ctx, playerID, "faction_tenki", "ios", "receipt-token-1"))
-
-	// 同一トークンでの再購入 — べき等
-	require.NoError(t, env.svc.Purchase(ctx, playerID, "faction_tenki", "ios", "receipt-token-1"))
-
-	// publish は 1 回のみ (2 回目は既存 token 検出経路で publish 前に return)
-	assert.Len(t, selectCardPackPurchasedEvents(t), 1)
-	assert.Len(t, selectFactionAcquiredEvents(t), 1)
-}
-
-func TestPurchase_ReceiptFailed(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-			return &port.VerifyResult{IsValid: false}, nil
-		},
-	}))
-
-	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
-
-	err := env.svc.Purchase(context.Background(), "33333333-3333-3333-3333-333333333333", "faction_tenki", "ios", "bad-receipt")
-	assert.ErrorIs(t, err, ErrReceiptVerificationFailed)
-	assert.Empty(t, selectCardPackPurchasedEvents(t))
-	assert.Empty(t, selectFactionAcquiredEvents(t))
-}
-
-// card_pack 商品 (faction を伴わない pure pack) 購入は card-pack-purchased のみ publish
-// する (faction-acquired は出さない)。再購入禁止は player_owned_card_packs で担保。
-func TestPurchase_CardPackProduct(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-			return &port.VerifyResult{IsValid: true, TransactionID: "txn-limited"}, nil
-		},
-	}))
-
-	insertCardPackProduct(t, "limited_2026_summer", "限定: 2026 夏パック", 480, "limited_2026_summer", true)
-
-	playerID := "77777777-7777-7777-7777-aaaaaaaaaaaa"
-	ctx := context.Background()
-	require.NoError(t, env.svc.Purchase(ctx, playerID, "limited_2026_summer", "ios", "receipt-limited-1"))
-
-	t.Run("publishes card-pack-purchased event のみ (faction-acquired は出さない)", func(t *testing.T) {
-		card := selectCardPackPurchasedEvents(t)
-		require.Len(t, card, 1)
-		assert.Equal(t, playerID, card[0].PlayerID)
-		assert.Equal(t, "limited_2026_summer", card[0].CardPackID)
-		assert.Empty(t, selectFactionAcquiredEvents(t))
-	})
-
-	t.Run("再購入は ErrAlreadyOwned で拒否される", func(t *testing.T) {
-		err := env.svc.Purchase(ctx, playerID, "limited_2026_summer", "ios", "receipt-limited-2")
-		assert.ErrorIs(t, err, ErrAlreadyOwned)
-	})
-}
-
-func TestPurchase_CosmeticItem(t *testing.T) {
-	env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-			return &port.VerifyResult{IsValid: true, TransactionID: "txn-456"}, nil
-		},
-	}))
-
-	insertCosmeticProduct(t, "playmat_01", "プレイマット: サイバー", 320, "playmat", 1, true)
-
-	err := env.svc.Purchase(context.Background(), "44444444-4444-4444-4444-444444444444", "playmat_01", "android", "cosmetic-receipt")
-	require.NoError(t, err)
-	assert.Empty(t, selectCardPackPurchasedEvents(t))
-	assert.Empty(t, selectFactionAcquiredEvents(t))
-}
-
-func TestPurchase_AlreadyOwned_FactionSet(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-			return &port.VerifyResult{IsValid: true, TransactionID: "txn-first"}, nil
-		},
-	}))
-
-	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
-
-	playerID := "55555555-5555-5555-5555-555555555555"
-	err := env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", "receipt-token-1")
-	require.NoError(t, err)
-
-	// 別トークンでの再購入は拒否 (ownedFactions 検出)
-	err = env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", "receipt-token-2")
-	assert.ErrorIs(t, err, ErrAlreadyOwned)
-}
-
-func TestPurchase_AlreadyOwned_Cosmetic(t *testing.T) {
-	env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-			return &port.VerifyResult{IsValid: true, TransactionID: "txn-cos"}, nil
-		},
-	}))
-
-	insertCosmeticProduct(t, "playmat_01", "プレイマット: サイバー", 320, "playmat", 1, true)
-
-	playerID := "66666666-6666-6666-6666-666666666666"
-	err := env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt-1")
-	require.NoError(t, err)
-
-	err = env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt-2")
-	assert.ErrorIs(t, err, ErrAlreadyOwned)
-}
-
-func TestPurchase_InactiveProduct(t *testing.T) {
-	env := newTestShopEnv(t)
-
-	insertFactionSetProduct(t, "old_product", "旧商品", 100, "SHE", false)
-
-	err := env.svc.Purchase(context.Background(), "77777777-7777-7777-7777-777777777777", "old_product", "ios", "receipt-1")
-	assert.ErrorIs(t, err, ErrProductNotActive)
-}
-
-func TestPurchase_UnsupportedPlatform(t *testing.T) {
-	env := newTestShopEnv(t)
-
-	insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
-
-	err := env.svc.Purchase(context.Background(), "88888888-8888-8888-8888-888888888888", "faction_she", "windows", "receipt-1")
-	assert.ErrorIs(t, err, ErrUnsupportedPlatform)
-}
-
-func TestSubscribe_Success(t *testing.T) {
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
-			return &port.SubscriptionInfo{
-				IsValid:   true,
-				ProductID: "premium_monthly",
-				ExpiresAt: expiresAt,
-			}, nil
-		},
-	}))
-
-	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
-
-	playerID := "99999999-9999-9999-9999-999999999999"
-	result, err := env.svc.Subscribe(context.Background(), playerID, "premium_monthly", "ios", "sub-token-1")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	t.Run("publishes premium-updated event", func(t *testing.T) {
-		events := selectPremiumUpdatedEvents(t)
-		require.Len(t, events, 1)
-		assert.Equal(t, playerID, events[0].PlayerID)
-		assert.True(t, events[0].IsPremium)
-	})
-
-	t.Run("creates active subscription record", func(t *testing.T) {
-		sub, err := env.subRepo.GetLatestSubscription(context.Background(), playerID)
-		require.NoError(t, err)
-		require.NotNil(t, sub)
-		assert.Equal(t, domain.SubscriptionStatusActive, sub.Status)
-	})
-}
-
-func TestSubscribe_Errors(t *testing.T) {
-	// verifier を呼ばない経路のケースでも DI の形を揃えるため default を明示する。
-	defaultVerifier := &port.MockReceiptVerifier{}
-	invalidSubVerifier := &port.MockReceiptVerifier{
-		VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
-			return &port.SubscriptionInfo{IsValid: false}, nil
-		},
-	}
-
-	tests := []struct {
-		name          string
-		seedProduct   func(t *testing.T)
-		appleVerifier port.ReceiptVerifier
-		productID     string
-		platform      string
-		token         string
-		wantErr       error
-	}{
-		{
-			name: "サブスク以外の商品を Subscribe",
-			seedProduct: func(t *testing.T) {
-				insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
-			},
-			appleVerifier: defaultVerifier,
-			productID:     "faction_she",
-			platform:      "ios",
-			token:         "sub-token-1",
-			wantErr:       ErrProductNotSubscription,
-		},
-		{
-			name: "レシート検証失敗（IsValid=false）",
-			seedProduct: func(t *testing.T) {
-				insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
-			},
-			appleVerifier: invalidSubVerifier,
-			productID:     "premium_monthly",
-			platform:      "ios",
-			token:         "bad-sub-token",
-			wantErr:       ErrSubVerificationFailed,
-		},
-		{
-			name: "未対応 platform",
-			seedProduct: func(t *testing.T) {
-				insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
-			},
-			appleVerifier: defaultVerifier,
-			productID:     "premium_monthly",
-			platform:      "windows",
-			token:         "sub-token-1",
-			wantErr:       ErrUnsupportedPlatform,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := newTestShopEnv(t, withAppleVerifier(tt.appleVerifier))
-			tt.seedProduct(t)
-
-			_, err := env.svc.Subscribe(context.Background(), "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", tt.productID, tt.platform, tt.token)
-			assert.ErrorIs(t, err, tt.wantErr)
+			t.Run("shop 側に owned card pack が記録される", func(t *testing.T) {
+				owned, err := env.cardPackPurchaseRepo.HasPlayerCardPack(context.Background(), playerID, "faction_set_Tenki")
+				require.NoError(t, err)
+				assert.True(t, owned)
+			})
 		})
-	}
+
+		t.Run("同一トークンで再購入しても、card-pack-purchased と faction-acquired は各 1 回だけ publish される (冪等)", func(t *testing.T) {
+			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+					return &port.VerifyResult{IsValid: true, TransactionID: "txn-123"}, nil
+				},
+			}))
+			insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
+
+			playerID := "22222222-2222-2222-2222-222222222222"
+			ctx := context.Background()
+			require.NoError(t, env.svc.Purchase(ctx, playerID, "faction_tenki", "ios", "receipt-token-1"))
+
+			// 同一トークンでの再購入 — べき等
+			require.NoError(t, env.svc.Purchase(ctx, playerID, "faction_tenki", "ios", "receipt-token-1"))
+
+			// publish は 1 回のみ (2 回目は既存 token 検出経路で publish 前に return)
+			assert.Len(t, selectCardPackPurchasedEvents(t), 1)
+			assert.Len(t, selectFactionAcquiredEvents(t), 1)
+		})
+
+		t.Run("レシート検証が IsValid=false のとき、ErrReceiptVerificationFailed になり何も publish されない", func(t *testing.T) {
+			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+					return &port.VerifyResult{IsValid: false}, nil
+				},
+			}))
+			insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
+
+			err := env.svc.Purchase(context.Background(), "33333333-3333-3333-3333-333333333333", "faction_tenki", "ios", "bad-receipt")
+			assert.ErrorIs(t, err, ErrReceiptVerificationFailed)
+			assert.Empty(t, selectCardPackPurchasedEvents(t))
+			assert.Empty(t, selectFactionAcquiredEvents(t))
+		})
+
+		t.Run("card_pack 商品 (faction を伴わない pure pack) を購入したとき", func(t *testing.T) {
+			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+					return &port.VerifyResult{IsValid: true, TransactionID: "txn-limited"}, nil
+				},
+			}))
+			insertCardPackProduct(t, "limited_2026_summer", "限定: 2026 夏パック", 480, "limited_2026_summer", true)
+
+			playerID := "77777777-7777-7777-7777-aaaaaaaaaaaa"
+			ctx := context.Background()
+			require.NoError(t, env.svc.Purchase(ctx, playerID, "limited_2026_summer", "ios", "receipt-limited-1"))
+
+			t.Run("card-pack-purchased のみ publish され faction-acquired は出ない", func(t *testing.T) {
+				card := selectCardPackPurchasedEvents(t)
+				require.Len(t, card, 1)
+				assert.Equal(t, playerID, card[0].PlayerID)
+				assert.Equal(t, "limited_2026_summer", card[0].CardPackID)
+				assert.Empty(t, selectFactionAcquiredEvents(t))
+			})
+
+			// 再購入禁止は player_owned_card_packs で担保する
+			t.Run("同じ card_pack を再購入すると ErrAlreadyOwned で拒否される", func(t *testing.T) {
+				err := env.svc.Purchase(ctx, playerID, "limited_2026_summer", "ios", "receipt-limited-2")
+				assert.ErrorIs(t, err, ErrAlreadyOwned)
+			})
+		})
+
+		t.Run("cosmetic 商品を購入すると、card-pack-purchased も faction-acquired も publish されない", func(t *testing.T) {
+			env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
+				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+					return &port.VerifyResult{IsValid: true, TransactionID: "txn-456"}, nil
+				},
+			}))
+			insertCosmeticProduct(t, "playmat_01", "プレイマット: サイバー", 320, "playmat", 1, true)
+
+			err := env.svc.Purchase(context.Background(), "44444444-4444-4444-4444-444444444444", "playmat_01", "android", "cosmetic-receipt")
+			require.NoError(t, err)
+			assert.Empty(t, selectCardPackPurchasedEvents(t))
+			assert.Empty(t, selectFactionAcquiredEvents(t))
+		})
+
+		t.Run("faction_set を所有済みで別トークン再購入すると、ErrAlreadyOwned になる", func(t *testing.T) {
+			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+					return &port.VerifyResult{IsValid: true, TransactionID: "txn-first"}, nil
+				},
+			}))
+			insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
+
+			playerID := "55555555-5555-5555-5555-555555555555"
+			require.NoError(t, env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", "receipt-token-1"))
+
+			// 別トークンでの再購入は拒否 (ownedFactions 検出)
+			err := env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", "receipt-token-2")
+			assert.ErrorIs(t, err, ErrAlreadyOwned)
+		})
+
+		t.Run("cosmetic を所有済みで再購入すると、ErrAlreadyOwned になる", func(t *testing.T) {
+			env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
+				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+					return &port.VerifyResult{IsValid: true, TransactionID: "txn-cos"}, nil
+				},
+			}))
+			insertCosmeticProduct(t, "playmat_01", "プレイマット: サイバー", 320, "playmat", 1, true)
+
+			playerID := "66666666-6666-6666-6666-666666666666"
+			require.NoError(t, env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt-1"))
+
+			err := env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt-2")
+			assert.ErrorIs(t, err, ErrAlreadyOwned)
+		})
+
+		invalidCases := []struct {
+			name      string
+			arrange   func(t *testing.T) *testShopEnv
+			playerID  string
+			productID string
+			platform  string
+			token     string
+			wantErr   error
+		}{
+			{
+				name: "非アクティブ商品のとき、ErrProductNotActive になる",
+				arrange: func(t *testing.T) *testShopEnv {
+					env := newTestShopEnv(t)
+					insertFactionSetProduct(t, "old_product", "旧商品", 100, "SHE", false)
+					return env
+				},
+				playerID:  "77777777-7777-7777-7777-777777777777",
+				productID: "old_product",
+				platform:  "ios",
+				token:     "receipt-1",
+				wantErr:   ErrProductNotActive,
+			},
+			{
+				name: "未対応 platform のとき、ErrUnsupportedPlatform になる",
+				arrange: func(t *testing.T) *testShopEnv {
+					env := newTestShopEnv(t)
+					insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
+					return env
+				},
+				playerID:  "88888888-8888-8888-8888-888888888888",
+				productID: "faction_she",
+				platform:  "windows",
+				token:     "receipt-1",
+				wantErr:   ErrUnsupportedPlatform,
+			},
+			{
+				name: "verifier が infra error を返すとき、ErrVerifyReceipt になる",
+				arrange: func(t *testing.T) *testShopEnv {
+					env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+						VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+							return nil, fmt.Errorf("network timeout")
+						},
+					}))
+					insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
+					return env
+				},
+				playerID:  "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+				productID: "faction_she",
+				platform:  "ios",
+				token:     "receipt-err",
+				wantErr:   ErrVerifyReceipt,
+			},
+			{
+				name: "subscription 商品を Purchase 経由で買うと、ErrUnsupportedProductType になる",
+				arrange: func(t *testing.T) *testShopEnv {
+					env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+						VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+							return &port.VerifyResult{IsValid: true, TransactionID: "txn-sub-via-purchase"}, nil
+						},
+					}))
+					insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
+					return env
+				},
+				playerID:  "ffffffff-ffff-ffff-ffff-ffffffffffff",
+				productID: "premium_monthly",
+				platform:  "ios",
+				token:     "receipt-sub",
+				wantErr:   ErrUnsupportedProductType,
+			},
+		}
+		for _, tc := range invalidCases {
+			t.Run(tc.name, func(t *testing.T) {
+				env := tc.arrange(t)
+				err := env.svc.Purchase(context.Background(), tc.playerID, tc.productID, tc.platform, tc.token)
+				assert.ErrorIs(t, err, tc.wantErr)
+			})
+		}
+	})
 }
 
-func TestGetProducts_WithOwnership(t *testing.T) {
-	env := newTestShopEnv(t)
+func TestSubscribe(t *testing.T) {
+	t.Run("サブスクリプション登録", func(t *testing.T) {
+		t.Run("サブスク登録に成功したとき", func(t *testing.T) {
+			expiresAt := time.Now().Add(30 * 24 * time.Hour)
+			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+				VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
+					return &port.SubscriptionInfo{
+						IsValid:   true,
+						ProductID: "premium_monthly",
+						ExpiresAt: expiresAt,
+					}, nil
+				},
+			}))
+			insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 
-	insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
-	insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
+			playerID := "99999999-9999-9999-9999-999999999999"
+			result, err := env.svc.Subscribe(context.Background(), playerID, "premium_monthly", "ios", "sub-token-1")
+			require.NoError(t, err)
+			require.NotNil(t, result)
 
-	playerID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-	// shop 購入で SHE faction を所有している状態をシミュレート
-	// (faction_set 商品の IsOwned 判定は player_owned_card_packs 経由)
-	_, err := sharedPg.Pool.Exec(context.Background(),
-		`INSERT INTO shop.player_owned_factions (player_id, faction) VALUES ($1, $2)`,
-		playerID, "SHE")
-	require.NoError(t, err)
-	_, err = sharedPg.Pool.Exec(context.Background(),
-		`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
-		playerID, "faction_set_SHE")
-	require.NoError(t, err)
+			t.Run("premium-updated event が publish される", func(t *testing.T) {
+				events := selectPremiumUpdatedEvents(t)
+				require.Len(t, events, 1)
+				assert.Equal(t, playerID, events[0].PlayerID)
+				assert.True(t, events[0].IsPremium)
+			})
 
-	products, err := env.svc.GetProducts(context.Background(), playerID)
-	require.NoError(t, err)
-	require.Len(t, products, 2)
+			t.Run("active な subscription 行が作成される", func(t *testing.T) {
+				sub, err := env.subRepo.GetLatestSubscription(context.Background(), playerID)
+				require.NoError(t, err)
+				require.NotNil(t, sub)
+				assert.Equal(t, domain.SubscriptionStatusActive, sub.Status)
+			})
+		})
 
-	byID := map[string]domain.ProductWithOwnership{}
-	for _, p := range products {
-		byID[p.ProductView.Common().ProductID] = p
-	}
-	assert.True(t, byID["faction_she"].IsOwned)
-	assert.False(t, byID["faction_tenki"].IsOwned)
+		t.Run("同一トークンで再 Subscribe しても、premium-updated は 1 回のみ publish され既存の期限を返す (冪等)", func(t *testing.T) {
+			expiresAt := time.Now().Add(30 * 24 * time.Hour)
+			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+				VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
+					return &port.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
+				},
+			}))
+			insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
+
+			playerID := "22222222-aaaa-bbbb-cccc-dddddddddddd"
+			ctx := context.Background()
+			first, err := env.svc.Subscribe(ctx, playerID, "premium_monthly", "ios", "sub-token-idem")
+			require.NoError(t, err)
+			require.NotNil(t, first)
+
+			// 同一トークンでの再 Subscribe は既存 CurrentPeriodEnd を返し publish しない
+			second, err := env.svc.Subscribe(ctx, playerID, "premium_monthly", "ios", "sub-token-idem")
+			require.NoError(t, err)
+			require.NotNil(t, second)
+			assert.WithinDuration(t, *first, *second, time.Second)
+			assert.Len(t, selectPremiumUpdatedEvents(t), 1, "publish only on first subscribe")
+		})
+
+		t.Run("VerifySubscription が infra error を返すと、verify subscription でラップされ premium-updated は publish されない", func(t *testing.T) {
+			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+				VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
+					return nil, fmt.Errorf("network timeout")
+				},
+			}))
+			insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
+
+			_, err := env.svc.Subscribe(context.Background(), "33333333-aaaa-bbbb-cccc-dddddddddddd", "premium_monthly", "ios", "sub-token-err")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "verify subscription")
+			assert.Contains(t, err.Error(), "network timeout")
+			assert.Empty(t, selectPremiumUpdatedEvents(t))
+		})
+
+		// verifier を呼ばない経路のケースでも DI の形を揃えるため default を明示する。
+		defaultVerifier := &port.MockReceiptVerifier{}
+		invalidSubVerifier := &port.MockReceiptVerifier{
+			VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
+				return &port.SubscriptionInfo{IsValid: false}, nil
+			},
+		}
+
+		invalidCases := []struct {
+			name          string
+			seedProduct   func(t *testing.T)
+			appleVerifier port.ReceiptVerifier
+			productID     string
+			platform      string
+			token         string
+			wantErr       error
+		}{
+			{
+				name: "サブスク以外の商品のとき、ErrProductNotSubscription になる",
+				seedProduct: func(t *testing.T) {
+					insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
+				},
+				appleVerifier: defaultVerifier,
+				productID:     "faction_she",
+				platform:      "ios",
+				token:         "sub-token-1",
+				wantErr:       ErrProductNotSubscription,
+			},
+			{
+				name: "レシート検証が IsValid=false のとき、ErrSubVerificationFailed になる",
+				seedProduct: func(t *testing.T) {
+					insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
+				},
+				appleVerifier: invalidSubVerifier,
+				productID:     "premium_monthly",
+				platform:      "ios",
+				token:         "bad-sub-token",
+				wantErr:       ErrSubVerificationFailed,
+			},
+			{
+				name: "未対応 platform のとき、ErrUnsupportedPlatform になる",
+				seedProduct: func(t *testing.T) {
+					insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
+				},
+				appleVerifier: defaultVerifier,
+				productID:     "premium_monthly",
+				platform:      "windows",
+				token:         "sub-token-1",
+				wantErr:       ErrUnsupportedPlatform,
+			},
+		}
+		for _, tc := range invalidCases {
+			t.Run(tc.name, func(t *testing.T) {
+				env := newTestShopEnv(t, withAppleVerifier(tc.appleVerifier))
+				tc.seedProduct(t)
+
+				_, err := env.svc.Subscribe(context.Background(), "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", tc.productID, tc.platform, tc.token)
+				assert.ErrorIs(t, err, tc.wantErr)
+			})
+		}
+	})
 }
 
-func TestGetProducts_SubscriptionOwnership(t *testing.T) {
-	env := newTestShopEnv(t)
+func TestGetProducts(t *testing.T) {
+	t.Run("商品一覧の所有判定", func(t *testing.T) {
+		t.Run("faction を所有しているとき、その faction_set 商品だけ IsOwned=true になる", func(t *testing.T) {
+			env := newTestShopEnv(t)
+			insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
+			insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
 
-	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
+			playerID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+			// shop 購入で SHE faction を所有している状態をシミュレート
+			// (faction_set 商品の IsOwned 判定は player_owned_card_packs 経由)
+			_, err := sharedPg.Pool.Exec(context.Background(),
+				`INSERT INTO shop.player_owned_factions (player_id, faction) VALUES ($1, $2)`,
+				playerID, "SHE")
+			require.NoError(t, err)
+			_, err = sharedPg.Pool.Exec(context.Background(),
+				`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
+				playerID, "faction_set_SHE")
+			require.NoError(t, err)
 
-	playerID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
-	now := time.Now()
-	insertSubscription(t, &domain.Subscription{
-		PlayerID:           playerID,
-		ProductID:          "premium_monthly",
-		Status:             domain.SubscriptionStatusActive,
-		CurrentPeriodStart: now,
-		CurrentPeriodEnd:   now.Add(30 * 24 * time.Hour),
-		CreatedAt:          now,
-		UpdatedAt:          now,
-	}, domain.PlatformIOS, "sub-token")
+			products, err := env.svc.GetProducts(context.Background(), playerID)
+			require.NoError(t, err)
+			require.Len(t, products, 2)
 
-	products, err := env.svc.GetProducts(context.Background(), playerID)
-	require.NoError(t, err)
-	require.Len(t, products, 1)
-	assert.True(t, products[0].IsOwned)
-}
+			byID := map[string]domain.ProductWithOwnership{}
+			for _, p := range products {
+				byID[p.ProductView.Common().ProductID] = p
+			}
+			assert.True(t, byID["faction_she"].IsOwned)
+			assert.False(t, byID["faction_tenki"].IsOwned)
+		})
 
-// 各 subscription status で IsOwned が特典有効性に従って判定される。
-func TestGetProducts_SubscriptionOwnershipByStatus(t *testing.T) {
-	now := time.Now()
-	future := now.Add(30 * 24 * time.Hour)
-	past := now.Add(-24 * time.Hour)
-
-	tests := []struct {
-		name        string
-		status      string
-		periodEnd   time.Time
-		wantIsOwned bool
-	}{
-		{
-			name:        "active かつ期間内",
-			status:      domain.SubscriptionStatusActive,
-			periodEnd:   future,
-			wantIsOwned: true,
-		},
-		{
-			name:        "cancelled だが期間内",
-			status:      domain.SubscriptionStatusCancelled,
-			periodEnd:   future,
-			wantIsOwned: true,
-		},
-		{
-			name:        "grace_period かつ期間内",
-			status:      domain.SubscriptionStatusGracePeriod,
-			periodEnd:   future,
-			wantIsOwned: true,
-		},
-		{
-			name:      "active で期限切れ",
-			status:    domain.SubscriptionStatusActive,
-			periodEnd: past,
-		},
-		{
-			name:      "cancelled で期限切れ",
-			status:    domain.SubscriptionStatusCancelled,
-			periodEnd: past,
-		},
-		{
-			name:      "expired は期間内でも無効",
-			status:    domain.SubscriptionStatusExpired,
-			periodEnd: future,
-		},
-		{
-			name:      "revoked は期間内でも無効",
-			status:    domain.SubscriptionStatusRevoked,
-			periodEnd: future,
-		},
-	}
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run("active な subscription があるとき、subscription 商品が IsOwned=true になる", func(t *testing.T) {
 			env := newTestShopEnv(t)
 			insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
-			playerID := fmt.Sprintf("dddddddd-%04d-dddd-dddd-dddddddddddd", i)
+
+			playerID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
+			now := time.Now()
 			insertSubscription(t, &domain.Subscription{
 				PlayerID:           playerID,
 				ProductID:          "premium_monthly",
-				Status:             tt.status,
-				CurrentPeriodStart: now.Add(-24 * time.Hour),
-				CurrentPeriodEnd:   tt.periodEnd,
+				Status:             domain.SubscriptionStatusActive,
+				CurrentPeriodStart: now,
+				CurrentPeriodEnd:   now.Add(30 * 24 * time.Hour),
 				CreatedAt:          now,
 				UpdatedAt:          now,
-			}, domain.PlatformIOS, fmt.Sprintf("sub-token-%d", i))
+			}, domain.PlatformIOS, "sub-token")
+
 			products, err := env.svc.GetProducts(context.Background(), playerID)
 			require.NoError(t, err)
 			require.Len(t, products, 1)
-			assert.Equal(t, tt.wantIsOwned, products[0].IsOwned)
+			assert.True(t, products[0].IsOwned)
 		})
-	}
-}
 
-func TestPurchase_VerifierReturnsError(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-			return nil, fmt.Errorf("network timeout")
-		},
-	}))
+		now := time.Now()
+		future := now.Add(30 * 24 * time.Hour)
+		past := now.Add(-24 * time.Hour)
 
-	insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
-
-	err := env.svc.Purchase(context.Background(), "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", "faction_she", "ios", "receipt-err")
-	assert.ErrorIs(t, err, ErrVerifyReceipt)
-}
-
-func TestPurchase_SubscriptionTypeViaPurchase(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
-			return &port.VerifyResult{IsValid: true, TransactionID: "txn-sub-via-purchase"}, nil
-		},
-	}))
-
-	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
-
-	err := env.svc.Purchase(context.Background(), "ffffffff-ffff-ffff-ffff-ffffffffffff", "premium_monthly", "ios", "receipt-sub")
-	assert.ErrorIs(t, err, ErrUnsupportedProductType)
-}
-
-// 同一トークンでの再 Subscribe は既存 CurrentPeriodEnd を返し publish しない。
-func TestSubscribe_Idempotent(t *testing.T) {
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
-			return &port.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
-		},
-	}))
-	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
-
-	playerID := "22222222-aaaa-bbbb-cccc-dddddddddddd"
-	ctx := context.Background()
-	first, err := env.svc.Subscribe(ctx, playerID, "premium_monthly", "ios", "sub-token-idem")
-	require.NoError(t, err)
-	require.NotNil(t, first)
-
-	second, err := env.svc.Subscribe(ctx, playerID, "premium_monthly", "ios", "sub-token-idem")
-	require.NoError(t, err)
-	require.NotNil(t, second)
-	assert.WithinDuration(t, *first, *second, time.Second)
-	assert.Len(t, selectPremiumUpdatedEvents(t), 1, "publish only on first subscribe")
-}
-
-// VerifySubscription が infra error (ネットワーク等) を返した場合のラップ。
-func TestSubscribe_VerifierReturnsError(t *testing.T) {
-	env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
-		VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
-			return nil, fmt.Errorf("network timeout")
-		},
-	}))
-	insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
-
-	_, err := env.svc.Subscribe(context.Background(), "33333333-aaaa-bbbb-cccc-dddddddddddd", "premium_monthly", "ios", "sub-token-err")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "verify subscription")
-	assert.Contains(t, err.Error(), "network timeout")
-	assert.Empty(t, selectPremiumUpdatedEvents(t))
-}
-
-// GetProducts の cosmetic 所有判定 — item_type/item_no が一致するときのみ IsOwned。
-func TestGetProducts_CosmeticOwnership(t *testing.T) {
-	seedOwnedCosmetic := func(itemType string, itemNo int) func(t *testing.T, playerID string) {
-		return func(t *testing.T, playerID string) {
-			_, err := sharedPg.Pool.Exec(context.Background(),
-				`INSERT INTO shop.cosmetic_items (item_type, item_no, item_name, is_purchasable, is_active) VALUES ($1,$2,'extra',true,true) ON CONFLICT DO NOTHING`,
-				itemType, itemNo)
-			require.NoError(t, err)
-			_, err = sharedPg.Pool.Exec(context.Background(),
-				`INSERT INTO shop.player_items (player_id, item_type, item_no, acquired_at) VALUES ($1,$2,$3,now())`,
-				playerID, itemType, itemNo)
-			require.NoError(t, err)
+		statusCases := []struct {
+			name        string
+			status      string
+			periodEnd   time.Time
+			wantIsOwned bool
+		}{
+			{
+				name:        "active かつ期間内のとき、IsOwned=true になる",
+				status:      domain.SubscriptionStatusActive,
+				periodEnd:   future,
+				wantIsOwned: true,
+			},
+			{
+				name:        "cancelled でも期間内のとき、IsOwned=true になる",
+				status:      domain.SubscriptionStatusCancelled,
+				periodEnd:   future,
+				wantIsOwned: true,
+			},
+			{
+				name:        "grace_period かつ期間内のとき、IsOwned=true になる",
+				status:      domain.SubscriptionStatusGracePeriod,
+				periodEnd:   future,
+				wantIsOwned: true,
+			},
+			{
+				name:      "active でも期限切れのとき、IsOwned=false になる",
+				status:    domain.SubscriptionStatusActive,
+				periodEnd: past,
+			},
+			{
+				name:      "cancelled で期限切れのとき、IsOwned=false になる",
+				status:    domain.SubscriptionStatusCancelled,
+				periodEnd: past,
+			},
+			{
+				name:      "expired は期間内でも IsOwned=false になる",
+				status:    domain.SubscriptionStatusExpired,
+				periodEnd: future,
+			},
+			{
+				name:      "revoked は期間内でも IsOwned=false になる",
+				status:    domain.SubscriptionStatusRevoked,
+				periodEnd: future,
+			},
 		}
-	}
+		for i, tt := range statusCases {
+			t.Run(tt.name, func(t *testing.T) {
+				env := newTestShopEnv(t)
+				insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
+				playerID := fmt.Sprintf("dddddddd-%04d-dddd-dddd-dddddddddddd", i)
+				insertSubscription(t, &domain.Subscription{
+					PlayerID:           playerID,
+					ProductID:          "premium_monthly",
+					Status:             tt.status,
+					CurrentPeriodStart: now.Add(-24 * time.Hour),
+					CurrentPeriodEnd:   tt.periodEnd,
+					CreatedAt:          now,
+					UpdatedAt:          now,
+				}, domain.PlatformIOS, fmt.Sprintf("sub-token-%d", i))
+				products, err := env.svc.GetProducts(context.Background(), playerID)
+				require.NoError(t, err)
+				require.Len(t, products, 1)
+				assert.Equal(t, tt.wantIsOwned, products[0].IsOwned)
+			})
+		}
 
-	tests := []struct {
-		name        string
-		seedItem    func(t *testing.T, playerID string)
-		wantIsOwned bool
-	}{
-		{
-			name:        "item_type と item_no が完全一致で所有",
-			seedItem:    seedOwnedCosmetic("playmat", 1),
-			wantIsOwned: true,
-		},
-		{
-			name:        "未所有",
-			seedItem:    func(_ *testing.T, _ string) {},
-			wantIsOwned: false,
-		},
-		{
-			name:        "item_type 一致・item_no 不一致は未所有扱い",
-			seedItem:    seedOwnedCosmetic("playmat", 99),
-			wantIsOwned: false,
-		},
-		{
-			name:        "item_no 一致・item_type 不一致は未所有扱い",
-			seedItem:    seedOwnedCosmetic("sleeve", 1),
-			wantIsOwned: false,
-		},
-	}
-	for i, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := newTestShopEnv(t)
-			insertCosmeticProduct(t, "playmat_01", "プレイマット", 320, "playmat", 1, true)
+		seedOwnedCosmetic := func(itemType string, itemNo int) func(t *testing.T, playerID string) {
+			return func(t *testing.T, playerID string) {
+				_, err := sharedPg.Pool.Exec(context.Background(),
+					`INSERT INTO shop.cosmetic_items (item_type, item_no, item_name, is_purchasable, is_active) VALUES ($1,$2,'extra',true,true) ON CONFLICT DO NOTHING`,
+					itemType, itemNo)
+				require.NoError(t, err)
+				_, err = sharedPg.Pool.Exec(context.Background(),
+					`INSERT INTO shop.player_items (player_id, item_type, item_no, acquired_at) VALUES ($1,$2,$3,now())`,
+					playerID, itemType, itemNo)
+				require.NoError(t, err)
+			}
+		}
 
-			playerID := fmt.Sprintf("55555555-%04d-bbbb-cccc-dddddddddddd", i)
-			tt.seedItem(t, playerID)
+		cosmeticCases := []struct {
+			name        string
+			seedItem    func(t *testing.T, playerID string)
+			wantIsOwned bool
+		}{
+			{
+				name:        "item_type と item_no が完全一致のとき、IsOwned=true になる",
+				seedItem:    seedOwnedCosmetic("playmat", 1),
+				wantIsOwned: true,
+			},
+			{
+				name:        "所有アイテムが無いとき、IsOwned=false になる",
+				seedItem:    func(_ *testing.T, _ string) {},
+				wantIsOwned: false,
+			},
+			{
+				name:        "item_type 一致・item_no 不一致のとき、IsOwned=false になる",
+				seedItem:    seedOwnedCosmetic("playmat", 99),
+				wantIsOwned: false,
+			},
+			{
+				name:        "item_no 一致・item_type 不一致のとき、IsOwned=false になる",
+				seedItem:    seedOwnedCosmetic("sleeve", 1),
+				wantIsOwned: false,
+			},
+		}
+		for i, tt := range cosmeticCases {
+			t.Run(tt.name, func(t *testing.T) {
+				env := newTestShopEnv(t)
+				insertCosmeticProduct(t, "playmat_01", "プレイマット", 320, "playmat", 1, true)
 
-			products, err := env.svc.GetProducts(context.Background(), playerID)
-			require.NoError(t, err)
-			require.Len(t, products, 1)
-			assert.Equal(t, tt.wantIsOwned, products[0].IsOwned)
-		})
-	}
+				playerID := fmt.Sprintf("55555555-%04d-bbbb-cccc-dddddddddddd", i)
+				tt.seedItem(t, playerID)
+
+				products, err := env.svc.GetProducts(context.Background(), playerID)
+				require.NoError(t, err)
+				require.Len(t, products, 1)
+				assert.Equal(t, tt.wantIsOwned, products[0].IsOwned)
+			})
+		}
+	})
 }

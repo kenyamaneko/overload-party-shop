@@ -1,6 +1,11 @@
-# ローカル動作確認用の PostgreSQL。
-# テストでは Testcontainers が別途コンテナを起動するため、
-# 本 compose はあくまで `make run` (cmd/server) のローカル動作確認用。
+# shop のローカル開発スタック。構成と使い方は README「ローカル開発」を参照。
+name: overload-party-shop
+
+# publish する topic 名は shop 本体と pubsub-init の双方が参照するため、ここで一度だけ定義する。
+x-card-pack-purchased-topic: &card_pack_purchased_topic card-pack-purchased
+x-faction-acquired-topic: &faction_acquired_topic faction-acquired
+x-premium-updated-topic: &premium_updated_topic premium-updated
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,8 +13,6 @@ services:
       POSTGRES_USER: shop
       POSTGRES_PASSWORD: shop
       POSTGRES_DB: shop
-    ports:
-      - "5432:5432"
     volumes:
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./db/seed/products_seed.sql:/docker-entrypoint-initdb.d/02_products_seed.sql:ro
@@ -20,5 +23,92 @@ services:
       timeout: 2s
       retries: 15
 
+  # shop は起動時に Firestore クライアントの到達性を検証するため、emulator を用意する。
+  # game_config は runtime で参照しないので seed は不要。
+  firestore-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: >
+      gcloud beta emulators firestore start
+      --project=overload-party-local
+      --host-port=0.0.0.0:8080
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080 || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: >
+      gcloud beta emulators pubsub start
+      --project=overload-party-local
+      --host-port=0.0.0.0:8085
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8085 || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # shop は outbox で topic へ publish する。publish 先が無いと送信が失敗するため、
+  # 起動前に topic を用意する。
+  pubsub-init:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      PUBSUB_PROJECT_ID: overload-party-local
+      CARD_PACK_PURCHASED_TOPIC: *card_pack_purchased_topic
+      FACTION_ACQUIRED_TOPIC: *faction_acquired_topic
+      PREMIUM_UPDATED_TOPIC: *premium_updated_topic
+    volumes:
+      - ./docker/pubsub/init-topics.sh:/init-topics.sh:ro
+    entrypoint: ["/bin/bash", "/init-topics.sh"]
+    restart: "no"
+
+  shop:
+    image: golang:1.25-alpine
+    working_dir: /src
+    command: go run ./cmd/server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      firestore-emulator:
+        condition: service_healthy
+      pubsub-init:
+        condition: service_completed_successfully
+    environment:
+      CGO_ENABLED: "0"
+      # module cache は host のものを読み取り専用でマウントするため、コンテナ内 fetch を
+      # 禁止して cache 欠落を即エラーにする。private module の解決は host 側 (make run の
+      # go mod download) が担い、コンテナはトークン無しで cache を読むだけにする。
+      GOPROXY: "off"
+      GOPRIVATE: github.com/kenyamaneko/*
+      # host の go.work (sibling module のローカル overlay) を bind-mount が持ち込むが、
+      # コンテナには sibling が無い。workspace を無効化し go.mod の公開版で解決させる。
+      GOWORK: "off"
+      PORT: "9006"
+      DATABASE_CONN: host=postgres port=5432 dbname=shop user=shop password=shop sslmode=disable
+      GOOGLE_CLOUD_PROJECT: overload-party-local
+      INTERNAL_AUTH_SECRET: dev-secret-not-for-prod
+      CARD_PACK_PURCHASED_TOPIC: *card_pack_purchased_topic
+      FACTION_ACQUIRED_TOPIC: *faction_acquired_topic
+      PREMIUM_UPDATED_TOPIC: *premium_updated_topic
+      IAP_MODE: local
+      OUTBOX_POLL_INTERVAL: 1s
+      OUTBOX_BATCH_SIZE: "100"
+      OUTBOX_FAILURE_THRESHOLD: "5"
+      OUTBOX_VISIBILITY_TIMEOUT: 30s
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      FIRESTORE_EMULATOR_HOST: firestore-emulator:8080
+    volumes:
+      - ./:/src
+      - ${HOST_GOMODCACHE:?make run 経由で起動すること (go env GOMODCACHE を渡す必要がある)}:/go/pkg/mod:ro
+      - shop_gobuild:/root/.cache/go-build
+    ports:
+      - "9006:9006"
+
 volumes:
   shop_pgdata:
+  shop_gobuild:
