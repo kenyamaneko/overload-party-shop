@@ -78,9 +78,15 @@ jobs:
           app-id: ${{ vars.CROSS_REPO_DEPS_APP_ID }}
           private-key: ${{ secrets.CROSS_REPO_DEPS_APP_PRIVATE_KEY }}
       - name: Run unit tests
-        run: go test -race -count=1 ./...
+        run: go test -race -count=1 ./... -json | tee go-test-unit.json
         env:
           GOPRIVATE: github.com/kenyamaneko/overload-party-common
+      - name: Report test results
+        if: ${{ !cancelled() }}
+        uses: kenyamaneko/overload-party-common/.github/actions/go-test-report@main
+        with:
+          json-path: go-test-unit.json
+          title: 単体テスト結果
 
   test-integration:
     runs-on: ubicloud-standard-2
@@ -112,11 +118,17 @@ jobs:
           app-id: ${{ vars.CROSS_REPO_DEPS_APP_ID }}
           private-key: ${{ secrets.CROSS_REPO_DEPS_APP_PRIVATE_KEY }}
       - name: Run integration tests
-        run: go test -race -count=1 -tags=integration ./...
+        run: go test -race -count=1 -tags=integration ./... -json | tee go-test-integration.json
         env:
           GOPRIVATE: github.com/kenyamaneko/*
           FIRESTORE_EMULATOR_HOST: localhost:9041
           FIRESTORE_PROJECT_ID: overload-party-test
+      - name: Report test results
+        if: ${{ !cancelled() }}
+        uses: kenyamaneko/overload-party-common/.github/actions/go-test-report@main
+        with:
+          json-path: go-test-integration.json
+          title: 結合テスト結果
 
   image-scan:
     runs-on: ubicloud-standard-2
