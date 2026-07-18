@@ -4,6 +4,7 @@ package postgres_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,6 +83,79 @@ func TestSubscriptionRepository_CreateSubscription(t *testing.T) {
 			sub := newSub(playerID, time.Now().UTC())
 			err := repo.CreateSubscription(ctx, sub, "windows", "tok", newPremiumEvent())
 			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
+		})
+
+		t.Run("token が VARCHAR(256) 超過 (257 文字) で失敗するとき、subscription 行が rollback される", func(t *testing.T) {
+			sharedPg.Truncate(t)
+			sub := newSub(playerID, time.Now().UTC())
+			tooLongToken := strings.Repeat("x", 257)
+
+			err := repo.CreateSubscription(ctx, sub, domain.PlatformIOS, tooLongToken, newPremiumEvent())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "insert subscription token")
+
+			var subscriptions, tokens int
+			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+				`SELECT COUNT(*) FROM shop.subscriptions`).Scan(&subscriptions))
+			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+				`SELECT COUNT(*) FROM shop.apple_subscription_tokens`).Scan(&tokens))
+			assert.Equal(t, 0, subscriptions)
+			assert.Equal(t, 0, tokens)
+		})
+	})
+}
+
+func TestSubscriptionRepository_UpdateSubscriptionWithEvent(t *testing.T) {
+	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
+	ctx := context.Background()
+
+	t.Run("更新と outbox イベントの同時書き込み", func(t *testing.T) {
+		t.Run("更新とイベントを同時に書き込むと、行の更新と premium-updated の outbox 行が両方永続化される", func(t *testing.T) {
+			sharedPg.Truncate(t)
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			sub := newSub("11112222-1111-2222-1111-222211112222", now)
+			require.NoError(t, repo.CreateSubscription(ctx, sub, domain.PlatformIOS, "atomic-update-token", newPremiumEvent()))
+
+			sub.Status = domain.SubscriptionStatusCancelled
+			newEnd := now.Add(60 * 24 * time.Hour)
+			sub.CurrentPeriodEnd = newEnd
+			sub.UpdatedAt = now.Add(time.Hour)
+			event := newPremiumEvent()
+			require.NoError(t, repo.UpdateSubscriptionWithEvent(ctx, sub, event))
+
+			got, err := repo.FindSubscriptionByToken(ctx, domain.PlatformIOS, "atomic-update-token")
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, domain.SubscriptionStatusCancelled, got.Status)
+			assert.True(t, got.CurrentPeriodEnd.Equal(newEnd))
+
+			var outboxRows int
+			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+				`SELECT COUNT(*) FROM shop.outbox_events WHERE event_id = $1`, event.EventID).Scan(&outboxRows))
+			assert.Equal(t, 1, outboxRows)
+		})
+
+		t.Run("outbox の INSERT が event_id 重複で失敗するとき、行の更新が rollback される", func(t *testing.T) {
+			sharedPg.Truncate(t)
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			sub := newSub("33334444-3333-4444-3333-444433334444", now)
+			initialEvent := newPremiumEvent()
+			require.NoError(t, repo.CreateSubscription(ctx, sub, domain.PlatformIOS, "dup-event-token", initialEvent))
+			originalPeriodEnd := sub.CurrentPeriodEnd
+
+			sub.Status = domain.SubscriptionStatusCancelled
+			sub.CurrentPeriodEnd = now.Add(60 * 24 * time.Hour)
+			sub.UpdatedAt = now.Add(time.Hour)
+			// initialEvent の event_id を使い回し、outbox_events の PK 違反を誘発する。
+			err := repo.UpdateSubscriptionWithEvent(ctx, sub, initialEvent)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "insert outbox event")
+
+			got, err := repo.FindSubscriptionByToken(ctx, domain.PlatformIOS, "dup-event-token")
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, domain.SubscriptionStatusActive, got.Status, "更新は rollback され元の active のまま")
+			assert.True(t, got.CurrentPeriodEnd.Equal(originalPeriodEnd), "期間終了も更新前のまま")
 		})
 	})
 }
