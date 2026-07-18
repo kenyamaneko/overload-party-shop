@@ -66,6 +66,28 @@ func TestFactionAcquired(t *testing.T) {
 			_, err := exp.Wait(50 * time.Millisecond)
 			require.ErrorContains(t, err, "timeout")
 		})
+
+		t.Run("EventID と Timestamp を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
+			broker := apishopfake.NewBroker()
+			pub := apishopfake.NewPublisher(broker)
+			sub := apishopfake.NewSubscriber(broker)
+			ctx := context.Background()
+
+			fixedTimestamp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+			exp := apishopfake.ExpectFactionAcquired(sub)
+
+			require.NoError(t, apishopfake.PublishFactionAcquired(ctx, pub, apishop.FactionAcquiredEvent{
+				PlayerID:  "p",
+				Faction:   "SHE",
+				EventID:   "TST-0001",
+				Timestamp: fixedTimestamp,
+			}))
+
+			got, err := exp.Wait(time.Second)
+			require.NoError(t, err)
+			assert.Equal(t, "TST-0001", got.EventID)
+			assert.True(t, got.Timestamp.Equal(fixedTimestamp))
+		})
 	})
 }
 
@@ -90,6 +112,28 @@ func TestCardPackPurchased(t *testing.T) {
 			assert.Equal(t, "faction_set_tenki", got.CardPackID)
 			assert.Equal(t, apishop.EventTypeCardPackPurchased, got.EventType, "EventType は契約で固定")
 			assert.NotEmpty(t, got.EventID)
+		})
+
+		t.Run("EventID と Timestamp を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
+			broker := apishopfake.NewBroker()
+			pub := apishopfake.NewPublisher(broker)
+			sub := apishopfake.NewSubscriber(broker)
+			ctx := context.Background()
+
+			fixedTimestamp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+			exp := apishopfake.ExpectCardPackPurchased(sub)
+
+			require.NoError(t, apishopfake.PublishCardPackPurchased(ctx, pub, apishop.CardPackPurchasedEvent{
+				PlayerID:   "player-2",
+				CardPackID: "faction_set_tenki",
+				EventID:    "TST-0002",
+				Timestamp:  fixedTimestamp,
+			}))
+
+			got, err := exp.Wait(time.Second)
+			require.NoError(t, err)
+			assert.Equal(t, "TST-0002", got.EventID)
+			assert.True(t, got.Timestamp.Equal(fixedTimestamp))
 		})
 	})
 }
@@ -120,6 +164,28 @@ func TestPremiumUpdated(t *testing.T) {
 			assert.Equal(t, apishop.EventTypePremiumUpdated, got.EventType)
 			assert.Equal(t, apishop.PremiumUpdatedSourceShop, got.Source, "Source は未指定なら shop 固定")
 			assert.NotEmpty(t, got.EventID)
+		})
+
+		t.Run("EventID と Timestamp を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
+			broker := apishopfake.NewBroker()
+			pub := apishopfake.NewPublisher(broker)
+			sub := apishopfake.NewSubscriber(broker)
+			ctx := context.Background()
+
+			fixedTimestamp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+			exp := apishopfake.ExpectPremiumUpdated(sub)
+
+			require.NoError(t, apishopfake.PublishPremiumUpdated(ctx, pub, apishop.PremiumUpdatedEvent{
+				PlayerID:  "player-2",
+				IsPremium: true,
+				EventID:   "TST-0003",
+				Timestamp: fixedTimestamp,
+			}))
+
+			got, err := exp.Wait(time.Second)
+			require.NoError(t, err)
+			assert.Equal(t, "TST-0003", got.EventID)
+			assert.True(t, got.Timestamp.Equal(fixedTimestamp))
 		})
 	})
 }

@@ -157,9 +157,16 @@ func TestVerifier_VerifySubscription(t *testing.T) {
 				},
 			},
 			{
-				name:     "lastTransactions が空のとき、無効な結果でエラーは返さない",
+				name:     "data が空のとき、無効な結果でエラーは返さない",
 				status:   http.StatusOK,
 				body:     `{"data":[]}`,
+				verifyFn: func(string) ([]byte, error) { return []byte("{}"), nil },
+				want:     &port.SubscriptionInfo{IsValid: false},
+			},
+			{
+				name:     "data はあるが lastTransactions が空のとき、無効な結果でエラーは返さない",
+				status:   http.StatusOK,
+				body:     `{"data":[{"lastTransactions":[]}]}`,
 				verifyFn: func(string) ([]byte, error) { return []byte("{}"), nil },
 				want:     &port.SubscriptionInfo{IsValid: false},
 			},
