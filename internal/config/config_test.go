@@ -108,6 +108,42 @@ func TestFromEnv(t *testing.T) {
 			assert.Equal(t, 30*time.Second, cfg.OutboxVisibilityTimeout)
 		})
 
+		t.Run("OUTBOX_BATCH_SIZE が有効最小の 1 のとき、Outbox バッチサイズに 1 が設定される", func(t *testing.T) {
+			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_BATCH_SIZE": "1"}))
+
+			cfg, err := FromEnv()
+
+			require.NoError(t, err)
+			assert.Equal(t, 1, cfg.OutboxBatchSize)
+		})
+
+		t.Run("OUTBOX_FAILURE_THRESHOLD が有効最小の 1 のとき、Outbox の失敗閾値に 1 が設定される", func(t *testing.T) {
+			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": "1"}))
+
+			cfg, err := FromEnv()
+
+			require.NoError(t, err)
+			assert.Equal(t, 1, cfg.OutboxFailureThreshold)
+		})
+
+		t.Run("OUTBOX_VISIBILITY_TIMEOUT が下限ちょうどの 1ms のとき、visibility timeout に 1ms が設定される", func(t *testing.T) {
+			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "1ms"}))
+
+			cfg, err := FromEnv()
+
+			require.NoError(t, err)
+			assert.Equal(t, time.Millisecond, cfg.OutboxVisibilityTimeout)
+		})
+
+		t.Run("OUTBOX_POLL_INTERVAL が正の最小値 (1ns) のとき、ポーリング間隔に 1ns が設定される", func(t *testing.T) {
+			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_POLL_INTERVAL": "1ns"}))
+
+			cfg, err := FromEnv()
+
+			require.NoError(t, err)
+			assert.Equal(t, time.Nanosecond, cfg.OutboxPollInterval)
+		})
+
 		t.Run("local mode で APPLE_KEY_ID 等の IAP env が指定されるとき、値が Config に反映される", func(t *testing.T) {
 			setEnv(t, mergeEnv(validLocalEnv, map[string]string{
 				"APPLE_KEY_ID":           "KEY123",
@@ -250,6 +286,11 @@ func TestFromEnv(t *testing.T) {
 				name:    "OUTBOX_FAILURE_THRESHOLD が 0 のとき、エラーになる",
 				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": "0"}),
 				wantErr: "OUTBOX_FAILURE_THRESHOLD must be positive",
+			},
+			{
+				name:    "OUTBOX_FAILURE_THRESHOLD が数値でない (abc) のとき、エラーになる",
+				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": "abc"}),
+				wantErr: "OUTBOX_FAILURE_THRESHOLD",
 			},
 			{
 				name:    "OUTBOX_VISIBILITY_TIMEOUT が未設定のとき、エラーになる",
