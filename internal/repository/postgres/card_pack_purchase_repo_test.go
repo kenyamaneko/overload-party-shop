@@ -57,7 +57,9 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 			token             string
 			wantCreated       bool
 			wantPurchaseRows  int
+			wantTokenRows     int
 			wantOwnedPackRows int
+			wantOutboxRows    int
 		}{
 			{
 				name:              "新規トークンのとき、purchase / token / owned_card_pack / outbox が作成される",
@@ -68,7 +70,9 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 				token:             "apple-new-pack",
 				wantCreated:       true,
 				wantPurchaseRows:  1,
+				wantTokenRows:     1,
 				wantOwnedPackRows: 1,
+				wantOutboxRows:    1,
 			},
 			{
 				name: "同一トークンで再作成すると、べき等で created=false になり行が増えない",
@@ -81,7 +85,9 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 				token:             "dup-pack-token",
 				wantCreated:       false,
 				wantPurchaseRows:  1,
+				wantTokenRows:     1,
 				wantOwnedPackRows: 1,
+				wantOutboxRows:    1,
 			},
 			{
 				name: "別プレイヤーが同一 pack を新規トークンで買うとき、独立して追加される",
@@ -94,7 +100,9 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 				token:             "tok-u2-pack",
 				wantCreated:       true,
 				wantPurchaseRows:  2,
+				wantTokenRows:     2,
 				wantOwnedPackRows: 2,
+				wantOutboxRows:    2,
 			},
 		}
 
@@ -110,13 +118,19 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantCreated, created)
 
-				var purchases, ownedPacks int
+				var purchases, tokens, ownedPacks, outboxRows int
 				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
 					`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
 				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+					`SELECT COUNT(*) FROM shop.apple_purchase_tokens`).Scan(&tokens))
+				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
 					`SELECT COUNT(*) FROM shop.player_owned_card_packs`).Scan(&ownedPacks))
+				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
+					`SELECT COUNT(*) FROM shop.outbox_events`).Scan(&outboxRows))
 				assert.Equal(t, tt.wantPurchaseRows, purchases)
+				assert.Equal(t, tt.wantTokenRows, tokens)
 				assert.Equal(t, tt.wantOwnedPackRows, ownedPacks)
+				assert.Equal(t, tt.wantOutboxRows, outboxRows)
 			})
 		}
 
