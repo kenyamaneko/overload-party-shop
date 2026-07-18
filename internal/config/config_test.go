@@ -108,7 +108,7 @@ func TestFromEnv(t *testing.T) {
 			assert.Equal(t, 30*time.Second, cfg.OutboxVisibilityTimeout)
 		})
 
-		t.Run("OUTBOX_BATCH_SIZE が有効最小の 1 のとき、Outbox バッチサイズに 1 が設定される", func(t *testing.T) {
+		t.Run("OUTBOX_BATCH_SIZE が有効最小の 1 のとき、バッチサイズに 1 が設定される", func(t *testing.T) {
 			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_BATCH_SIZE": "1"}))
 
 			cfg, err := FromEnv()
@@ -117,7 +117,7 @@ func TestFromEnv(t *testing.T) {
 			assert.Equal(t, 1, cfg.OutboxBatchSize)
 		})
 
-		t.Run("OUTBOX_FAILURE_THRESHOLD が有効最小の 1 のとき、Outbox の失敗閾値に 1 が設定される", func(t *testing.T) {
+		t.Run("OUTBOX_FAILURE_THRESHOLD が有効最小の 1 のとき、失敗閾値に 1 が設定される", func(t *testing.T) {
 			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": "1"}))
 
 			cfg, err := FromEnv()

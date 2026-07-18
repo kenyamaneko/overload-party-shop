@@ -67,7 +67,7 @@ func TestFactionAcquired(t *testing.T) {
 			require.ErrorContains(t, err, "timeout")
 		})
 
-		t.Run("EventID と Timestamp を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
+		t.Run("イベントID と発行日時を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -114,7 +114,7 @@ func TestCardPackPurchased(t *testing.T) {
 			assert.NotEmpty(t, got.EventID)
 		})
 
-		t.Run("EventID と Timestamp を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
+		t.Run("イベントID と発行日時を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -166,7 +166,7 @@ func TestPremiumUpdated(t *testing.T) {
 			assert.NotEmpty(t, got.EventID)
 		})
 
-		t.Run("EventID と Timestamp を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
+		t.Run("イベントID と発行日時を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
