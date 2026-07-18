@@ -126,7 +126,7 @@ func TestFromEnv(t *testing.T) {
 			assert.Equal(t, 1, cfg.OutboxFailureThreshold)
 		})
 
-		t.Run("OUTBOX_VISIBILITY_TIMEOUT が下限ちょうどの 1ms のとき、visibility timeout に 1ms が設定される", func(t *testing.T) {
+		t.Run("OUTBOX_VISIBILITY_TIMEOUT が下限ちょうどの 1ms のとき、可視性タイムアウトに 1ms が設定される", func(t *testing.T) {
 			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "1ms"}))
 
 			cfg, err := FromEnv()
