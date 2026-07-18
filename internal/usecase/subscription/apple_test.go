@@ -153,6 +153,20 @@ func TestHandleAppleNotification(t *testing.T) {
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusCancelled,
 			},
+			{
+				name:           "active のとき DID_CHANGE_RENEWAL_STATUS 通知の subtype が空のとき、active のまま publish されない",
+				notifType:      appleNotificationDIDChangeRenewStatus,
+				subtype:        "",
+				initialStatus:  domain.SubscriptionStatusActive,
+				expectedStatus: domain.SubscriptionStatusActive,
+			},
+			{
+				name:           "active のとき DID_CHANGE_RENEWAL_STATUS 通知の subtype が未知 (UNKNOWN_SUBTYPE) のとき、active のまま publish されない",
+				notifType:      appleNotificationDIDChangeRenewStatus,
+				subtype:        "UNKNOWN_SUBTYPE",
+				initialStatus:  domain.SubscriptionStatusActive,
+				expectedStatus: domain.SubscriptionStatusActive,
+			},
 		}
 		for i, tt := range noPublishCases {
 			t.Run(tt.name, func(t *testing.T) {
@@ -171,6 +185,27 @@ func TestHandleAppleNotification(t *testing.T) {
 				assert.Empty(t, selectPremiumUpdatedEvents(t), "publish 無しの契約")
 			})
 		}
+
+		t.Run("active のとき DID_RENEW 通知で、期間終了が通知の有効期限に更新される", func(t *testing.T) {
+			env := newAppleTestEnv(t)
+			token := "apple-renew-expiry-token"
+			playerID := "18181818-1818-1818-1818-181818181818"
+			createTestSubscription(t, env.subRepo, domain.PlatformIOS, playerID, token, domain.SubscriptionStatusActive)
+
+			const expiresMillis = int64(1_800_000_000_000)
+			notifPayload := buildAppleNotificationJWS(appleNotificationDIDRenew, "", token, expiresMillis)
+			require.NoError(t, env.notifier.HandleNotification(context.Background(), notifPayload))
+
+			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformIOS, token)
+			require.NoError(t, err)
+			require.NotNil(t, updatedSub)
+			assert.True(t, time.UnixMilli(expiresMillis).Equal(updatedSub.CurrentPeriodEnd))
+
+			events := selectPremiumUpdatedEvents(t)
+			require.Len(t, events, 1)
+			require.NotNil(t, events[0].PremiumExpiresAt)
+			assert.True(t, time.UnixMilli(expiresMillis).Equal(*events[0].PremiumExpiresAt))
+		})
 
 		t.Run("存在しない token の通知のとき、ErrSubscriptionNotFound になり publish されない", func(t *testing.T) {
 			env := newAppleTestEnv(t)
