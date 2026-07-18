@@ -186,7 +186,7 @@ func TestHandleAppleNotification(t *testing.T) {
 			})
 		}
 
-		t.Run("active のとき DID_RENEW 通知で、期間終了が通知の有効期限に更新される", func(t *testing.T) {
+		t.Run("active のとき DID_RENEW 通知で、premium-updated が publish され期間終了が通知の有効期限に更新される", func(t *testing.T) {
 			env := newAppleTestEnv(t)
 			token := "apple-renew-expiry-token"
 			playerID := "18181818-1818-1818-1818-181818181818"

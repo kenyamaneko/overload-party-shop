@@ -165,7 +165,7 @@ func TestHandleGoogleNotification(t *testing.T) {
 			})
 		}
 
-		t.Run("expired のとき サブスクリプション復旧通知で、期間終了が Play Developer API の有効期限に反映される", func(t *testing.T) {
+		t.Run("expired のとき サブスクリプション復旧通知で、premium-updated が publish され期間終了が Play Developer API の有効期限に反映される", func(t *testing.T) {
 			env := newGoogleTestEnv(t)
 			fixedExpiry := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
 			env.expiryFetcher.expiry = fixedExpiry
@@ -193,7 +193,7 @@ func TestHandleGoogleNotification(t *testing.T) {
 			assert.True(t, fixedExpiry.Equal(*events[0].PremiumExpiresAt))
 		})
 
-		t.Run("active のとき サブスクリプション更新通知で、期間終了が Play Developer API の有効期限に反映される", func(t *testing.T) {
+		t.Run("active のとき サブスクリプション更新通知で、premium-updated が publish され期間終了が Play Developer API の有効期限に反映される", func(t *testing.T) {
 			env := newGoogleTestEnv(t)
 			fixedExpiry := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
 			env.expiryFetcher.expiry = fixedExpiry
