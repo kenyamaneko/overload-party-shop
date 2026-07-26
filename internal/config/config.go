@@ -23,7 +23,7 @@ const (
 type Config struct {
 	Port int
 
-	// DatabaseConn は libpq キーワード形式の接続文字列。Cloud SQL Auth Proxy + IAM 認証前提でパスワードを含まない。
+	// DatabaseConn は libpq キーワード形式の接続文字列。
 	DatabaseConn string
 
 	GoogleCloudProject string
@@ -33,6 +33,14 @@ type Config struct {
 	PremiumUpdatedTopic    string
 
 	IAPMode IAPMode
+
+	// DatabaseIAMAuthEnabled は Cloud SQL への接続を Cloud SQL Go Connector 経由の
+	// 自動 IAM データベース認証で行うかどうかを表す。
+	DatabaseIAMAuthEnabled bool
+
+	// CloudSQLConnectionName は Cloud SQL インスタンスの接続名 (project:region:instance)。
+	// DatabaseIAMAuthEnabled が true のときのみ必須。
+	CloudSQLConnectionName string
 
 	// InternalAuthSecret は内部サービス間 JWT (HS256) 検証の共有秘密鍵。
 	InternalAuthSecret string
@@ -97,6 +105,22 @@ func FromEnv() (*Config, error) {
 	}
 	if cfg.InternalAuthSecret == "" {
 		return nil, fmt.Errorf("config: INTERNAL_AUTH_SECRET is required")
+	}
+
+	rawIAMAuth := os.Getenv("DATABASE_IAM_AUTH_ENABLED")
+	switch rawIAMAuth {
+	case "true":
+		cfg.DatabaseIAMAuthEnabled = true
+	case "false":
+		cfg.DatabaseIAMAuthEnabled = false
+	default:
+		return nil, fmt.Errorf("config: DATABASE_IAM_AUTH_ENABLED must be %q or %q, got %q", "true", "false", rawIAMAuth)
+	}
+	if cfg.DatabaseIAMAuthEnabled {
+		cfg.CloudSQLConnectionName = os.Getenv("CLOUDSQL_CONNECTION_NAME")
+		if cfg.CloudSQLConnectionName == "" {
+			return nil, fmt.Errorf("config: CLOUDSQL_CONNECTION_NAME is required when DATABASE_IAM_AUTH_ENABLED is true")
+		}
 	}
 
 	if err := loadOutboxConfig(cfg); err != nil {

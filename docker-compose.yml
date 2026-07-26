@@ -90,6 +90,7 @@ services:
       GOWORK: "off"
       PORT: "9006"
       DATABASE_CONN: host=postgres port=5432 dbname=shop user=shop password=shop sslmode=disable
+      DATABASE_IAM_AUTH_ENABLED: "false"
       GOOGLE_CLOUD_PROJECT: overload-party-local
       INTERNAL_AUTH_SECRET: dev-secret-not-for-prod
       CARD_PACK_PURCHASED_TOPIC: *card_pack_purchased_topic
