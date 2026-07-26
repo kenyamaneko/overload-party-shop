@@ -38,6 +38,18 @@ func TestIsEntitled(t *testing.T) {
 				want:    false,
 				wantErr: false,
 			},
+			{
+				name:    "active で期限がちょうど判定時刻と同時刻のとき、無効になる",
+				sub:     &domain.Subscription{Status: domain.SubscriptionStatusActive, CurrentPeriodEnd: now},
+				want:    false,
+				wantErr: false,
+			},
+			{
+				name:    "active で期限が判定時刻の 1ns 後のとき、有効になる",
+				sub:     &domain.Subscription{Status: domain.SubscriptionStatusActive, CurrentPeriodEnd: now.Add(1)},
+				want:    true,
+				wantErr: false,
+			},
 			// cancelled は自動更新オフ後も current_period_end まで特典を維持する。
 			{
 				name:    "cancelled でも期間内のとき、有効になる",

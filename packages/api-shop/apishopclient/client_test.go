@@ -67,17 +67,54 @@ func TestClient_PurchaseProduct_StatusMapping(t *testing.T) {
 				status:     http.StatusConflict,
 				wantTarget: apishopclient.ErrConflict,
 			},
+			{
+				name:       "500 を受けたとき、ErrInternalServer になる",
+				status:     http.StatusInternalServerError,
+				wantTarget: apishopclient.ErrInternalServer,
+			},
+			{
+				name:       "503 を受けたとき、ErrInternalServer になる",
+				status:     http.StatusServiceUnavailable,
+				wantTarget: apishopclient.ErrInternalServer,
+			},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				srv := apishopserverfake.NewServer()
 				defer srv.Close()
 				srv.PurchaseFn = func(_ string, _ apishop.PurchaseRequest) (int, any) { return tc.status, nil }
-
 				c := newTestClient(t, srv.URL())
 				// status mapping 検証のため request body の内容は無関係 (server fake は body を見ず tc.status を返す)。
 				_, err := c.PurchaseProduct(context.Background(), "p1", apishop.PurchaseRequest{})
 				assertSentinel(t, err, tc.wantTarget)
+			})
+		}
+
+		unmappedCases := []struct {
+			name            string
+			status          int
+			wantErrContains string
+		}{
+			{
+				name:            "499 を受けたとき、unexpected status エラーになる",
+				status:          499,
+				wantErrContains: "unexpected status 499",
+			},
+			{
+				name:            "403 を受けたとき、unexpected status エラーになる",
+				status:          http.StatusForbidden,
+				wantErrContains: "unexpected status 403",
+			},
+		}
+		for _, tc := range unmappedCases {
+			t.Run(tc.name, func(t *testing.T) {
+				srv := apishopserverfake.NewServer()
+				defer srv.Close()
+				srv.PurchaseFn = func(_ string, _ apishop.PurchaseRequest) (int, any) { return tc.status, nil }
+				c := newTestClient(t, srv.URL())
+				_, err := c.PurchaseProduct(context.Background(), "p1", apishop.PurchaseRequest{})
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContains)
 			})
 		}
 	})
