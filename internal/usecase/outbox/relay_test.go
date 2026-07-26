@@ -70,7 +70,7 @@ func (p *fakeRawPublisher) Publish(_ context.Context, eventType string, payload 
 }
 
 func TestNew(t *testing.T) {
-	t.Run("Relay の生成検証", func(t *testing.T) {
+	t.Run("生成時の設定検証", func(t *testing.T) {
 		tests := []struct {
 			name    string
 			store   port.OutboxStore
@@ -79,35 +79,35 @@ func TestNew(t *testing.T) {
 			wantSub string
 		}{
 			{
-				name:    "store が nil のとき、store is nil エラーになる",
+				name:    "保存先が未指定のとき、生成に失敗する",
 				store:   nil,
 				pub:     &fakeRawPublisher{},
 				cfg:     Config{BatchSize: 1, FailureThreshold: 1, VisibilityTimeout: time.Second},
 				wantSub: "store is nil",
 			},
 			{
-				name:    "publisher が nil のとき、publisher is nil エラーになる",
+				name:    "配信先が未指定のとき、生成に失敗する",
 				store:   &fakeOutboxStore{},
 				pub:     nil,
 				cfg:     Config{BatchSize: 1, FailureThreshold: 1, VisibilityTimeout: time.Second},
 				wantSub: "publisher is nil",
 			},
 			{
-				name:    "BatchSize が 0 のとき、BatchSize must be positive エラーになる",
+				name:    "バッチサイズが 0 のとき、生成に失敗する",
 				store:   &fakeOutboxStore{},
 				pub:     &fakeRawPublisher{},
 				cfg:     Config{BatchSize: 0, FailureThreshold: 1, VisibilityTimeout: time.Second},
 				wantSub: "BatchSize must be positive",
 			},
 			{
-				name:    "FailureThreshold が 0 のとき、FailureThreshold must be positive エラーになる",
+				name:    "失敗回数の上限が 0 のとき、生成に失敗する",
 				store:   &fakeOutboxStore{},
 				pub:     &fakeRawPublisher{},
 				cfg:     Config{BatchSize: 1, FailureThreshold: 0, VisibilityTimeout: time.Second},
 				wantSub: "FailureThreshold must be positive",
 			},
 			{
-				name:    "VisibilityTimeout が 0 のとき、VisibilityTimeout must be positive エラーになる",
+				name:    "可視性タイムアウトが 0 のとき、生成に失敗する",
 				store:   &fakeOutboxStore{},
 				pub:     &fakeRawPublisher{},
 				cfg:     Config{BatchSize: 1, FailureThreshold: 1, VisibilityTimeout: 0},
@@ -125,7 +125,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestRunOnce(t *testing.T) {
-	t.Run("Relay.RunOnce", func(t *testing.T) {
+	t.Run("1回の配信実行", func(t *testing.T) {
 		okID := uuid.New()
 		ngID := uuid.New()
 
@@ -138,11 +138,11 @@ func TestRunOnce(t *testing.T) {
 			wantPublishCalls int
 		}{
 			{
-				name:    "claim が 0 件のとき、publish も mark も呼ばれない",
+				name:    "未配信イベントが無いとき、何も配信されない",
 				claimed: nil,
 			},
 			{
-				name: "全件 publish 成功のとき、全件 MarkPublished する",
+				name: "全件の配信に成功すると、全件が配信済みになる",
 				claimed: []port.ClaimedOutboxEvent{
 					{EventID: okID, EventType: apishop.EventTypeCardPackPurchased, Payload: []byte(`{}`), FailureCount: 0},
 				},
@@ -150,7 +150,7 @@ func TestRunOnce(t *testing.T) {
 				wantPublishCalls: 1,
 			},
 			{
-				name: "publish 失敗のとき、RecordFailure を呼び MarkPublished は呼ばない",
+				name: "配信に失敗すると、失敗が記録され配信済みにならない",
 				claimed: []port.ClaimedOutboxEvent{
 					{EventID: ngID, EventType: apishop.EventTypeCardPackPurchased, Payload: []byte(`{}`), FailureCount: 0},
 				},
@@ -159,7 +159,7 @@ func TestRunOnce(t *testing.T) {
 				wantPublishCalls: 1,
 			},
 			{
-				name: "成功行と失敗行が混在するとき、それぞれ独立に処理される",
+				name: "成功と失敗が混在するとき、成功分だけ配信済みになり失敗分は失敗として記録される",
 				claimed: []port.ClaimedOutboxEvent{
 					{EventID: okID, EventType: "ok-event-type", Payload: []byte(`{}`), FailureCount: 0},
 					{EventID: ngID, EventType: "ng-event-type", Payload: []byte(`{}`), FailureCount: 2},
@@ -193,7 +193,7 @@ func TestRunOnce(t *testing.T) {
 			})
 		}
 
-		t.Run("claim がエラーのとき、publish/mark/fail を呼ばずエラーを surface する", func(t *testing.T) {
+		t.Run("未配信イベントの取得に失敗すると、そのエラーが返り何も配信されない", func(t *testing.T) {
 			store := &fakeOutboxStore{claimErr: errors.New("db down")}
 			pub := &fakeRawPublisher{}
 			s, err := New(store, pub, Config{
@@ -209,7 +209,7 @@ func TestRunOnce(t *testing.T) {
 			assert.Empty(t, store.failures)
 		})
 
-		t.Run("Config の BatchSize / VisibilityTimeout / FailureThreshold を store に渡す", func(t *testing.T) {
+		t.Run("設定したバッチサイズ・可視性タイムアウト・失敗回数の上限が取得時に使われる", func(t *testing.T) {
 			store := &fakeOutboxStore{}
 			pub := &fakeRawPublisher{}
 			s, err := New(store, pub, Config{

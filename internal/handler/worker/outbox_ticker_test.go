@@ -26,7 +26,7 @@ func (f *fakeRunner) RunOnce(_ context.Context) error {
 func (f *fakeRunner) Calls() int32 { return atomic.LoadInt32(&f.calls) }
 
 func TestNewOutboxTicker(t *testing.T) {
-	t.Run("OutboxTicker の生成検証", func(t *testing.T) {
+	t.Run("生成時の設定検証", func(t *testing.T) {
 		tests := []struct {
 			name     string
 			runner   outboxRunner
@@ -34,19 +34,19 @@ func TestNewOutboxTicker(t *testing.T) {
 			wantSub  string
 		}{
 			{
-				name:     "runner が nil のとき、runner is nil エラーになる",
+				name:     "実行対象が未指定のとき、生成に失敗する",
 				runner:   nil,
 				interval: time.Second,
 				wantSub:  "runner is nil",
 			},
 			{
-				name:     "interval が 0 のとき、interval must be positive エラーになる",
+				name:     "実行間隔が 0 のとき、生成に失敗する",
 				runner:   &fakeRunner{},
 				interval: 0,
 				wantSub:  "interval must be positive",
 			},
 			{
-				name:     "interval が負のとき、interval must be positive エラーになる",
+				name:     "実行間隔が負のとき、生成に失敗する",
 				runner:   &fakeRunner{},
 				interval: -time.Second,
 				wantSub:  "interval must be positive",
@@ -63,7 +63,7 @@ func TestNewOutboxTicker(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
-	t.Run("OutboxTicker の周期実行", func(t *testing.T) {
+	t.Run("周期実行", func(t *testing.T) {
 		tests := []struct {
 			name         string
 			runnerErr    error
@@ -71,13 +71,13 @@ func TestRun(t *testing.T) {
 			wantMinCalls int32
 		}{
 			{
-				name:         "RunOnce が成功するとき、tick ごとに呼ばれ cancel で停止する",
+				name:         "1回の実行が成功するとき、間隔ごとに呼ばれキャンセルで停止する",
 				runnerErr:    nil,
 				sleep:        35 * time.Millisecond,
 				wantMinCalls: 1,
 			},
 			{
-				name:         "RunOnce がエラーを返すとき、ticker は停止せず継続する",
+				name:         "1回の実行がエラーを返すとき、停止せず継続する",
 				runnerErr:    errors.New("transient"),
 				sleep:        35 * time.Millisecond,
 				wantMinCalls: 1,

@@ -65,7 +65,7 @@ func newShopTestServer(svc shopServicer) *gin.Engine {
 
 func TestGetProducts(t *testing.T) {
 	t.Run("商品一覧取得", func(t *testing.T) {
-		t.Run("取得に成功するとき、200 で is_owned 付き商品一覧を返し context の player_id を usecase に伝える", func(t *testing.T) {
+		t.Run("取得に成功するとき、200 で is_owned 付き商品一覧を返し、リクエストの player_id で取得する", func(t *testing.T) {
 			var observedPlayerID string
 			svc := &fakeShopServicer{
 				getProductsFn: func(_ context.Context, playerID string) ([]domain.ProductWithOwnership, error) {
@@ -95,7 +95,7 @@ func TestGetProducts(t *testing.T) {
 			assert.True(t, resp.Products[0].IsOwned)
 		})
 
-		t.Run("usecase がエラーを返すとき、500 になる", func(t *testing.T) {
+		t.Run("商品一覧の取得が失敗するとき、500 になる", func(t *testing.T) {
 			svc := &fakeShopServicer{
 				getProductsFn: func(_ context.Context, _ string) ([]domain.ProductWithOwnership, error) {
 					return nil, purchase.ErrVerifyReceipt
@@ -112,7 +112,7 @@ func TestGetProducts(t *testing.T) {
 
 func TestPurchase(t *testing.T) {
 	t.Run("商品購入", func(t *testing.T) {
-		t.Run("usecase が成功するとき、202 で message「purchase accepted」と product_id を返す", func(t *testing.T) {
+		t.Run("購入が成功するとき、202 で message「purchase accepted」と product_id を返す", func(t *testing.T) {
 			svc := &fakeShopServicer{
 				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return nil },
 			}
@@ -146,7 +146,7 @@ func TestPurchase(t *testing.T) {
 			wantStatus int
 		}{
 			{
-				name: "usecase が ErrAlreadyOwned を wrap したエラーを返すとき、errors.Is 経由で 409 になる",
+				name: "ErrAlreadyOwned を包んだエラーが返るとき、409 になる",
 				body: validPurchaseBody,
 				svc: &fakeShopServicer{
 					purchaseFn: func(_ context.Context, _, _, _, _ string) error {
@@ -156,7 +156,7 @@ func TestPurchase(t *testing.T) {
 				wantStatus: http.StatusConflict,
 			},
 			{
-				name: "usecase が ErrReceiptVerificationFailed を返すとき、402 になる",
+				name: "ErrReceiptVerificationFailed が返るとき、402 になる",
 				body: validPurchaseBody,
 				svc: &fakeShopServicer{
 					purchaseFn: func(_ context.Context, _, _, _, _ string) error { return purchase.ErrReceiptVerificationFailed },
@@ -164,7 +164,7 @@ func TestPurchase(t *testing.T) {
 				wantStatus: http.StatusPaymentRequired,
 			},
 			{
-				name:       "body が JSON として parse できないとき、400 になる",
+				name:       "body が JSON として解析できないとき、400 になる",
 				body:       []byte(`not json`),
 				svc:        &fakeShopServicer{},
 				wantStatus: http.StatusBadRequest,
@@ -182,7 +182,7 @@ func TestPurchase(t *testing.T) {
 			})
 		}
 
-		t.Run("usecase が port.ErrNotFound を返すとき、404 で error フィールドを返す", func(t *testing.T) {
+		t.Run("port.ErrNotFound が返るとき、404 で error フィールドを返す", func(t *testing.T) {
 			svc := &fakeShopServicer{
 				purchaseFn: func(_ context.Context, _, _, _, _ string) error { return port.ErrNotFound },
 			}
@@ -207,7 +207,7 @@ func TestPurchase(t *testing.T) {
 
 func TestSubscribe(t *testing.T) {
 	t.Run("サブスクリプション購入", func(t *testing.T) {
-		t.Run("usecase が成功するとき、202 で message「subscription accepted」と expires_at を返す", func(t *testing.T) {
+		t.Run("購入が成功するとき、202 で message「subscription accepted」と expires_at を返す", func(t *testing.T) {
 			expiresAt := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
 			svc := &fakeShopServicer{
 				subscribeFn: func(_ context.Context, _, _, _, _ string) (*time.Time, error) {
@@ -244,7 +244,7 @@ func TestSubscribe(t *testing.T) {
 			wantStatus int
 		}{
 			{
-				name: "usecase が ErrProductNotSubscription を返すとき、400 になる",
+				name: "ErrProductNotSubscription が返るとき、400 になる",
 				body: validSubscribeBody,
 				svc: &fakeShopServicer{
 					subscribeFn: func(_ context.Context, _, _, _, _ string) (*time.Time, error) {
@@ -254,7 +254,7 @@ func TestSubscribe(t *testing.T) {
 				wantStatus: http.StatusBadRequest,
 			},
 			{
-				name:       "body が JSON として parse できないとき、400 になる",
+				name:       "body が JSON として解析できないとき、400 になる",
 				body:       []byte(`{broken`),
 				svc:        &fakeShopServicer{},
 				wantStatus: http.StatusBadRequest,
