@@ -29,6 +29,8 @@ var allEnvKeys = []string{
 	"OUTBOX_FAILURE_THRESHOLD",
 	"OUTBOX_VISIBILITY_TIMEOUT",
 	"INTERNAL_AUTH_SECRET",
+	"DATABASE_IAM_AUTH_ENABLED",
+	"CLOUDSQL_CONNECTION_NAME",
 }
 
 // setEnv は allEnvKeys を一括で上書きする。envs に無いキーは "" (未設定相当) として
@@ -67,6 +69,7 @@ var validLocalEnv = map[string]string{
 	"OUTBOX_FAILURE_THRESHOLD":  "5",
 	"OUTBOX_VISIBILITY_TIMEOUT": "30s",
 	"INTERNAL_AUTH_SECRET":      "test-internal-auth-secret-do-not-use-in-prod-xxxxx",
+	"DATABASE_IAM_AUTH_ENABLED": "false",
 }
 
 func TestFromEnv(t *testing.T) {
@@ -94,6 +97,29 @@ func TestFromEnv(t *testing.T) {
 			assert.Equal(t, "faction-acquired", cfg.FactionAcquiredTopic)
 			assert.Equal(t, "premium-updated", cfg.PremiumUpdatedTopic)
 			assert.Equal(t, "test-internal-auth-secret-do-not-use-in-prod-xxxxx", cfg.InternalAuthSecret)
+		})
+
+		t.Run("DATABASE_IAM_AUTH_ENABLED が false のとき、CLOUDSQL_CONNECTION_NAME が未設定でも成功する", func(t *testing.T) {
+			setEnv(t, validLocalEnv)
+
+			cfg, err := FromEnv()
+
+			require.NoError(t, err)
+			assert.False(t, cfg.DatabaseIAMAuthEnabled)
+			assert.Empty(t, cfg.CloudSQLConnectionName)
+		})
+
+		t.Run("DATABASE_IAM_AUTH_ENABLED が true かつ CLOUDSQL_CONNECTION_NAME が指定されるとき、両方の値が Config に反映される", func(t *testing.T) {
+			setEnv(t, mergeEnv(validLocalEnv, map[string]string{
+				"DATABASE_IAM_AUTH_ENABLED": "true",
+				"CLOUDSQL_CONNECTION_NAME":  "overload-party-dev:asia-northeast1:overload-party-db",
+			}))
+
+			cfg, err := FromEnv()
+
+			require.NoError(t, err)
+			assert.True(t, cfg.DatabaseIAMAuthEnabled)
+			assert.Equal(t, "overload-party-dev:asia-northeast1:overload-party-db", cfg.CloudSQLConnectionName)
 		})
 
 		t.Run("OUTBOX_POLL_INTERVAL 等の outbox env が指定されるとき、値が Config に反映される", func(t *testing.T) {
@@ -316,6 +342,24 @@ func TestFromEnv(t *testing.T) {
 				name:    "INTERNAL_AUTH_SECRET が未設定のとき、エラーになる",
 				envs:    mergeEnv(validLocalEnv, map[string]string{"INTERNAL_AUTH_SECRET": ""}),
 				wantErr: "INTERNAL_AUTH_SECRET is required",
+			},
+			{
+				name:    "DATABASE_IAM_AUTH_ENABLED が未設定のとき、変数名を含むエラーになる",
+				envs:    mergeEnv(validLocalEnv, map[string]string{"DATABASE_IAM_AUTH_ENABLED": ""}),
+				wantErr: "DATABASE_IAM_AUTH_ENABLED must be",
+			},
+			{
+				name:    `DATABASE_IAM_AUTH_ENABLED が "true"/"false" 以外の "yes" のとき、変数名を含むエラーになる`,
+				envs:    mergeEnv(validLocalEnv, map[string]string{"DATABASE_IAM_AUTH_ENABLED": "yes"}),
+				wantErr: "DATABASE_IAM_AUTH_ENABLED must be",
+			},
+			{
+				name: "DATABASE_IAM_AUTH_ENABLED が true かつ CLOUDSQL_CONNECTION_NAME が未設定のとき、CLOUDSQL_CONNECTION_NAME を含むエラーになる",
+				envs: mergeEnv(validLocalEnv, map[string]string{
+					"DATABASE_IAM_AUTH_ENABLED": "true",
+					"CLOUDSQL_CONNECTION_NAME":  "",
+				}),
+				wantErr: "CLOUDSQL_CONNECTION_NAME is required",
 			},
 		}
 		for _, tc := range invalidCases {
