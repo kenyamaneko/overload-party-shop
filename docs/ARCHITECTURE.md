@@ -136,8 +136,8 @@ webhook の deterministic error (decode 失敗 / unknown subscription 等) は *
 
 運用上の注意点のみ:
 
-- **`IAP_MODE=production`** では Apple/Google の機密情報 (`shop-apple-*` / `shop-google-package-name` 等) を Secret Manager から起動時に取得する。k8s マニフェストにシークレットは載せない。
-- シークレットの追加は手動: `gcloud secrets versions add <secret-id> --data-file=-`
+- **`IAP_MODE=production`** では Apple/Google の機密情報 (`shop-apple-*` / `shop-google-package-name` 等) を Secret Manager から起動時に取得する。デプロイの定義には値を載せない。
+- シークレットの入れ物と読み取り権限は Terraform が作り、値は人が投入する。手順は [運用手順書](operations/IAP_SECRETS.md) にある
 - **`OUTBOX_POLL_INTERVAL` / `OUTBOX_BATCH_SIZE` / `OUTBOX_FAILURE_THRESHOLD`** は負荷試験やインシデント時にデプロイなしで試行錯誤できるよう env で持つ。
 - ローカル開発では `make run` が env を自動注入するため shell 側 export は不要。
 
