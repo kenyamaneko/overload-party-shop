@@ -165,6 +165,62 @@ func TestHandleGoogleNotification(t *testing.T) {
 			})
 		}
 
+		t.Run("expired のとき サブスクリプション復旧通知で、premium-updated が publish され期間終了が Play Developer API の有効期限に反映される", func(t *testing.T) {
+			env := newGoogleTestEnv(t)
+			fixedExpiry := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
+			env.expiryFetcher.expiry = fixedExpiry
+			token := "google-recovered-expiry-token"
+			playerID := "19191919-1919-1919-1919-191919191919"
+			createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, domain.SubscriptionStatusExpired)
+
+			msg := encodeRTDN(t, map[string]interface{}{
+				"subscriptionNotification": map[string]interface{}{
+					"notificationType": googleSubscriptionRecovered,
+					"purchaseToken":    token,
+					"subscriptionId":   "premium_monthly",
+				},
+			})
+			require.NoError(t, env.notifier.HandleNotification(context.Background(), msg))
+
+			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformAndroid, token)
+			require.NoError(t, err)
+			require.NotNil(t, updatedSub)
+			assert.True(t, fixedExpiry.Equal(updatedSub.CurrentPeriodEnd))
+
+			events := selectPremiumUpdatedEvents(t)
+			require.Len(t, events, 1)
+			require.NotNil(t, events[0].PremiumExpiresAt)
+			assert.True(t, fixedExpiry.Equal(*events[0].PremiumExpiresAt))
+		})
+
+		t.Run("active のとき サブスクリプション更新通知で、premium-updated が publish され期間終了が Play Developer API の有効期限に反映される", func(t *testing.T) {
+			env := newGoogleTestEnv(t)
+			fixedExpiry := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
+			env.expiryFetcher.expiry = fixedExpiry
+			token := "google-renewed-expiry-token"
+			playerID := "20202020-2020-2020-2020-202020202020"
+			createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, domain.SubscriptionStatusActive)
+
+			msg := encodeRTDN(t, map[string]interface{}{
+				"subscriptionNotification": map[string]interface{}{
+					"notificationType": googleSubscriptionRenewed,
+					"purchaseToken":    token,
+					"subscriptionId":   "premium_monthly",
+				},
+			})
+			require.NoError(t, env.notifier.HandleNotification(context.Background(), msg))
+
+			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformAndroid, token)
+			require.NoError(t, err)
+			require.NotNil(t, updatedSub)
+			assert.True(t, fixedExpiry.Equal(updatedSub.CurrentPeriodEnd))
+
+			events := selectPremiumUpdatedEvents(t)
+			require.Len(t, events, 1)
+			require.NotNil(t, events[0].PremiumExpiresAt)
+			assert.True(t, fixedExpiry.Equal(*events[0].PremiumExpiresAt))
+		})
+
 		earlyReturnCases := []struct {
 			name    string
 			rtdn    map[string]interface{}

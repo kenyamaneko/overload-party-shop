@@ -18,7 +18,7 @@ jobs:
   # 一時無効化する。フロー戦略の整合は別 issue で扱う。戻すときは下のブロックを uncomment する。
   # check-source-branch:
   #   if: github.base_ref == 'main'
-  #   runs-on: ubuntu-latest
+  #   runs-on: ubicloud-standard-2
   #   timeout-minutes: 5
   #   steps:
   #     - name: Checkout

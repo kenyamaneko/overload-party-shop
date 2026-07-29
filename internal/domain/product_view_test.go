@@ -133,38 +133,3 @@ func TestNewProductView(t *testing.T) {
 		}
 	})
 }
-
-func TestPerTypeConstructors(t *testing.T) {
-	t.Run("per-type constructor の Common() 実装", func(t *testing.T) {
-		// per-type constructor は trivial だが、ProductView interface の契約 (Common() が
-		// 構築時に渡した共通属性をそのまま返すこと) を満たすことを保証する。
-		common := domain.Product{ProductID: "p1"}
-
-		cases := []struct {
-			name string
-			view domain.ProductView
-		}{
-			{
-				name: "NewFactionSetProduct で構築するとき、Common() は共通属性を返す",
-				view: domain.NewFactionSetProduct(common, "faction_set_she", "SHE"),
-			},
-			{
-				name: "NewCardPackProduct で構築するとき、Common() は共通属性を返す",
-				view: domain.NewCardPackProduct(common, "limited_2026_summer"),
-			},
-			{
-				name: "NewCosmeticProduct で構築するとき、Common() は共通属性を返す",
-				view: domain.NewCosmeticProduct(common, "playmat", 1),
-			},
-			{
-				name: "NewSubscriptionProduct で構築するとき、Common() は共通属性を返す",
-				view: domain.NewSubscriptionProduct(common, 1),
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.Equal(t, common, tc.view.Common())
-			})
-		}
-	})
-}

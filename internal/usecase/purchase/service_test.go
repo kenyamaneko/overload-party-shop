@@ -331,10 +331,27 @@ func TestPurchase(t *testing.T) {
 			}))
 			insertCosmeticProduct(t, "playmat_01", "プレイマット: サイバー", 320, "playmat", 1, true)
 
-			err := env.svc.Purchase(context.Background(), "44444444-4444-4444-4444-444444444444", "playmat_01", "android", "cosmetic-receipt")
+			playerID := "44444444-4444-4444-4444-444444444444"
+			err := env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt")
 			require.NoError(t, err)
-			assert.Empty(t, selectCardPackPurchasedEvents(t))
-			assert.Empty(t, selectFactionAcquiredEvents(t))
+
+			t.Run("card-pack-purchased も faction-acquired も publish されない", func(t *testing.T) {
+				assert.Empty(t, selectCardPackPurchasedEvents(t))
+				assert.Empty(t, selectFactionAcquiredEvents(t))
+			})
+
+			t.Run("購入したアイテムが shop 側に所有済みとして記録される", func(t *testing.T) {
+				owned, err := env.itemPurchaseRepo.HasPlayerItem(context.Background(), playerID, "playmat", 1)
+				require.NoError(t, err)
+				assert.True(t, owned)
+			})
+
+			t.Run("商品一覧に is_owned=true で反映される", func(t *testing.T) {
+				products, err := env.svc.GetProducts(context.Background(), playerID)
+				require.NoError(t, err)
+				require.Len(t, products, 1)
+				assert.True(t, products[0].IsOwned)
+			})
 		})
 
 		t.Run("faction_set を所有済みで別トークン再購入すると、ErrAlreadyOwned になる", func(t *testing.T) {
@@ -366,6 +383,40 @@ func TestPurchase(t *testing.T) {
 
 			err := env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt-2")
 			assert.ErrorIs(t, err, ErrAlreadyOwned)
+		})
+
+		t.Run("存在しない product_id を購入しようとすると、ErrNotFound になり何も publish されない", func(t *testing.T) {
+			env := newTestShopEnv(t)
+
+			err := env.svc.Purchase(context.Background(), "12121212-1212-1212-1212-121212121212", "no_such_product", "ios", "receipt-1")
+			assert.ErrorIs(t, err, port.ErrNotFound)
+			assert.Empty(t, selectCardPackPurchasedEvents(t))
+			assert.Empty(t, selectFactionAcquiredEvents(t))
+		})
+
+		t.Run("使用済みトークンで別商品を購入しようとすると、エラーにならず別商品は付与されない", func(t *testing.T) {
+			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
+				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
+					return &port.VerifyResult{IsValid: true, TransactionID: "txn-shared-token"}, nil
+				},
+			}))
+			insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
+			insertCardPackProduct(t, "limited_2026_summer", "限定: 2026 夏パック", 480, "limited_2026_summer", true)
+
+			playerID := "14141414-1414-1414-1414-141414141414"
+			ctx := context.Background()
+			require.NoError(t, env.svc.Purchase(ctx, playerID, "faction_tenki", "ios", "receipt-token-1"))
+
+			err := env.svc.Purchase(ctx, playerID, "limited_2026_summer", "ios", "receipt-token-1")
+			require.NoError(t, err)
+
+			owned, err := env.cardPackPurchaseRepo.HasPlayerCardPack(ctx, playerID, "limited_2026_summer")
+			require.NoError(t, err)
+			assert.False(t, owned)
+
+			cardEvents := selectCardPackPurchasedEvents(t)
+			require.Len(t, cardEvents, 1)
+			assert.Equal(t, "faction_set_Tenki", cardEvents[0].CardPackID)
 		})
 
 		invalidCases := []struct {
@@ -437,6 +488,19 @@ func TestPurchase(t *testing.T) {
 				token:     "receipt-sub",
 				wantErr:   ErrUnsupportedProductType,
 			},
+			{
+				name: "platform が空文字のとき、ErrUnsupportedPlatform になる",
+				arrange: func(t *testing.T) *testShopEnv {
+					env := newTestShopEnv(t)
+					insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
+					return env
+				},
+				playerID:  "15151515-1515-1515-1515-151515151515",
+				productID: "faction_she",
+				platform:  "",
+				token:     "receipt-1",
+				wantErr:   ErrUnsupportedPlatform,
+			},
 		}
 		for _, tc := range invalidCases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -451,7 +515,7 @@ func TestPurchase(t *testing.T) {
 func TestSubscribe(t *testing.T) {
 	t.Run("サブスクリプション登録", func(t *testing.T) {
 		t.Run("サブスク登録に成功したとき", func(t *testing.T) {
-			expiresAt := time.Now().Add(30 * 24 * time.Hour)
+			expiresAt := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
 			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 				VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
 					return &port.SubscriptionInfo{
@@ -480,6 +544,25 @@ func TestSubscribe(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, sub)
 				assert.Equal(t, domain.SubscriptionStatusActive, sub.Status)
+			})
+
+			t.Run("返り値の有効期限がストア検証結果の期限と一致する", func(t *testing.T) {
+				require.NotNil(t, result)
+				assert.True(t, expiresAt.Equal(*result))
+			})
+
+			t.Run("subscription 行の期間終了がストア検証結果の期限で永続化される", func(t *testing.T) {
+				sub, err := env.subRepo.GetLatestSubscription(context.Background(), playerID)
+				require.NoError(t, err)
+				require.NotNil(t, sub)
+				assert.True(t, expiresAt.Equal(sub.CurrentPeriodEnd))
+			})
+
+			t.Run("premium-updated event の premium_expires_at がストア検証結果の期限になる", func(t *testing.T) {
+				events := selectPremiumUpdatedEvents(t)
+				require.Len(t, events, 1)
+				require.NotNil(t, events[0].PremiumExpiresAt)
+				assert.True(t, expiresAt.Equal(*events[0].PremiumExpiresAt))
 			})
 		})
 
@@ -529,6 +612,43 @@ func TestSubscribe(t *testing.T) {
 			},
 		}
 
+		t.Run("存在しない product_id でサブスク登録しようとすると、ErrNotFound になり premium-updated は publish されない", func(t *testing.T) {
+			env := newTestShopEnv(t)
+			playerID := "16161616-1616-1616-1616-161616161616"
+
+			_, err := env.svc.Subscribe(context.Background(), playerID, "no_such_product", "ios", "sub-token-1")
+			assert.ErrorIs(t, err, port.ErrNotFound)
+			assert.Empty(t, selectPremiumUpdatedEvents(t))
+
+			sub, err := env.subRepo.GetLatestSubscription(context.Background(), playerID)
+			require.NoError(t, err)
+			assert.Nil(t, sub)
+		})
+
+		t.Run("android で有効なレシートのとき、google 側トークンで subscription が作成され premium-updated が publish される", func(t *testing.T) {
+			expiresAt := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
+			env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
+				VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
+					return &port.SubscriptionInfo{IsValid: true, ProductID: "premium_monthly", ExpiresAt: expiresAt}, nil
+				},
+			}))
+			insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
+
+			playerID := "17171717-1717-1717-1717-171717171717"
+			result, err := env.svc.Subscribe(context.Background(), playerID, "premium_monthly", "android", "google-sub-token-1")
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.True(t, expiresAt.Equal(*result))
+
+			sub, err := env.subRepo.FindSubscriptionByToken(context.Background(), "android", "google-sub-token-1")
+			require.NoError(t, err)
+			require.NotNil(t, sub)
+			assert.Equal(t, domain.SubscriptionStatusActive, sub.Status)
+
+			events := selectPremiumUpdatedEvents(t)
+			require.Len(t, events, 1)
+		})
+
 		invalidCases := []struct {
 			name          string
 			seedProduct   func(t *testing.T)
@@ -568,6 +688,17 @@ func TestSubscribe(t *testing.T) {
 				appleVerifier: defaultVerifier,
 				productID:     "premium_monthly",
 				platform:      "windows",
+				token:         "sub-token-1",
+				wantErr:       ErrUnsupportedPlatform,
+			},
+			{
+				name: "platform が空文字のとき、ErrUnsupportedPlatform になる",
+				seedProduct: func(t *testing.T) {
+					insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
+				},
+				appleVerifier: defaultVerifier,
+				productID:     "premium_monthly",
+				platform:      "",
 				token:         "sub-token-1",
 				wantErr:       ErrUnsupportedPlatform,
 			},

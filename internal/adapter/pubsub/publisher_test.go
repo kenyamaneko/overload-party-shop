@@ -31,7 +31,7 @@ func loadTopicsFromEnv(t *testing.T) publisherTopics {
 }
 
 func TestNew(t *testing.T) {
-	t.Run("New の入力検証", func(t *testing.T) {
+	t.Run("生成時の入力検証", func(t *testing.T) {
 		// 入力検証は gpubsub.NewClient 呼び出し前に return する。
 		tests := []struct {
 			name      string
@@ -40,13 +40,13 @@ func TestNew(t *testing.T) {
 			wantSubs  string
 		}{
 			{
-				name:      "projectID が空のとき、projectID is empty エラーになる",
+				name:      "プロジェクト ID が空のとき、生成に失敗する",
 				projectID: "",
 				override:  func(*publisherTopics) {},
 				wantSubs:  "projectID is empty",
 			},
 			{
-				name:      "card-pack-purchased topic 名が空のとき、all topic names are required エラーになる",
+				name:      "card-pack-purchased topic 名が空のとき、生成に失敗する",
 				projectID: "test-project",
 				override: func(topics *publisherTopics) {
 					topics.cardPackPurchased = ""
@@ -54,7 +54,7 @@ func TestNew(t *testing.T) {
 				wantSubs: "all topic names are required",
 			},
 			{
-				name:      "faction-acquired topic 名が空のとき、all topic names are required エラーになる",
+				name:      "faction-acquired topic 名が空のとき、生成に失敗する",
 				projectID: "test-project",
 				override: func(topics *publisherTopics) {
 					topics.factionAcquired = ""
@@ -62,7 +62,7 @@ func TestNew(t *testing.T) {
 				wantSubs: "all topic names are required",
 			},
 			{
-				name:      "premium-updated topic 名が空のとき、all topic names are required エラーになる",
+				name:      "premium-updated topic 名が空のとき、生成に失敗する",
 				projectID: "test-project",
 				override: func(topics *publisherTopics) {
 					topics.premiumUpdated = ""
@@ -84,8 +84,8 @@ func TestNew(t *testing.T) {
 }
 
 func TestPublish(t *testing.T) {
-	t.Run("Publish", func(t *testing.T) {
-		t.Run("未登録の event type のとき、unknown event type エラーになる", func(t *testing.T) {
+	t.Run("イベントの配信", func(t *testing.T) {
+		t.Run("未登録のイベント種別のとき、エラーになる", func(t *testing.T) {
 			// 未登録 eventType は Pub/Sub SDK に届く前に弾く。
 			p := &Publisher{}
 			err := p.Publish(context.Background(), "unknown-event-type", []byte(`{}`))

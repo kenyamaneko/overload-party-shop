@@ -128,7 +128,7 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 	repo := postgres.NewOutboxRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("未配信イベントの claim", func(t *testing.T) {
+	t.Run("未配信イベントの取得", func(t *testing.T) {
 		const failureThreshold = 3
 
 		tests := []struct {
@@ -221,7 +221,7 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 			})
 		}
 
-		t.Run("limit を超えて claim せず、claim されなかった行は未試行のまま残る", func(t *testing.T) {
+		t.Run("上限を超えて取得せず、取得されなかった行は未試行のまま残る", func(t *testing.T) {
 			// どの行が選ばれるかは同 ms 挿入時に不定なので、件数のみで固定する。
 			sharedPg.Truncate(t)
 
@@ -243,7 +243,7 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 			assert.Equal(t, totalSeeded-limit, remaining, "claim されなかった行は未試行のまま残る")
 		})
 
-		t.Run("claim 成功後、last_attempted_at が now() に更新される", func(t *testing.T) {
+		t.Run("取得成功後、last_attempted_at が now() に更新される", func(t *testing.T) {
 			sharedPg.Truncate(t)
 
 			id := insertOutboxRow(t, 0, 0, []byte(`{"k":"v"}`))
