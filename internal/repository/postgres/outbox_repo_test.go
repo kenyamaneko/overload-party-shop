@@ -108,13 +108,18 @@ func setFailureCount(t *testing.T, id uuid.UUID, count int) {
 	require.NoError(t, err)
 }
 
-// insertExhausted は failure_count が閾値に到達した行を作る seed 関数。
-func insertExhausted(threshold int) func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
+// insertWithFailureCount は failure_count を指定値に設定した行を作る seed 関数。
+func insertWithFailureCount(count int) func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
 	return func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
 		id := insertOutboxRow(t, testIdx, seedIdx, []byte(payload))
-		setFailureCount(t, id, threshold)
+		setFailureCount(t, id, count)
 		return id
 	}
+}
+
+// insertExhausted は failure_count が閾値に到達した行を作る seed 関数。
+func insertExhausted(threshold int) func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
+	return insertWithFailureCount(threshold)
 }
 
 // defaultVisibility はケース指定がない時の visibility timeout (30s)。
@@ -200,6 +205,16 @@ func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
 				visibilityTimeout: defaultVisibility,
 				failureThreshold:  failureThreshold,
 				wantPayloads:      []string{`{"k":"healthy"}`},
+			},
+			{
+				name: "failure_count が閾値未満の行があるとき、claim される",
+				seeds: []seed{
+					{payload: `{"k":"below-threshold"}`, insert: insertWithFailureCount(failureThreshold - 1)},
+				},
+				limit:             10,
+				visibilityTimeout: defaultVisibility,
+				failureThreshold:  failureThreshold,
+				wantPayloads:      []string{`{"k":"below-threshold"}`},
 			},
 		}
 
