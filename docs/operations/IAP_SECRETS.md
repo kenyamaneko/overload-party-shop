@@ -1,6 +1,6 @@
 # IAP シークレットの投入手順
 
-shop は `IAP_MODE=production` の環境で、起動時に Secret Manager から Apple / Google の課金検証用シークレットを読む。シークレットの入れ物と読み取り権限は Terraform (overload-party-infra の `env/modules/app/shop/shop-secrets`) が作るが、**値は人が投入する**。値が 1 つでも欠けていると shop は起動に失敗する。
+shop は `IAP_MODE=production` の環境で、起動時に Secret Manager から Apple / Google の課金検証用シークレットを読む。シークレットの入れ物と読み取り権限は Terraform (overload-party-infra の `providers/google-cloud/env/modules/app/shop/shop-secrets`) が作るが、**値は人が投入する**。値が 1 つでも欠けていると shop は起動に失敗する。
 
 本書は環境を新しく立ち上げるとき、および Apple の鍵をローテーションするときに実施する。
 
@@ -37,17 +37,14 @@ shop は `IAP_MODE=production` の環境で、起動時に Secret Manager から
    ```bash
    for s in shop-apple-key-id shop-apple-issuer-id shop-apple-bundle-id \
             shop-apple-private-key shop-google-package-name; do
-     echo "$s: $(gcloud secrets versions list "$s" --project "$PROJECT" --format='value(name)' | wc -l)"
+     echo "$s: $(gcloud secrets versions list "$s" --project "$PROJECT" \
+       --filter='state:ENABLED' --format='value(name)' | wc -l)"
    done
    ```
 
-3. shop の Cloud Run サービスに新しいリビジョンを出す。shop は起動時に一度だけ読むため、値を入れただけでは反映されない
+   shop が読むのは有効な最新版なので、無効化・破棄した版は数えない。
 
-   ```bash
-   gcloud run services update shop --project "$PROJECT" --region asia-northeast1 --no-traffic --tag=reload
-   ```
-
-   通常は `Deploy` workflow の再実行でよい。
+3. shop の `Deploy` workflow を再実行して新しいリビジョンにトラフィックを移す。shop は起動時に一度だけシークレットを読むため、値を入れただけでは反映されない
 
 4. 起動を確認する
 
