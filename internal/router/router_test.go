@@ -2,15 +2,18 @@ package router
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
+	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
@@ -27,6 +30,24 @@ func (fakeRouterVerifier) Verify(string) (string, error) { return "", nil }
 
 func testVerifier() internalauth.Verifier {
 	return fakeRouterVerifier{}
+}
+
+// stubShopService は固定値を返す shop usecase スタブ。
+type stubShopService struct{}
+
+// GetProducts は商品なしを返す。
+func (stubShopService) GetProducts(context.Context, string) ([]domain.ProductWithOwnership, error) {
+	return []domain.ProductWithOwnership{}, nil
+}
+
+// Purchase は常に成功する。
+func (stubShopService) Purchase(context.Context, string, string, string, string) error {
+	return nil
+}
+
+// Subscribe は期限なしで成功する。
+func (stubShopService) Subscribe(context.Context, string, string, string, string) (*time.Time, error) {
+	return nil, nil
 }
 
 // fakeAppleNotifier は webhook が handler を経て notifier まで到達したかを呼び出し回数で観測する。
@@ -124,6 +145,65 @@ func TestNew(t *testing.T) {
 					assert.Equal(t, http.StatusNotFound, w.Code)
 				})
 			}
+		})
+	})
+
+	t.Run("/api/v1/shop の内部認証配線", func(t *testing.T) {
+		t.Run("auth header が欠落しているとき、401 になり handler に到達しない", func(t *testing.T) {
+			// VerifyFn 未設定: header 欠落時は middleware が verifier に到達しないことの検出を兼ねる
+			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{})
+
+			cases := []struct {
+				name   string
+				method string
+				path   string
+			}{
+				{
+					name:   "GET /products",
+					method: http.MethodGet,
+					path:   "/api/v1/shop/products",
+				},
+				{
+					name:   "POST /purchase",
+					method: http.MethodPost,
+					path:   "/api/v1/shop/purchase",
+				},
+				{
+					name:   "POST /subscribe",
+					method: http.MethodPost,
+					path:   "/api/v1/shop/subscribe",
+				},
+			}
+
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					w := httptest.NewRecorder()
+					r.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
+					assert.Equal(t, http.StatusUnauthorized, w.Code)
+				})
+			}
+		})
+
+		t.Run("verifier がエラーを返すとき、401 になり handler に到達しない", func(t *testing.T) {
+			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{
+				VerifyFn: func(string) (string, error) { return "", errors.New("invalid token") },
+			})
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil)
+			req.Header.Set(internalauth.HeaderName, "any.token")
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusUnauthorized, w.Code)
+		})
+
+		t.Run("有効なトークンのとき、handler の応答まで到達する", func(t *testing.T) {
+			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{
+				VerifyFn: func(string) (string, error) { return "TST-PLAYER-1", nil },
+			})
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil)
+			req.Header.Set(internalauth.HeaderName, "any.token")
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
 		})
 	})
 }
