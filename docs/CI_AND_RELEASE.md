@@ -7,7 +7,8 @@
 
 | ワークフロー | トリガー | 役割 |
 |---|---|---|
-| `ci.yaml` | PR: main, develop, release/* | lint + test + 脆弱性スキャン + コード生成ドリフト検出 + (main のみ) マージ元ブランチ制限 |
+| `ci.yaml` | PR: main | lint + test + 脆弱性スキャン + コード生成ドリフト検出。中身は common の `go-service-ci.yaml` に集約している |
+| `test-catalog.yaml` | push: main | `ci.yaml` を呼び、そのテスト結果からテスト観点カタログを生成して GitHub Pages に公開 |
 | `deploy.yaml` | push: main, develop, release/* | Docker イメージのビルド・push |
 | `release-tag.yaml` | PR close (→ main) | release/hotfix ブランチから SemVer タグを自動生成 |
 | `publish.yaml` | workflow_dispatch (手動) | api-shop Go モジュールのタグ付け・公開 |
@@ -47,16 +48,10 @@ PR 更新時 (追加 push) にも CI が再実行される。
 
 ### main
 
-- `CI / lint`
-- `CI / test`
-- `CI / check-source-branch` (release/* と hotfix/* のみ許可を機械的に強制)
+- `ci / lint`
+- `ci / test-unit`
+- `ci / test-integration`
+- `ci / image-scan`
+- `ci / codegen-sync`
 
-### release/*
-
-- `CI / lint`
-- `CI / test`
-
-### develop
-
-- `CI / lint`
-- `CI / test`
+いずれも `ci.yaml` が呼ぶ common の `go-service-ci.yaml` のジョブで、`ci` は呼び出し側のジョブ名。
