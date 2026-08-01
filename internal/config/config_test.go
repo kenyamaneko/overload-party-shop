@@ -10,6 +10,10 @@ import (
 
 // allEnvKeys は FromEnv が読む全 env キー。各テストは毎回これらを明示値（または ""）
 // で上書きし、シェル環境からの漏れで Given が非決定になるのを防ぐ。
+// testPublicKeyPEM は config が値をそのまま保持することの確認にだけ使うダミー。
+// 鍵としての妥当性は検証しないため、PEM の体裁だけ揃えている。
+const testPublicKeyPEM = "-----BEGIN PUBLIC KEY-----\ndummy-not-a-real-key\n-----END PUBLIC KEY-----\n"
+
 var allEnvKeys = []string{
 	"PORT",
 	"DATABASE_CONN",
@@ -28,7 +32,7 @@ var allEnvKeys = []string{
 	"OUTBOX_BATCH_SIZE",
 	"OUTBOX_FAILURE_THRESHOLD",
 	"OUTBOX_VISIBILITY_TIMEOUT",
-	"INTERNAL_AUTH_SECRET",
+	"INTERNAL_AUTH_PUBLIC_KEY",
 	"DATABASE_IAM_AUTH_ENABLED",
 	"CLOUDSQL_CONNECTION_NAME",
 }
@@ -68,7 +72,7 @@ var validLocalEnv = map[string]string{
 	"OUTBOX_BATCH_SIZE":         "100",
 	"OUTBOX_FAILURE_THRESHOLD":  "5",
 	"OUTBOX_VISIBILITY_TIMEOUT": "30s",
-	"INTERNAL_AUTH_SECRET":      "test-internal-auth-secret-do-not-use-in-prod-xxxxx",
+	"INTERNAL_AUTH_PUBLIC_KEY":  testPublicKeyPEM,
 	"DATABASE_IAM_AUTH_ENABLED": "false",
 }
 
@@ -96,7 +100,7 @@ func TestFromEnv(t *testing.T) {
 			assert.Equal(t, "card-pack-purchased", cfg.CardPackPurchasedTopic)
 			assert.Equal(t, "faction-acquired", cfg.FactionAcquiredTopic)
 			assert.Equal(t, "premium-updated", cfg.PremiumUpdatedTopic)
-			assert.Equal(t, "test-internal-auth-secret-do-not-use-in-prod-xxxxx", cfg.InternalAuthSecret)
+			assert.Equal(t, testPublicKeyPEM, cfg.InternalAuthPublicKey)
 		})
 
 		t.Run("DATABASE_IAM_AUTH_ENABLED が false のとき、CLOUDSQL_CONNECTION_NAME が未設定でも成功する", func(t *testing.T) {
@@ -339,9 +343,9 @@ func TestFromEnv(t *testing.T) {
 				wantErr: "OUTBOX_VISIBILITY_TIMEOUT must be >= 1ms",
 			},
 			{
-				name:    "INTERNAL_AUTH_SECRET が未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"INTERNAL_AUTH_SECRET": ""}),
-				wantErr: "INTERNAL_AUTH_SECRET is required",
+				name:    "INTERNAL_AUTH_PUBLIC_KEY が未設定のとき、エラーになる",
+				envs:    mergeEnv(validLocalEnv, map[string]string{"INTERNAL_AUTH_PUBLIC_KEY": ""}),
+				wantErr: "INTERNAL_AUTH_PUBLIC_KEY is required",
 			},
 			{
 				name:    "DATABASE_IAM_AUTH_ENABLED が未設定のとき、変数名を含むエラーになる",

@@ -138,7 +138,10 @@ func run() error {
 		return err
 	}
 
-	handler := buildHTTPHandler(cfg, pool, verifierSet)
+	handler, err := buildHTTPHandler(cfg, pool, verifierSet)
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           handler,
@@ -183,7 +186,7 @@ func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) 
 }
 
 // buildHTTPHandler は repo / usecase / handler の配線を組み立てる。
-func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifiers) http.Handler {
+func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifiers) (http.Handler, error) {
 	productRepo := postgres.NewProductRepository(pool)
 	factionPurchaseRepo := postgres.NewFactionPurchaseRepository(pool)
 	cardPackPurchaseRepo := postgres.NewCardPackPurchaseRepository(pool)
@@ -209,10 +212,14 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifi
 			subscription.NewGoogleNotifier(subscriptionRepo, verifierSet.googleSub),
 		)
 	}
+	internalAuthKey, err := internalauth.ParsePublicKeyPEM([]byte(cfg.InternalAuthPublicKey))
+	if err != nil {
+		return nil, fmt.Errorf("INTERNAL_AUTH_PUBLIC_KEY is invalid: %w", err)
+	}
 	authVerifier := internalauth.NewVerifier(
-		internalauth.StaticHS256Resolver([]byte(cfg.InternalAuthSecret), internalauth.DefaultKeyID),
+		internalauth.StaticPublicKeyResolver(internalAuthKey, internalauth.DefaultKeyID),
 	)
-	return router.New(shopHandler, appleWebhookHandler, googleWebhookHandler, authVerifier)
+	return router.New(shopHandler, appleWebhookHandler, googleWebhookHandler, authVerifier), nil
 }
 
 // buildOutboxTicker は outbox 消費フローの relay と worker ticker を組み立てる。

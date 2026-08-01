@@ -42,8 +42,8 @@ type Config struct {
 	// DatabaseIAMAuthEnabled が true のときのみ必須。
 	CloudSQLConnectionName string
 
-	// InternalAuthSecret は内部サービス間 JWT (HS256) 検証の共有秘密鍵。
-	InternalAuthSecret string
+	// InternalAuthPublicKey は内部サービス間 JWT (RS256) を検証する gateway の公開鍵。PEM 形式。
+	InternalAuthPublicKey string
 
 	// Apple IAP
 	AppleKeyID         string
@@ -74,7 +74,7 @@ func FromEnv() (*Config, error) {
 		FactionAcquiredTopic:   os.Getenv("FACTION_ACQUIRED_TOPIC"),
 		PremiumUpdatedTopic:    os.Getenv("PREMIUM_UPDATED_TOPIC"),
 		IAPMode:                IAPMode(os.Getenv("IAP_MODE")),
-		InternalAuthSecret:     os.Getenv("INTERNAL_AUTH_SECRET"),
+		InternalAuthPublicKey:  os.Getenv("INTERNAL_AUTH_PUBLIC_KEY"),
 		AppleEnvironment:       os.Getenv("APPLE_ENVIRONMENT"),
 	}
 
@@ -103,8 +103,8 @@ func FromEnv() (*Config, error) {
 	if cfg.PremiumUpdatedTopic == "" {
 		return nil, fmt.Errorf("config: PREMIUM_UPDATED_TOPIC is required")
 	}
-	if cfg.InternalAuthSecret == "" {
-		return nil, fmt.Errorf("config: INTERNAL_AUTH_SECRET is required")
+	if cfg.InternalAuthPublicKey == "" {
+		return nil, fmt.Errorf("config: INTERNAL_AUTH_PUBLIC_KEY is required")
 	}
 
 	rawIAMAuth := os.Getenv("DATABASE_IAM_AUTH_ENABLED")
