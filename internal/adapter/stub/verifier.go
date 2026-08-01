@@ -1,4 +1,4 @@
-package local
+package stub
 
 import (
 	"context"
@@ -6,11 +6,11 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
-// Verifier はローカルモード用に全レシートを valid 扱いする port.ReceiptVerifier の stub 実装。
-// 実 IAP 認証情報なしで購入・サブスクリプションフローを通すために使う。
+// Verifier は全レシートを valid 扱いする port.ReceiptVerifier の stub 実装。
+// 実ストアの認証情報なしで購入・サブスクリプションフローを通すために使う。
 type Verifier struct{}
 
-// NewVerifier はローカルモード用の Verifier を構築する。
+// NewVerifier は stub の Verifier を構築する。
 func NewVerifier() *Verifier {
 	return &Verifier{}
 }

@@ -21,7 +21,8 @@ var allEnvKeys = []string{
 	"CARD_PACK_PURCHASED_TOPIC",
 	"FACTION_ACQUIRED_TOPIC",
 	"PREMIUM_UPDATED_TOPIC",
-	"IAP_MODE",
+	"IAP_VERIFIER",
+	"LOG_MODE",
 	"APPLE_ENVIRONMENT",
 	"APPLE_KEY_ID",
 	"APPLE_ISSUER_ID",
@@ -57,7 +58,7 @@ func mergeEnv(maps ...map[string]string) map[string]string {
 	return out
 }
 
-// validLocalEnv は IAP_MODE=local での最小構成（必須 env を全て明示）。
+// validLocalEnv は IAP_VERIFIER=stub での最小構成（必須 env を全て明示）。
 // CLAUDE.md「デフォルト値へのフォールバックを行わない」方針により、
 // 全必須 env を明示的に供給する。各ケースはこれを baseline に override を重ねる。
 var validLocalEnv = map[string]string{
@@ -67,7 +68,8 @@ var validLocalEnv = map[string]string{
 	"CARD_PACK_PURCHASED_TOPIC": "card-pack-purchased",
 	"FACTION_ACQUIRED_TOPIC":    "faction-acquired",
 	"PREMIUM_UPDATED_TOPIC":     "premium-updated",
-	"IAP_MODE":                  "local",
+	"IAP_VERIFIER":              "stub",
+	"LOG_MODE":                  "local",
 	"OUTBOX_POLL_INTERVAL":      "1s",
 	"OUTBOX_BATCH_SIZE":         "100",
 	"OUTBOX_FAILURE_THRESHOLD":  "5",
@@ -84,7 +86,8 @@ func TestFromEnv(t *testing.T) {
 			cfg, err := FromEnv()
 
 			require.NoError(t, err)
-			assert.Equal(t, IAPModeLocal, cfg.IAPMode)
+			assert.Equal(t, IAPVerifierStub, cfg.IAPVerifier)
+			assert.Equal(t, LogModeLocal, cfg.LogMode)
 			assert.Empty(t, cfg.AppleKeyID)
 		})
 
@@ -252,27 +255,37 @@ func TestFromEnv(t *testing.T) {
 				wantErr: "PREMIUM_UPDATED_TOPIC is required",
 			},
 			{
-				name:    "IAP_MODE が未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"IAP_MODE": ""}),
-				wantErr: "IAP_MODE must be",
+				name:    "IAP_VERIFIER が未設定のとき、エラーになる",
+				envs:    mergeEnv(validLocalEnv, map[string]string{"IAP_VERIFIER": ""}),
+				wantErr: "IAP_VERIFIER must be",
 			},
 			{
-				name:    "IAP_MODE が未定義値 (invalid) のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"IAP_MODE": "invalid"}),
-				wantErr: "IAP_MODE must be",
+				name:    "IAP_VERIFIER が未定義値 (invalid) のとき、エラーになる",
+				envs:    mergeEnv(validLocalEnv, map[string]string{"IAP_VERIFIER": "invalid"}),
+				wantErr: "IAP_VERIFIER must be",
 			},
 			{
-				name: "IAP_MODE が production かつ APPLE_ENVIRONMENT が未設定のとき、エラーになる",
+				name:    "LOG_MODE が未設定のとき、エラーになる",
+				envs:    mergeEnv(validLocalEnv, map[string]string{"LOG_MODE": ""}),
+				wantErr: "LOG_MODE must be",
+			},
+			{
+				name:    "LOG_MODE が未定義値 (invalid) のとき、エラーになる",
+				envs:    mergeEnv(validLocalEnv, map[string]string{"LOG_MODE": "invalid"}),
+				wantErr: "LOG_MODE must be",
+			},
+			{
+				name: "IAP_VERIFIER が store かつ APPLE_ENVIRONMENT が未設定のとき、エラーになる",
 				envs: mergeEnv(validLocalEnv, map[string]string{
-					"IAP_MODE":          "production",
+					"IAP_VERIFIER":      "store",
 					"APPLE_ENVIRONMENT": "",
 				}),
 				wantErr: "APPLE_ENVIRONMENT must be",
 			},
 			{
-				name: "IAP_MODE が production かつ APPLE_ENVIRONMENT が未定義値 (staging) のとき、エラーになる",
+				name: "IAP_VERIFIER が store かつ APPLE_ENVIRONMENT が未定義値 (staging) のとき、エラーになる",
 				envs: mergeEnv(validLocalEnv, map[string]string{
-					"IAP_MODE":          "production",
+					"IAP_VERIFIER":      "store",
 					"APPLE_ENVIRONMENT": "staging",
 				}),
 				wantErr: "APPLE_ENVIRONMENT must be",

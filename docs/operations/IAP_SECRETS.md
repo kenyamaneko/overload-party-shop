@@ -1,6 +1,6 @@
 # IAP シークレットの投入手順
 
-shop は `IAP_MODE=production` の環境で、起動時に Secret Manager から Apple / Google の課金検証用シークレットを読む。シークレットの入れ物と読み取り権限は Terraform (overload-party-infra の `providers/google-cloud/env/modules/app/shop/shop-secrets`) が作るが、**値は人が投入する**。値が 1 つでも欠けていると shop は起動に失敗する。
+shop は `IAP_VERIFIER=store` の環境で、起動時に Secret Manager から Apple / Google の課金検証用シークレットを読む。シークレットの入れ物と読み取り権限は Terraform (overload-party-infra の `providers/google-cloud/env/modules/app/shop/shop-secrets`) が作るが、**値は人が投入する**。値が 1 つでも欠けていると shop は起動に失敗する。
 
 本書は環境を新しく立ち上げるとき、および Apple の鍵をローテーションするときに実施する。
 

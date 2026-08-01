@@ -83,7 +83,7 @@ export interface paths {
         put?: never;
         /**
          * Apple App Store Server Notifications V2 を受信
-         * @description 認証は Apple JWS 署名検証 (Firebase Auth 不要)。IAP_MODE=local 時はルーティング自体が登録されない。
+         * @description 認証は Apple JWS 署名検証 (Firebase Auth 不要)。IAP_VERIFIER=stub 時はルーティング自体が登録されない。
          */
         post: operations["appleWebhook"];
         delete?: never;
@@ -103,7 +103,7 @@ export interface paths {
         put?: never;
         /**
          * Google Real-Time Developer Notifications を受信
-         * @description 認証は Google Pub/Sub push 署名検証 (Firebase Auth 不要)。IAP_MODE=local 時はルーティング自体が登録されない。
+         * @description 認証は Google Pub/Sub push 署名検証 (Firebase Auth 不要)。IAP_VERIFIER=stub 時はルーティング自体が登録されない。
          */
         post: operations["googleWebhook"];
         delete?: never;
