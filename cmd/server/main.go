@@ -17,8 +17,8 @@ import (
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	shopadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
 	googleadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/google"
-	localadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/local"
 	shoppubsub "github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
+	stubadapter "github.com/kenyamaneko/overload-party-shop/internal/adapter/stub"
 	"github.com/kenyamaneko/overload-party-shop/internal/config"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/worker"
@@ -38,18 +38,18 @@ func main() {
 	}
 }
 
-// setupLogger は IAP_MODE に応じてグローバル slog ロガーを初期化する。
-func setupLogger(mode config.IAPMode) error {
+// setupLogger は LOG_MODE に応じてグローバル slog ロガーを初期化する。
+func setupLogger(mode config.LogMode) error {
 	switch mode {
-	case config.IAPModeProduction:
+	case config.LogModeProduction:
 		slog.SetDefault(slog.New(newCloudLoggingHandler()).With("service", "shop"))
-	case config.IAPModeLocal:
+	case config.LogModeLocal:
 		h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		})
 		slog.SetDefault(slog.New(h).With("service", "shop"))
 	default:
-		return fmt.Errorf("unexpected IAP_MODE: %s", mode)
+		return fmt.Errorf("unexpected LOG_MODE: %s", mode)
 	}
 	return nil
 }
@@ -81,7 +81,7 @@ func newCloudLoggingHandler() slog.Handler {
 	})
 }
 
-// verifiers は IAP_MODE=production のときだけ初期化される verifier をまとめる。
+// verifiers は IAP_VERIFIER=store のときだけ実ストア向けに初期化される verifier をまとめる。
 type verifiers struct {
 	apple     port.ReceiptVerifier
 	google    port.ReceiptVerifier
@@ -95,7 +95,7 @@ func run() error {
 		return err
 	}
 
-	if err := setupLogger(cfg.IAPMode); err != nil {
+	if err := setupLogger(cfg.LogMode); err != nil {
 		return err
 	}
 
@@ -159,12 +159,12 @@ func run() error {
 	return runHTTPAndWorker(ctx, srv, outboxTicker)
 }
 
-// setupVerifiers は IAP_MODE に応じて Apple/Google verifier を初期化する。
+// setupVerifiers は IAP_VERIFIER に応じて Apple/Google verifier を初期化する。
 func setupVerifiers(ctx context.Context, cfg *config.Config) (verifiers, error) {
-	if cfg.IAPMode != config.IAPModeProduction {
-		slog.Info("using local IAP verifier; webhook routes not registered", "iap_mode", "local")
-		localVerifier := localadapter.NewVerifier()
-		return verifiers{apple: localVerifier, google: localVerifier}, nil
+	if cfg.IAPVerifier == config.IAPVerifierStub {
+		slog.Info("using stub IAP verifier; webhook routes not registered", "iap_verifier", string(config.IAPVerifierStub))
+		stubVerifier := stubadapter.NewVerifier()
+		return verifiers{apple: stubVerifier, google: stubVerifier}, nil
 	}
 	ajws := shopadapter.NewJWSVerifier()
 	av, err := shopadapter.NewVerifierFromPEM(
@@ -204,7 +204,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifi
 		appleWebhookHandler  *rest.AppleWebhookHandler
 		googleWebhookHandler *rest.GoogleWebhookHandler
 	)
-	if cfg.IAPMode == config.IAPModeProduction {
+	if cfg.IAPVerifier == config.IAPVerifierStore {
 		appleWebhookHandler = rest.NewAppleWebhookHandler(
 			subscription.NewAppleNotifier(subscriptionRepo, verifierSet.appleJWS),
 		)

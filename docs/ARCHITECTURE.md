@@ -118,25 +118,27 @@ Apple と Google で信頼の引き方が違う。新プラットフォーム追
 
 webhook の deterministic error (decode 失敗 / unknown subscription 等) は **200 で ack** してストア側のリトライを止める。transient error (DB・pub/sub 障害等) は 5xx を返してリトライさせる (`internal/handler/rest/webhook_handler.go` の `respondWebhook`)。outbox 導入後は webhook 起点の DB 更新 + outbox 行も同一 tx なので、DB 失敗で 5xx が返るケースはビジネス行と outbox 行を両方巻き戻した上でストアリトライを待つ形になる。
 
-## IAP_MODE=local の構造的安全性
+## IAP_VERIFIER=stub の構造的安全性
 
-`IAP_MODE=local` は開発用モードで、Apple/Google verifier を初期化しない。**未認証 POST が nil verifier に到達する経路はコードの構造上存在しない**。これは 3 ファイルの合意で成立している:
+`IAP_VERIFIER=stub` は実ストアを叩かず全レシートを有効として扱うため、Apple/Google verifier を初期化しない。**未認証 POST が nil verifier に到達する経路はコードの構造上存在しない**。これは 3 ファイルの合意で成立している:
 
-1. `cmd/server/main.go`: `IAP_MODE!=production` のとき verifier 系を全て nil のまま返し、webhookH も nil 構築する
+1. `cmd/server/main.go`: `IAP_VERIFIER=stub` のとき verifier 系を全て nil のまま返し、webhookH も nil 構築する
 2. `internal/router/router.go`: `webhookH == nil` のとき `/webhook/*` ルートを **登録しない**
 3. `internal/usecase/purchase/service.go` の `getVerifier`: 内部 `/purchase` / `/subscribe` ルートから呼ばれ、platform 不明時は `ErrUnsupportedPlatform`
 
-つまり local モードでは webhook エンドポイント自体が存在しないため、署名なしペイロードを受理する入口がない。`IAP_MODE` の分岐条件や webhook 登録条件を変更するときは、この構造的安全性を崩さないこと。
+つまり stub では webhook エンドポイント自体が存在しないため、署名なしペイロードを受理する入口がない。`IAP_VERIFIER` の分岐条件や webhook 登録条件を変更するときは、この構造的安全性を崩さないこと。
 
 ## 運用
 
 ### 環境変数 / Secret Manager
 
-環境変数の一覧と必須条件は [internal/config/config.go](../internal/config/config.go) が SSoT (`loadProductionIAP` / `loadLocalIAP` / `loadOutboxConfig` が起動時に検証、欠ければ即 fail)。
+環境変数の一覧と必須条件は [internal/config/config.go](../internal/config/config.go) が SSoT (`loadStoreIAP` / `loadStubIAP` / `loadOutboxConfig` が起動時に検証、欠ければ即 fail)。
+
+レシート検証の相手 (`IAP_VERIFIER`)、ログ形式 (`LOG_MODE`)、叩くストア環境 (`APPLE_ENVIRONMENT` = Sandbox / Production) は互いに独立した関心なので、それぞれ別の環境変数で決める。
 
 運用上の注意点のみ:
 
-- **`IAP_MODE=production`** では Apple/Google の機密情報 (`shop-apple-*` / `shop-google-package-name` 等) を Secret Manager から起動時に取得する。デプロイの定義には値を載せない。
+- **`IAP_VERIFIER=store`** では Apple/Google の機密情報 (`shop-apple-*` / `shop-google-package-name` 等) を Secret Manager から起動時に取得する。デプロイの定義には値を載せない。
 - シークレットの入れ物と読み取り権限は Terraform が作り、値は人が投入する。手順は [運用手順書](operations/IAP_SECRETS.md) にある
 - **`OUTBOX_POLL_INTERVAL` / `OUTBOX_BATCH_SIZE` / `OUTBOX_FAILURE_THRESHOLD`** は負荷試験やインシデント時にデプロイなしで試行錯誤できるよう env で持つ。
 - ローカル開発では `make run` が env を自動注入するため shell 側 export は不要。

@@ -11,12 +11,24 @@ import (
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 )
 
-// IAPMode は IAP verifier 設定を必須とするかを制御する。
-type IAPMode string
+// IAPVerifier はレシート検証に実ストアと stub のどちらを使うかを表す。
+// 実ストアを叩くかどうかの軸であり、どのストア環境 (Sandbox / Production) を
+// 叩くかは APPLE_ENVIRONMENT が別に決める。
+type IAPVerifier string
 
 const (
-	IAPModeProduction IAPMode = "production"
-	IAPModeLocal      IAPMode = "local"
+	// IAPVerifierStore は Apple / Google の API でレシートを検証する。
+	IAPVerifierStore IAPVerifier = "store"
+	// IAPVerifierStub は検証せず全レシートを有効として扱う。
+	IAPVerifierStub IAPVerifier = "stub"
+)
+
+// LogMode は log handler の選択。
+type LogMode string
+
+const (
+	LogModeProduction LogMode = "production"
+	LogModeLocal      LogMode = "local"
 )
 
 // Config は shop サービスの起動設定を保持する。
@@ -32,7 +44,9 @@ type Config struct {
 	FactionAcquiredTopic   string
 	PremiumUpdatedTopic    string
 
-	IAPMode IAPMode
+	IAPVerifier IAPVerifier
+
+	LogMode LogMode
 
 	// DatabaseIAMAuthEnabled は Cloud SQL への接続を Cloud SQL Go Connector 経由の
 	// 自動 IAM データベース認証で行うかどうかを表す。
@@ -73,7 +87,8 @@ func FromEnv() (*Config, error) {
 		CardPackPurchasedTopic: os.Getenv("CARD_PACK_PURCHASED_TOPIC"),
 		FactionAcquiredTopic:   os.Getenv("FACTION_ACQUIRED_TOPIC"),
 		PremiumUpdatedTopic:    os.Getenv("PREMIUM_UPDATED_TOPIC"),
-		IAPMode:                IAPMode(os.Getenv("IAP_MODE")),
+		IAPVerifier:            IAPVerifier(os.Getenv("IAP_VERIFIER")),
+		LogMode:                LogMode(os.Getenv("LOG_MODE")),
 		InternalAuthPublicKey:  os.Getenv("INTERNAL_AUTH_PUBLIC_KEY"),
 		AppleEnvironment:       os.Getenv("APPLE_ENVIRONMENT"),
 	}
@@ -127,25 +142,31 @@ func FromEnv() (*Config, error) {
 		return nil, err
 	}
 
-	switch cfg.IAPMode {
-	case IAPModeProduction:
-		if err := loadProductionIAP(cfg); err != nil {
+	switch cfg.LogMode {
+	case LogModeProduction, LogModeLocal:
+	default:
+		return nil, fmt.Errorf("config: LOG_MODE must be %q or %q, got %q", LogModeProduction, LogModeLocal, cfg.LogMode)
+	}
+
+	switch cfg.IAPVerifier {
+	case IAPVerifierStore:
+		if err := loadStoreIAP(cfg); err != nil {
 			return nil, err
 		}
-	case IAPModeLocal:
-		loadLocalIAP(cfg)
+	case IAPVerifierStub:
+		loadStubIAP(cfg)
 	default:
-		return nil, fmt.Errorf("config: IAP_MODE must be %q or %q, got %q", IAPModeProduction, IAPModeLocal, cfg.IAPMode)
+		return nil, fmt.Errorf("config: IAP_VERIFIER must be %q or %q, got %q", IAPVerifierStore, IAPVerifierStub, cfg.IAPVerifier)
 	}
 	return cfg, nil
 }
 
-// loadProductionIAP は Secret Manager から IAP 認証情報を取得する。
-func loadProductionIAP(cfg *Config) error {
+// loadStoreIAP は Secret Manager から実ストアのレシート検証に使う認証情報を取得する。
+func loadStoreIAP(cfg *Config) error {
 	switch cfg.AppleEnvironment {
 	case "Production", "Sandbox":
 	default:
-		return fmt.Errorf("config: APPLE_ENVIRONMENT must be %q or %q when IAP_MODE=production, got %q", "Production", "Sandbox", cfg.AppleEnvironment)
+		return fmt.Errorf("config: APPLE_ENVIRONMENT must be %q or %q when IAP_VERIFIER=store, got %q", "Production", "Sandbox", cfg.AppleEnvironment)
 	}
 
 	ctx := context.Background()
@@ -237,8 +258,8 @@ func loadOutboxConfig(cfg *Config) error {
 	return nil
 }
 
-// loadLocalIAP はローカル開発用に環境変数から IAP 認証情報を読み込む (欠落許容)。
-func loadLocalIAP(cfg *Config) {
+// loadStubIAP は stub 検証時に環境変数から IAP 設定を読み込む (欠落許容)。
+func loadStubIAP(cfg *Config) {
 	cfg.AppleKeyID = os.Getenv("APPLE_KEY_ID")
 	cfg.AppleIssuerID = os.Getenv("APPLE_ISSUER_ID")
 	cfg.AppleBundleID = os.Getenv("APPLE_BUNDLE_ID")

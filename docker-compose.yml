@@ -96,7 +96,8 @@ services:
       CARD_PACK_PURCHASED_TOPIC: *card_pack_purchased_topic
       FACTION_ACQUIRED_TOPIC: *faction_acquired_topic
       PREMIUM_UPDATED_TOPIC: *premium_updated_topic
-      IAP_MODE: local
+      IAP_VERIFIER: stub
+      LOG_MODE: local
       OUTBOX_POLL_INTERVAL: 1s
       OUTBOX_BATCH_SIZE: "100"
       OUTBOX_FAILURE_THRESHOLD: "5"
