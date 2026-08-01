@@ -31,7 +31,7 @@ CREATE TABLE shop.products (
   image_url           VARCHAR(200),                          -- 画像URL
   is_active           BOOLEAN NOT NULL,                      -- 販売中フラグ
   PRIMARY KEY (product_id),
-  FOREIGN KEY (requires_product_id) REFERENCES shop.products(product_id)
+  CONSTRAINT products_requires_product_id_fkey FOREIGN KEY (requires_product_id) REFERENCES shop.products(product_id)
 );
 
 -- type='faction_set' 商品の付帯属性。type と本副表の存在/不在の整合は application 層で担保する。
@@ -39,14 +39,14 @@ CREATE TABLE shop.product_faction (
   product_id VARCHAR(50) NOT NULL,                          -- shop.products への FK
   faction    VARCHAR(20) NOT NULL CHECK (faction IN ('SHE', 'Tenki', 'Sugar', 'Tuners')), -- 配布対象 faction
   PRIMARY KEY (product_id),
-  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
+  CONSTRAINT product_faction_product_id_fkey FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
 );
 
 CREATE TABLE shop.product_card_pack (
   product_id   VARCHAR(50) NOT NULL,                        -- 商品ID
   card_pack_id VARCHAR(50) NOT NULL,                        -- カードパックID
   PRIMARY KEY (product_id),
-  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
+  CONSTRAINT product_card_pack_product_id_fkey FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
 );
 
 -- type='subscription' 商品の付帯属性。課金周期等の variant 属性をここに保持する。
@@ -54,7 +54,7 @@ CREATE TABLE shop.product_subscription (
   product_id    VARCHAR(50) NOT NULL,                        -- shop.products への FK
   period_months INT NOT NULL CHECK (period_months > 0),      -- 課金周期 (月数。e.g. 1=monthly, 12=yearly)
   PRIMARY KEY (product_id),
-  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
+  CONSTRAINT product_subscription_product_id_fkey FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE
 );
 
 -- ドメイン (Subscription / OneTimePurchase) と外部識別 (Apple/Google トークン) を
@@ -95,7 +95,7 @@ CREATE TABLE shop.apple_subscription_tokens (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (token),
-  FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
+  CONSTRAINT apple_subscription_tokens_subscription_id_fkey FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
 );
 CREATE TRIGGER trg_apple_subscription_tokens_updated_at BEFORE UPDATE ON shop.apple_subscription_tokens FOR EACH ROW EXECUTE FUNCTION shop.update_updated_at();
 
@@ -105,7 +105,7 @@ CREATE TABLE shop.google_subscription_tokens (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (token),
-  FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
+  CONSTRAINT google_subscription_tokens_subscription_id_fkey FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
 );
 CREATE TRIGGER trg_google_subscription_tokens_updated_at BEFORE UPDATE ON shop.google_subscription_tokens FOR EACH ROW EXECUTE FUNCTION shop.update_updated_at();
 
@@ -114,7 +114,7 @@ CREATE TABLE shop.apple_purchase_tokens (
   purchase_id  BIGINT NOT NULL,                                     -- shop.one_time_purchases への FK
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (token),
-  FOREIGN KEY (purchase_id) REFERENCES shop.one_time_purchases (purchase_id) ON DELETE CASCADE
+  CONSTRAINT apple_purchase_tokens_purchase_id_fkey FOREIGN KEY (purchase_id) REFERENCES shop.one_time_purchases (purchase_id) ON DELETE CASCADE
 );
 
 CREATE TABLE shop.google_purchase_tokens (
@@ -122,7 +122,7 @@ CREATE TABLE shop.google_purchase_tokens (
   purchase_id  BIGINT NOT NULL,                                     -- shop.one_time_purchases への FK
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (token),
-  FOREIGN KEY (purchase_id) REFERENCES shop.one_time_purchases (purchase_id) ON DELETE CASCADE
+  CONSTRAINT google_purchase_tokens_purchase_id_fkey FOREIGN KEY (purchase_id) REFERENCES shop.one_time_purchases (purchase_id) ON DELETE CASCADE
 );
 
 -- =============================================================================
@@ -153,8 +153,8 @@ CREATE TABLE shop.product_cosmetic (
   item_type  VARCHAR(20) NOT NULL,                          -- アイテム種別 (cosmetic_items 参照)
   item_no    BIGINT NOT NULL,                               -- アイテム番号 (cosmetic_items 参照)
   PRIMARY KEY (product_id),
-  FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE,
-  FOREIGN KEY (item_type, item_no) REFERENCES shop.cosmetic_items(item_type, item_no)
+  CONSTRAINT product_cosmetic_product_id_fkey FOREIGN KEY (product_id) REFERENCES shop.products(product_id) ON DELETE CASCADE,
+  CONSTRAINT product_cosmetic_item_type_item_no_fkey FOREIGN KEY (item_type, item_no) REFERENCES shop.cosmetic_items(item_type, item_no)
 );
 
 -- =============================================================================
