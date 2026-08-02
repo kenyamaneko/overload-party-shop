@@ -73,6 +73,8 @@ jobs:
     if: inputs.target == 'api-shop-npm'
     runs-on: ubicloud-standard-2
     timeout-minutes: 20
+    env:
+      PREFIX: packages/api-shop-npm/v
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,19 +89,14 @@ jobs:
       - name: Determine next tag
         id: tag
         env:
-          PREFIX: packages/api-shop-npm/v
           BUMP: ${{ inputs.bump }}
         run: .github/scripts/publish/next-tag.sh
 
       - name: Build & version npm package
         working-directory: packages/api-shop-npm
-        run: |
-          version="${TAG#packages/api-shop-npm/v}"
-          npm install
-          npm version "${version}" --no-git-tag-version
-          npm run build
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+        run: ../../.github/scripts/publish/build-npm.sh
 
       - name: Publish to Cloudsmith
         uses: kenyamaneko/overload-party-common/.github/actions/publish-to-cloudsmith@main
