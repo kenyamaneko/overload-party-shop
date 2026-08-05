@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres/postgrestest"
+	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 	"github.com/stretchr/testify/require"
 )
 
