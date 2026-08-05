@@ -8,8 +8,8 @@ import (
 
 const (
 	EventTypeCardPackPurchased = "card_pack_purchased"
-	EventTypeFactionAcquired = "faction_acquired"
-	EventTypePremiumUpdated = "premium_updated"
+	EventTypeFactionAcquired   = "faction_acquired"
+	EventTypePremiumUpdated    = "premium_updated"
 )
 
 const (
@@ -50,4 +50,3 @@ type PremiumUpdatedEvent struct {
 	PremiumExpiresAt *time.Time `json:"premium_expires_at,omitempty"`
 	Source           string     `json:"source"`
 }
-
