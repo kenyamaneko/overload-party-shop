@@ -89,4 +89,3 @@ func (h *ShopHandler) Subscribe(c *gin.Context) {
 		"expires_at": expiresAt,
 	})
 }
-
