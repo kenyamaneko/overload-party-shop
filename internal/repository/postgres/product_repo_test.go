@@ -31,7 +31,7 @@ func TestProductRepository_GetActiveProducts(t *testing.T) {
 			wantIDs []string
 		}{
 			{
-				name: "active と inactive が混在するとき、active のみ返す",
+				name: "activeとinactiveが混在するとき、activeのみ返す",
 				seeds: []productSeed{
 					{"p1", "Active 1", domain.ProductTypeFactionSet, 100, true},
 					{"p2", "Inactive", domain.ProductTypeFactionSet, 200, false},
@@ -45,7 +45,7 @@ func TestProductRepository_GetActiveProducts(t *testing.T) {
 				wantIDs: nil,
 			},
 			{
-				name: "全て inactive のとき、空を返す",
+				name: "全てinactiveのとき、空を返す",
 				seeds: []productSeed{
 					{"p1", "Inactive 1", domain.ProductTypeFactionSet, 100, false},
 					{"p2", "Inactive 2", domain.ProductTypeCosmetic, 200, false},
@@ -72,7 +72,7 @@ func TestProductRepository_GetActiveProducts(t *testing.T) {
 			})
 		}
 
-		t.Run("4 種別の商品が active のとき、それぞれ type 固有の属性を持つ商品として返る", func(t *testing.T) {
+		t.Run("4種別の商品がactiveのとき、それぞれtype固有の属性を持つ商品として返る", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			seedProduct(t, "p_faction", "Faction Set", domain.ProductTypeFactionSet, 100, true)
 			seedProduct(t, "p_card_pack", "Card Pack", domain.ProductTypeCardPack, 200, true)
@@ -113,11 +113,11 @@ func TestProductRepository_GetProductByID(t *testing.T) {
 	repo := postgres.NewProductRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("product_id による商品取得", func(t *testing.T) {
+	t.Run("product_idによる商品取得", func(t *testing.T) {
 		sharedPg.Truncate(t)
 		seedProduct(t, "faction_she", "SHE Pack", domain.ProductTypeFactionSet, 980, true)
 
-		t.Run("存在する product_id のとき、その商品を返す", func(t *testing.T) {
+		t.Run("存在するproduct_idのとき、その商品を返す", func(t *testing.T) {
 			got, err := repo.GetProductByID(ctx, "faction_she")
 			require.NoError(t, err)
 			assert.Equal(t, "SHE Pack", got.Common().Name)
@@ -128,11 +128,11 @@ func TestProductRepository_GetProductByID(t *testing.T) {
 			productID string
 		}{
 			{
-				name:      "存在しない product_id のとき、ErrNotFound になる",
+				name:      "存在しないproduct_idのとき、ErrNotFoundになる",
 				productID: "missing",
 			},
 			{
-				name:      "空文字の product_id のとき、ErrNotFound になる",
+				name:      "空文字のproduct_idのとき、ErrNotFoundになる",
 				productID: "",
 			},
 		}

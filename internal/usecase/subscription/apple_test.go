@@ -63,7 +63,7 @@ func buildAppleNotificationJWS(notifType, subtype, originalTxnID string, expires
 }
 
 func TestHandleAppleNotification(t *testing.T) {
-	t.Run("Apple 通知の処理", func(t *testing.T) {
+	t.Run("Apple通知の処理", func(t *testing.T) {
 		publishCases := []struct {
 			name            string
 			notifType       string
@@ -72,32 +72,32 @@ func TestHandleAppleNotification(t *testing.T) {
 			expectedPremium bool
 		}{
 			{
-				name:            "active のとき DID_RENEW 通知で、active のまま isPremium=true が publish される",
+				name:            "activeのときDID_RENEW通知で、activeのままisPremium=trueがpublishされる",
 				notifType:       appleNotificationDIDRenew,
 				initialStatus:   domain.SubscriptionStatusActive,
 				expectedStatus:  domain.SubscriptionStatusActive,
 				expectedPremium: true,
 			},
 			{
-				name:           "active のとき EXPIRED 通知で、expired になり isPremium=false が publish される",
+				name:           "activeのときEXPIRED通知で、expiredになりisPremium=falseがpublishされる",
 				notifType:      appleNotificationExpired,
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusExpired,
 			},
 			{
-				name:           "active のとき GRACE_PERIOD_EXPIRED 通知で、expired になり isPremium=false が publish される",
+				name:           "activeのときGRACE_PERIOD_EXPIRED通知で、expiredになりisPremium=falseがpublishされる",
 				notifType:      appleNotificationGracePeriodExpired,
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusExpired,
 			},
 			{
-				name:           "active のとき REVOKE 通知で、revoked になり isPremium=false が publish される",
+				name:           "activeのときREVOKE通知で、revokedになりisPremium=falseがpublishされる",
 				notifType:      appleNotificationRevoke,
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusRevoked,
 			},
 			{
-				name:           "expired のとき EXPIRED 通知で、expired のまま isPremium=false が publish される",
+				name:           "expiredのときEXPIRED通知で、expiredのままisPremium=falseがpublishされる",
 				notifType:      appleNotificationExpired,
 				initialStatus:  domain.SubscriptionStatusExpired,
 				expectedStatus: domain.SubscriptionStatusExpired,
@@ -133,13 +133,13 @@ func TestHandleAppleNotification(t *testing.T) {
 			expectedStatus string
 		}{
 			{
-				name:           "active のとき未知の通知タイプでは、active のまま publish されない",
+				name:           "activeのとき未知の通知タイプでは、activeのままpublishされない",
 				notifType:      "UNKNOWN_TYPE",
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusActive,
 			},
 			{
-				name:           "active のとき DID_CHANGE_RENEWAL_STATUS 通知の AUTO_RENEW_ENABLED では、active のまま publish されない",
+				name:           "activeのときDID_CHANGE_RENEWAL_STATUS通知のAUTO_RENEW_ENABLEDでは、activeのままpublishされない",
 				notifType:      appleNotificationDIDChangeRenewStatus,
 				subtype:        appleSubtypeAutoRenewEnabled,
 				initialStatus:  domain.SubscriptionStatusActive,
@@ -147,21 +147,21 @@ func TestHandleAppleNotification(t *testing.T) {
 			},
 			// AUTO_RENEW_DISABLED は cancelled 遷移だが、current_period_end まで特典維持のため premium-updated を publish しない。
 			{
-				name:           "active のとき DID_CHANGE_RENEWAL_STATUS 通知の AUTO_RENEW_DISABLED では、cancelled になり publish されない",
+				name:           "activeのときDID_CHANGE_RENEWAL_STATUS通知のAUTO_RENEW_DISABLEDでは、cancelledになりpublishされない",
 				notifType:      appleNotificationDIDChangeRenewStatus,
 				subtype:        appleSubtypeAutoRenewDisabled,
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusCancelled,
 			},
 			{
-				name:           "active のとき DID_CHANGE_RENEWAL_STATUS 通知の subtype が空のとき、active のまま publish されない",
+				name:           "activeのときDID_CHANGE_RENEWAL_STATUS通知のsubtypeが空のとき、activeのままpublishされない",
 				notifType:      appleNotificationDIDChangeRenewStatus,
 				subtype:        "",
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusActive,
 			},
 			{
-				name:           "active のとき DID_CHANGE_RENEWAL_STATUS 通知の subtype が未知 (UNKNOWN_SUBTYPE) のとき、active のまま publish されない",
+				name:           "activeのときDID_CHANGE_RENEWAL_STATUS通知のsubtypeが未知 (UNKNOWN_SUBTYPE)のとき、activeのままpublishされない",
 				notifType:      appleNotificationDIDChangeRenewStatus,
 				subtype:        "UNKNOWN_SUBTYPE",
 				initialStatus:  domain.SubscriptionStatusActive,
@@ -186,7 +186,7 @@ func TestHandleAppleNotification(t *testing.T) {
 			})
 		}
 
-		t.Run("active のとき DID_RENEW 通知で、premium-updated が publish され期間終了が通知の有効期限に更新される", func(t *testing.T) {
+		t.Run("activeのときDID_RENEW通知で、premium-updatedがpublishされ期間終了が通知の有効期限に更新される", func(t *testing.T) {
 			env := newAppleTestEnv(t)
 			token := "apple-renew-expiry-token"
 			playerID := "18181818-1818-1818-1818-181818181818"
@@ -207,7 +207,7 @@ func TestHandleAppleNotification(t *testing.T) {
 			assert.True(t, time.UnixMilli(expiresMillis).Equal(*events[0].PremiumExpiresAt))
 		})
 
-		t.Run("存在しない token の通知のとき、ErrSubscriptionNotFound になり publish されない", func(t *testing.T) {
+		t.Run("存在しないtokenの通知のとき、ErrSubscriptionNotFoundになりpublishされない", func(t *testing.T) {
 			env := newAppleTestEnv(t)
 
 			notifPayload := buildAppleNotificationJWS(appleNotificationExpired, "", "nonexistent-token", time.Now().UnixMilli())
@@ -216,14 +216,14 @@ func TestHandleAppleNotification(t *testing.T) {
 			assert.Empty(t, selectPremiumUpdatedEvents(t), "副作用無しの契約")
 		})
 
-		t.Run("JWS として parse できない通知のとき、ErrDecodeNotification になる", func(t *testing.T) {
+		t.Run("JWSとしてparseできない通知のとき、ErrDecodeNotificationになる", func(t *testing.T) {
 			// MockAppleJWSVerifier は no-verify でも 3-part 構造チェックを行うため、不正な入力はここで弾かれる。
 			env := newAppleTestEnv(t)
 			err := env.notifier.HandleNotification(context.Background(), "not-a-valid-jws")
 			assert.ErrorIs(t, err, ErrDecodeNotification)
 		})
 
-		t.Run("内側の signedTransactionInfo が壊れているとき、ErrDecodeTransactionInfo になる", func(t *testing.T) {
+		t.Run("内側のsignedTransactionInfoが壊れているとき、ErrDecodeTransactionInfoになる", func(t *testing.T) {
 			// 通知 body は valid JWS だが、内側 payload は base64 decode できても JSON unmarshal に失敗するバイト列にする。
 			env := newAppleTestEnv(t)
 

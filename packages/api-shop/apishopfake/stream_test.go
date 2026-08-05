@@ -12,8 +12,8 @@ import (
 )
 
 func TestStream(t *testing.T) {
-	t.Run("Stream の consume と handler 結果の公開", func(t *testing.T) {
-		t.Run("handler が nil を返すとき、handled に nil が流れる", func(t *testing.T) {
+	t.Run("Streamのconsumeとhandler結果の公開", func(t *testing.T) {
+		t.Run("handlerがnilを返すとき、handledにnilが流れる", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			stream := apishopfake.NewStream(apishopfake.NewSubscriber(broker), "t")
@@ -28,7 +28,7 @@ func TestStream(t *testing.T) {
 			assert.NoError(t, got)
 		})
 
-		t.Run("handler が error を返すとき、handled に同じ error が流れる", func(t *testing.T) {
+		t.Run("handlerがerrorを返すとき、handledに同じerrorが流れる", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			stream := apishopfake.NewStream(apishopfake.NewSubscriber(broker), "t")
@@ -45,7 +45,7 @@ func TestStream(t *testing.T) {
 			assert.EqualError(t, got, "boom")
 		})
 
-		t.Run("ctx がキャンセルされたとき、Consume は nil を返す", func(t *testing.T) {
+		t.Run("ctxがキャンセルされたとき、Consumeはnilを返す", func(t *testing.T) {
 			// consumer ランナー側で「ctx キャンセル = 正常終了」として扱える契約。
 			broker := apishopfake.NewBroker()
 			stream := apishopfake.NewStream(apishopfake.NewSubscriber(broker), "t")
@@ -66,7 +66,7 @@ func TestStream(t *testing.T) {
 			}
 		})
 
-		t.Run("Consume 開始前に publish しても、eager subscribe でメッセージは失われない", func(t *testing.T) {
+		t.Run("Consume開始前にpublishしても、eager subscribeでメッセージは失われない", func(t *testing.T) {
 			// subscribe は NewStream の時点で行うため「NewStream → publish → Consume 開始」順序でも届く。
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)

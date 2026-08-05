@@ -62,7 +62,7 @@ func buildSelfSignedLeafJWS(t *testing.T, payload []byte) string {
 }
 
 func TestJWSVerifier_Verify(t *testing.T) {
-	t.Run("JWS 検証", func(t *testing.T) {
+	t.Run("JWS検証", func(t *testing.T) {
 		fixedPayloadB64 := base64.RawURLEncoding.EncodeToString([]byte("payload"))
 
 		cases := []struct {
@@ -71,17 +71,17 @@ func TestJWSVerifier_Verify(t *testing.T) {
 			wantErrContains string
 		}{
 			{
-				name:            "3 分割でない (2 分割の) JWS のとき、エラーになる",
+				name:            "3分割でない (2分割の) JWSのとき、エラーになる",
 				buildJWS:        func(t *testing.T) string { return "a.b" },
 				wantErrContains: "invalid JWS format",
 			},
 			{
-				name:            "header が base64 でないとき、エラーになる",
+				name:            "headerがbase64でないとき、エラーになる",
 				buildJWS:        func(t *testing.T) string { return "!!!." + fixedPayloadB64 + ".c2ln" },
 				wantErrContains: "decode JWS header",
 			},
 			{
-				name: "header が JSON でないとき、エラーになる",
+				name: "headerがJSONでないとき、エラーになる",
 				buildJWS: func(t *testing.T) string {
 					header := base64.RawURLEncoding.EncodeToString([]byte("not json"))
 					return header + "." + fixedPayloadB64 + ".c2ln"
@@ -89,7 +89,7 @@ func TestJWSVerifier_Verify(t *testing.T) {
 				wantErrContains: "unmarshal JWS header",
 			},
 			{
-				name: "alg が ES256 でない (RS256) とき、エラーになる",
+				name: "algがES256でない (RS256)とき、エラーになる",
 				buildJWS: func(t *testing.T) string {
 					header := encodeJWSHeader(t, map[string]any{"alg": "RS256", "x5c": []string{"dummy"}})
 					return header + "." + fixedPayloadB64 + ".c2ln"
@@ -97,7 +97,7 @@ func TestJWSVerifier_Verify(t *testing.T) {
 				wantErrContains: "unsupported JWS algorithm: RS256",
 			},
 			{
-				name: "x5c が無いとき、エラーになる",
+				name: "x5cが無いとき、エラーになる",
 				buildJWS: func(t *testing.T) string {
 					header := encodeJWSHeader(t, map[string]any{"alg": "ES256"})
 					return header + "." + fixedPayloadB64 + ".c2ln"
@@ -105,7 +105,7 @@ func TestJWSVerifier_Verify(t *testing.T) {
 				wantErrContains: "missing x5c certificate chain",
 			},
 			{
-				name: "x5c が証明書として parse できないとき、エラーになる",
+				name: "x5cが証明書としてparseできないとき、エラーになる",
 				buildJWS: func(t *testing.T) string {
 					header := encodeJWSHeader(t, map[string]any{
 						"alg": "ES256",
@@ -125,7 +125,7 @@ func TestJWSVerifier_Verify(t *testing.T) {
 			})
 		}
 
-		t.Run("Apple Root CA を根に持たない自己署名チェーンのとき、エラーになる", func(t *testing.T) {
+		t.Run("Apple Root CAを根に持たない自己署名チェーンのとき、エラーになる", func(t *testing.T) {
 			v := NewJWSVerifier()
 			jws := buildSelfSignedLeafJWS(t, []byte("payload"))
 

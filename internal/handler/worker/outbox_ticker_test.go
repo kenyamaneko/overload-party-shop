@@ -40,7 +40,7 @@ func TestNewOutboxTicker(t *testing.T) {
 				wantSub:  "runner is nil",
 			},
 			{
-				name:     "実行間隔が 0 のとき、生成に失敗する",
+				name:     "実行間隔が0のとき、生成に失敗する",
 				runner:   &fakeRunner{},
 				interval: 0,
 				wantSub:  "interval must be positive",

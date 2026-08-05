@@ -44,19 +44,19 @@ func TestSubscriptionRepository_CreateSubscription(t *testing.T) {
 
 	const playerID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
-	t.Run("subscription の作成", func(t *testing.T) {
+	t.Run("subscriptionの作成", func(t *testing.T) {
 		platformCases := []struct {
 			name     string
 			platform string
 			token    string
 		}{
 			{
-				name:     "iOS のとき、apple トークンで作成され検索できる",
+				name:     "iOSのとき、appleトークンで作成され検索できる",
 				platform: domain.PlatformIOS,
 				token:    "apple-orig-tx-1",
 			},
 			{
-				name:     "Android のとき、google トークンで作成され検索できる",
+				name:     "Androidのとき、googleトークンで作成され検索できる",
 				platform: domain.PlatformAndroid,
 				token:    "google-purchase-tok-1",
 			},
@@ -78,14 +78,14 @@ func TestSubscriptionRepository_CreateSubscription(t *testing.T) {
 			})
 		}
 
-		t.Run("unsupported platform のとき、ErrUnsupportedPlatform になる", func(t *testing.T) {
+		t.Run("unsupported platformのとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			sub := newSub(playerID, time.Now().UTC())
 			err := repo.CreateSubscription(ctx, sub, "windows", "tok", newPremiumEvent())
 			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 		})
 
-		t.Run("token が VARCHAR(256) 超過 (257 文字) で失敗するとき、subscription 行が rollback される", func(t *testing.T) {
+		t.Run("tokenがVARCHAR(256)超過 (257文字)で失敗するとき、subscription行がrollbackされる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			sub := newSub(playerID, time.Now().UTC())
 			tooLongToken := strings.Repeat("x", 257)
@@ -109,8 +109,8 @@ func TestSubscriptionRepository_UpdateSubscriptionWithEvent(t *testing.T) {
 	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("更新と outbox イベントの同時書き込み", func(t *testing.T) {
-		t.Run("更新とイベントを同時に書き込むと、行の更新と premium-updated の outbox 行が両方永続化される", func(t *testing.T) {
+	t.Run("更新とoutboxイベントの同時書き込み", func(t *testing.T) {
+		t.Run("更新とイベントを同時に書き込むと、行の更新とpremium-updatedのoutbox行が両方永続化される", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			now := time.Now().UTC().Truncate(time.Microsecond)
 			sub := newSub("11112222-1111-2222-1111-222211112222", now)
@@ -135,7 +135,7 @@ func TestSubscriptionRepository_UpdateSubscriptionWithEvent(t *testing.T) {
 			assert.Equal(t, 1, outboxRows)
 		})
 
-		t.Run("outbox の INSERT が event_id 重複で失敗するとき、行の更新が rollback される", func(t *testing.T) {
+		t.Run("outboxのINSERTがevent_id重複で失敗するとき、行の更新がrollbackされる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			now := time.Now().UTC().Truncate(time.Microsecond)
 			sub := newSub("33334444-3333-4444-3333-444433334444", now)
@@ -164,8 +164,8 @@ func TestSubscriptionRepository_GetLatestSubscription(t *testing.T) {
 	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("最新 subscription の取得", func(t *testing.T) {
-		t.Run("同一プレイヤーに複数あるとき、最も新しい active を返す", func(t *testing.T) {
+	t.Run("最新subscriptionの取得", func(t *testing.T) {
+		t.Run("同一プレイヤーに複数あるとき、最も新しいactiveを返す", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			const playerID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 			base := time.Now().UTC().Add(-72 * time.Hour)
@@ -184,7 +184,7 @@ func TestSubscriptionRepository_GetLatestSubscription(t *testing.T) {
 			assert.Equal(t, domain.SubscriptionStatusActive, latest.Status)
 		})
 
-		t.Run("subscription が無いとき、nil を返す", func(t *testing.T) {
+		t.Run("subscriptionが無いとき、nilを返す", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			got, err := repo.GetLatestSubscription(ctx, "ffffffff-ffff-ffff-ffff-ffffffffffff")
 			require.NoError(t, err)
@@ -197,15 +197,15 @@ func TestSubscriptionRepository_FindSubscriptionByToken(t *testing.T) {
 	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("token による subscription 検索", func(t *testing.T) {
-		t.Run("存在しない token のとき、nil を返す", func(t *testing.T) {
+	t.Run("tokenによるsubscription検索", func(t *testing.T) {
+		t.Run("存在しないtokenのとき、nilを返す", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			got, err := repo.FindSubscriptionByToken(ctx, domain.PlatformIOS, "nonexistent-token")
 			require.NoError(t, err)
 			assert.Nil(t, got)
 		})
 
-		t.Run("unsupported platform のとき、ErrUnsupportedPlatform になる", func(t *testing.T) {
+		t.Run("unsupported platformのとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			_, err := repo.FindSubscriptionByToken(ctx, "windows", "tok")
 			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
@@ -217,8 +217,8 @@ func TestSubscriptionRepository_UpdateSubscription(t *testing.T) {
 	repo := postgres.NewSubscriptionRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("subscription の更新", func(t *testing.T) {
-		t.Run("status と current_period_end を更新するとき、永続化される", func(t *testing.T) {
+	t.Run("subscriptionの更新", func(t *testing.T) {
+		t.Run("statusとcurrent_period_endを更新するとき、永続化される", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			now := time.Now().UTC().Truncate(time.Microsecond)
 			sub := newSub("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", now)

@@ -56,7 +56,7 @@ func encodeRTDN(t *testing.T, payload map[string]interface{}) GoogleRTDNMessage 
 }
 
 func TestHandleGoogleNotification(t *testing.T) {
-	t.Run("Google 通知の処理", func(t *testing.T) {
+	t.Run("Google通知の処理", func(t *testing.T) {
 		publishCases := []struct {
 			name            string
 			notifType       int
@@ -65,26 +65,26 @@ func TestHandleGoogleNotification(t *testing.T) {
 			expectedPremium bool
 		}{
 			{
-				name:            "active のとき googleSubscriptionRenewed 通知で、active のまま isPremium=true が publish される",
+				name:            "activeのときgoogleSubscriptionRenewed通知で、activeのままisPremium=trueがpublishされる",
 				notifType:       googleSubscriptionRenewed,
 				initialStatus:   domain.SubscriptionStatusActive,
 				expectedStatus:  domain.SubscriptionStatusActive,
 				expectedPremium: true,
 			},
 			{
-				name:           "active のとき googleSubscriptionRevoked 通知で、revoked になり isPremium=false が publish される",
+				name:           "activeのときgoogleSubscriptionRevoked通知で、revokedになりisPremium=falseがpublishされる",
 				notifType:      googleSubscriptionRevoked,
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusRevoked,
 			},
 			{
-				name:           "active のとき googleSubscriptionExpired 通知で、expired になり isPremium=false が publish される",
+				name:           "activeのときgoogleSubscriptionExpired通知で、expiredになりisPremium=falseがpublishされる",
 				notifType:      googleSubscriptionExpired,
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusExpired,
 			},
 			{
-				name:            "expired のとき googleSubscriptionRecovered 通知で、active になり isPremium=true が publish される",
+				name:            "expiredのときgoogleSubscriptionRecovered通知で、activeになりisPremium=trueがpublishされる",
 				notifType:       googleSubscriptionRecovered,
 				initialStatus:   domain.SubscriptionStatusExpired,
 				expectedStatus:  domain.SubscriptionStatusActive,
@@ -128,13 +128,13 @@ func TestHandleGoogleNotification(t *testing.T) {
 		}{
 			// googleSubscriptionCanceled は cancelled 遷移だが、current_period_end まで特典維持のため premium-updated を publish しない。
 			{
-				name:           "active のとき googleSubscriptionCanceled 通知で、cancelled になり publish されない",
+				name:           "activeのときgoogleSubscriptionCanceled通知で、cancelledになりpublishされない",
 				notifType:      googleSubscriptionCanceled,
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusCancelled,
 			},
 			{
-				name:           "active のとき未対応の通知タイプ(99)では、active のまま publish されない",
+				name:           "activeのとき未対応の通知タイプ(99)では、activeのままpublishされない",
 				notifType:      99,
 				initialStatus:  domain.SubscriptionStatusActive,
 				expectedStatus: domain.SubscriptionStatusActive,
@@ -165,7 +165,7 @@ func TestHandleGoogleNotification(t *testing.T) {
 			})
 		}
 
-		t.Run("expired のとき サブスクリプション復旧通知で、premium-updated が publish され期間終了が Play Developer API の有効期限に反映される", func(t *testing.T) {
+		t.Run("expiredのとき サブスクリプション復旧通知で、premium-updatedがpublishされ期間終了がPlay Developer APIの有効期限に反映される", func(t *testing.T) {
 			env := newGoogleTestEnv(t)
 			fixedExpiry := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
 			env.expiryFetcher.expiry = fixedExpiry
@@ -193,7 +193,7 @@ func TestHandleGoogleNotification(t *testing.T) {
 			assert.True(t, fixedExpiry.Equal(*events[0].PremiumExpiresAt))
 		})
 
-		t.Run("active のとき サブスクリプション更新通知で、premium-updated が publish され期間終了が Play Developer API の有効期限に反映される", func(t *testing.T) {
+		t.Run("activeのとき サブスクリプション更新通知で、premium-updatedがpublishされ期間終了がPlay Developer APIの有効期限に反映される", func(t *testing.T) {
 			env := newGoogleTestEnv(t)
 			fixedExpiry := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
 			env.expiryFetcher.expiry = fixedExpiry
@@ -227,7 +227,7 @@ func TestHandleGoogleNotification(t *testing.T) {
 			wantErr error
 		}{
 			{
-				name: "subscriptionNotification が無い通知のとき、エラーにならず publish されない",
+				name: "subscriptionNotificationが無い通知のとき、エラーにならずpublishされない",
 				rtdn: map[string]interface{}{
 					"voidedPurchaseNotification": map[string]interface{}{
 						"orderId": "GPA.1234",
@@ -236,7 +236,7 @@ func TestHandleGoogleNotification(t *testing.T) {
 				wantErr: nil,
 			},
 			{
-				name: "存在しない purchaseToken の通知のとき、ErrSubscriptionNotFound になり publish されない",
+				name: "存在しないpurchaseTokenの通知のとき、ErrSubscriptionNotFoundになりpublishされない",
 				rtdn: map[string]interface{}{
 					"subscriptionNotification": map[string]interface{}{
 						"notificationType": googleSubscriptionExpired,
@@ -272,28 +272,28 @@ func TestHandleGoogleNotification(t *testing.T) {
 			wantContains  []string
 		}{
 			{
-				name:          "verifier 未設定のとき googleSubscriptionRenewed 通知で、not configured エラーになり publish されない",
+				name:          "verifier未設定のときgoogleSubscriptionRenewed通知で、not configuredエラーになりpublishされない",
 				notifType:     googleSubscriptionRenewed,
 				initialStatus: domain.SubscriptionStatusActive,
 				configure:     withNilVerifier,
 				wantContains:  []string{"google subscription verifier not configured"},
 			},
 			{
-				name:          "verifier 未設定のとき googleSubscriptionRecovered 通知で、not configured エラーになり publish されない",
+				name:          "verifier未設定のときgoogleSubscriptionRecovered通知で、not configuredエラーになりpublishされない",
 				notifType:     googleSubscriptionRecovered,
 				initialStatus: domain.SubscriptionStatusExpired,
 				configure:     withNilVerifier,
 				wantContains:  []string{"google subscription verifier not configured"},
 			},
 			{
-				name:          "verifier がエラーを返すとき googleSubscriptionRenewed 通知で、expiry 取得エラーになり publish されない",
+				name:          "verifierがエラーを返すときgoogleSubscriptionRenewed通知で、expiry取得エラーになりpublishされない",
 				notifType:     googleSubscriptionRenewed,
 				initialStatus: domain.SubscriptionStatusActive,
 				configure:     withVerifierError,
 				wantContains:  []string{"get subscription expiry from Google"},
 			},
 			{
-				name:          "verifier がエラーを返すとき googleSubscriptionRecovered 通知で、expiry 取得エラーになり publish されない",
+				name:          "verifierがエラーを返すときgoogleSubscriptionRecovered通知で、expiry取得エラーになりpublishされない",
 				notifType:     googleSubscriptionRecovered,
 				initialStatus: domain.SubscriptionStatusExpired,
 				configure:     withVerifierError,
@@ -331,12 +331,12 @@ func TestHandleGoogleNotification(t *testing.T) {
 			wantErr error
 		}{
 			{
-				name:    "data が base64 として壊れているとき、ErrDecodeRTDNData になる",
+				name:    "dataがbase64として壊れているとき、ErrDecodeRTDNDataになる",
 				input:   "!!! not base64 !!!",
 				wantErr: ErrDecodeRTDNData,
 			},
 			{
-				name:    "data の base64 は valid だが JSON でないとき、ErrUnmarshalRTDNData になる",
+				name:    "dataのbase64はvalidだがJSONでないとき、ErrUnmarshalRTDNDataになる",
 				input:   base64.StdEncoding.EncodeToString([]byte("not valid json {{{")),
 				wantErr: ErrUnmarshalRTDNData,
 			},

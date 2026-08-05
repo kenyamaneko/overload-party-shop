@@ -20,7 +20,7 @@ func TestPurchaseLookupRepository_FindPurchaseByToken(t *testing.T) {
 	factionPurchase := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("token による purchase 検索", func(t *testing.T) {
+	t.Run("tokenによるpurchase検索", func(t *testing.T) {
 		const user1 = "11111111-4444-4444-4444-111111111111"
 
 		sharedPg.Truncate(t)
@@ -29,7 +29,7 @@ func TestPurchaseLookupRepository_FindPurchaseByToken(t *testing.T) {
 			"SHE", "faction_set_she", domain.PlatformIOS, "apple-token-1", newFactionPurchaseEvents())
 		require.NoError(t, err)
 
-		t.Run("存在する token のとき、紐付く purchase を返す", func(t *testing.T) {
+		t.Run("存在するtokenのとき、紐付くpurchaseを返す", func(t *testing.T) {
 			got, err := lookup.FindPurchaseByToken(ctx, domain.PlatformIOS, "apple-token-1")
 			require.NoError(t, err)
 			require.NotNil(t, got)
@@ -42,12 +42,12 @@ func TestPurchaseLookupRepository_FindPurchaseByToken(t *testing.T) {
 			token    string
 		}{
 			{
-				name:     "存在しない token のとき、(nil, nil) を返す",
+				name:     "存在しないtokenのとき、(nil, nil)を返す",
 				platform: domain.PlatformIOS,
 				token:    "missing",
 			},
 			{
-				name:     "別プラットフォームで同一文字列の token のとき、見つからず (nil, nil) を返す",
+				name:     "別プラットフォームで同一文字列のtokenのとき、見つからず (nil, nil)を返す",
 				platform: domain.PlatformAndroid,
 				token:    "apple-token-1",
 			},
@@ -61,7 +61,7 @@ func TestPurchaseLookupRepository_FindPurchaseByToken(t *testing.T) {
 			})
 		}
 
-		t.Run("unsupported platform のとき、ErrUnsupportedPlatform になる", func(t *testing.T) {
+		t.Run("unsupported platformのとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
 			_, err := lookup.FindPurchaseByToken(ctx, "windows", "apple-token-1")
 			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 		})

@@ -26,7 +26,7 @@ func (f *fakeAppleNotifier) HandleNotification(_ context.Context, _ string) erro
 }
 
 func TestAppleWebhookHandler(t *testing.T) {
-	t.Run("Apple 通知 webhook の応答変換", func(t *testing.T) {
+	t.Run("Apple通知webhookの応答変換", func(t *testing.T) {
 		validBody := []byte(`{"signedPayload":"fake-jws"}`)
 
 		// webhook handler は usecase 層の「何が起きたか」を HTTP リトライプロトコルに
@@ -41,42 +41,42 @@ func TestAppleWebhookHandler(t *testing.T) {
 			wantCalls  int
 		}{
 			{
-				name:       "notifier が成功するとき、200 で ack する",
+				name:       "notifierが成功するとき、200でackする",
 				body:       validBody,
 				svcErr:     nil,
 				wantStatus: http.StatusOK,
 				wantCalls:  1,
 			},
 			{
-				name:       "usecase が ErrDecodeNotification を wrap したエラーを返すとき、200 で ack してリトライを止める",
+				name:       "usecaseがErrDecodeNotificationをwrapしたエラーを返すとき、200でackしてリトライを止める",
 				body:       validBody,
 				svcErr:     fmt.Errorf("wrap: %w", subscription.ErrDecodeNotification),
 				wantStatus: http.StatusOK,
 				wantCalls:  1,
 			},
 			{
-				name:       "usecase が ErrSubscriptionNotFound を wrap したエラーを返すとき、200 で ack する",
+				name:       "usecaseがErrSubscriptionNotFoundをwrapしたエラーを返すとき、200でackする",
 				body:       validBody,
 				svcErr:     fmt.Errorf("wrap: %w", subscription.ErrSubscriptionNotFound),
 				wantStatus: http.StatusOK,
 				wantCalls:  1,
 			},
 			{
-				name:       "usecase が ErrDecodeTransactionInfo を wrap したエラーを返すとき、200 で ack する",
+				name:       "usecaseがErrDecodeTransactionInfoをwrapしたエラーを返すとき、200でackする",
 				body:       validBody,
 				svcErr:     fmt.Errorf("wrap: %w", subscription.ErrDecodeTransactionInfo),
 				wantStatus: http.StatusOK,
 				wantCalls:  1,
 			},
 			{
-				name:       "usecase が一時的エラーを返すとき、500 でリトライを促す",
+				name:       "usecaseが一時的エラーを返すとき、500でリトライを促す",
 				body:       validBody,
 				svcErr:     errors.New("database unavailable"),
 				wantStatus: http.StatusInternalServerError,
 				wantCalls:  1,
 			},
 			{
-				name:       "body が JSON として parse できないとき、400 になり notifier は呼ばれない",
+				name:       "bodyがJSONとしてparseできないとき、400になりnotifierは呼ばれない",
 				body:       []byte(`not json`),
 				svcErr:     nil,
 				wantStatus: http.StatusBadRequest,

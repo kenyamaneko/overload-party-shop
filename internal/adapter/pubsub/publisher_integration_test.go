@@ -116,8 +116,8 @@ func buildPremiumUpdatedOutbox(t *testing.T, playerID string, isPremium bool, ex
 }
 
 func TestPublishIntegration(t *testing.T) {
-	t.Run("Pub/Sub への配信", func(t *testing.T) {
-		t.Run("card-pack-purchased を配信すると、購読側に送信内容がそのまま届く", func(t *testing.T) {
+	t.Run("Pub/Subへの配信", func(t *testing.T) {
+		t.Run("card-pack-purchasedを配信すると、購読側に送信内容がそのまま届く", func(t *testing.T) {
 			// outbox 行を worker が送出する経路の近似。
 			pub, topics := setupPublisher(t)
 			sub := sharedEmulator.Subscribe(t, topics.cardPackPurchased)
@@ -139,7 +139,7 @@ func TestPublishIntegration(t *testing.T) {
 			assert.Equal(t, "faction_set_tenki", decoded.CardPackID)
 		})
 
-		t.Run("faction-acquired を配信すると、送信内容が保たれる", func(t *testing.T) {
+		t.Run("faction-acquiredを配信すると、送信内容が保たれる", func(t *testing.T) {
 			pub, topics := setupPublisher(t)
 			sub := sharedEmulator.Subscribe(t, topics.factionAcquired)
 
@@ -159,7 +159,7 @@ func TestPublishIntegration(t *testing.T) {
 			assert.Equal(t, "Tenki", decoded.Faction)
 		})
 
-		t.Run("premium 付与 (expires_at あり) を配信すると、送信内容が保たれる", func(t *testing.T) {
+		t.Run("premium付与 (expires_atあり)を配信すると、送信内容が保たれる", func(t *testing.T) {
 			pub, topics := setupPublisher(t)
 			sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
 
@@ -184,7 +184,7 @@ func TestPublishIntegration(t *testing.T) {
 			assert.WithinDuration(t, expiresAt, *decoded.PremiumExpiresAt, time.Second)
 		})
 
-		t.Run("premium 解除 (expires_at=nil) を配信すると、送信内容が保たれる", func(t *testing.T) {
+		t.Run("premium解除 (expires_at=nil)を配信すると、送信内容が保たれる", func(t *testing.T) {
 			pub, topics := setupPublisher(t)
 			sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
 

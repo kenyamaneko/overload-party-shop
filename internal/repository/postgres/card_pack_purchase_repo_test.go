@@ -47,7 +47,7 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 	repo := postgres.NewCardPackPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("card_pack 購入の作成", func(t *testing.T) {
+	t.Run("card_pack購入の作成", func(t *testing.T) {
 		successCases := []struct {
 			name              string
 			seeds             []cardPackPurchaseSeed
@@ -62,7 +62,7 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 			wantOutboxRows    int
 		}{
 			{
-				name:              "新規トークンのとき、purchase / token / owned_card_pack / outbox が作成される",
+				name:              "新規トークンのとき、purchase / token / owned_card_pack / outboxが作成される",
 				seeds:             nil,
 				playerID:          cardPackTestUser1,
 				cardPackID:        "limited_2026_summer",
@@ -75,7 +75,7 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 				wantOutboxRows:    1,
 			},
 			{
-				name: "同一トークンで再作成すると、べき等で created=false になり行が増えない",
+				name: "同一トークンで再作成すると、べき等でcreated=falseになり行が増えない",
 				seeds: []cardPackPurchaseSeed{
 					{cardPackTestUser1, "limited_2026_summer", domain.PlatformIOS, "dup-pack-token"},
 				},
@@ -90,7 +90,7 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 				wantOutboxRows:    1,
 			},
 			{
-				name: "別プレイヤーが同一 pack を新規トークンで買うとき、独立して追加される",
+				name: "別プレイヤーが同一packを新規トークンで買うとき、独立して追加される",
 				seeds: []cardPackPurchaseSeed{
 					{cardPackTestUser1, "limited_2026_summer", domain.PlatformIOS, "tok-u1-pack"},
 				},
@@ -134,13 +134,13 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 			})
 		}
 
-		t.Run("unsupported platform (windows) のとき、ErrUnsupportedPlatform になる", func(t *testing.T) {
+		t.Run("unsupported platform (windows)のとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			_, err := repo.CreatePurchase(ctx, newCardPackTestPurchase(cardPackTestUser1), "limited_2026_summer", "windows", "tok", newCardPackPurchaseEvent())
 			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 		})
 
-		t.Run("token が VARCHAR(256) 超過 (257 文字) で失敗するとき、purchase が rollback され owned_card_pack は作成されない", func(t *testing.T) {
+		t.Run("tokenがVARCHAR(256)超過 (257文字)で失敗するとき、purchaseがrollbackされowned_card_packは作成されない", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			tooLongToken := strings.Repeat("x", 257)
 
@@ -161,7 +161,7 @@ func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
 			assert.Equal(t, 0, ownedPacks)
 		})
 
-		t.Run("owned_card_pack の INSERT が PK 違反で失敗するとき、purchase と token が rollback される", func(t *testing.T) {
+		t.Run("owned_card_packのINSERTがPK違反で失敗するとき、purchaseとtokenがrollbackされる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			_, err := sharedPg.Pool.Exec(ctx,
 				`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
@@ -191,7 +191,7 @@ func TestCardPackPurchaseRepository_HasPlayerCardPack(t *testing.T) {
 	repo := postgres.NewCardPackPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("card_pack 所有判定", func(t *testing.T) {
+	t.Run("card_pack所有判定", func(t *testing.T) {
 		const (
 			owningPlayer = "33333333-3333-3333-3333-333333333333"
 			otherPlayer  = "34444444-4444-4444-4444-444444444444"
@@ -207,7 +207,7 @@ func TestCardPackPurchaseRepository_HasPlayerCardPack(t *testing.T) {
 			wantIsOwned bool
 		}{
 			{
-				name: "所有プレイヤー・所有 pack のとき、所有ありになる",
+				name: "所有プレイヤー・所有packのとき、所有ありになる",
 				seed: func(t *testing.T) {
 					_, err := sharedPg.Pool.Exec(ctx,
 						`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
@@ -238,7 +238,7 @@ func TestCardPackPurchaseRepository_HasPlayerCardPack(t *testing.T) {
 				wantIsOwned: false,
 			},
 			{
-				name: "別 pack の所有行しか無いとき、所有なしになる",
+				name: "別packの所有行しか無いとき、所有なしになる",
 				seed: func(t *testing.T) {
 					_, err := sharedPg.Pool.Exec(ctx,
 						`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
