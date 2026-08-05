@@ -22,8 +22,8 @@ import (
 // newStatusError logic は他 endpoint で十分カバーされるため本テストでは扱わない。
 
 func TestClient_ListPlayerProducts_StatusMapping(t *testing.T) {
-	t.Run("ListPlayerProducts のステータスマッピング", func(t *testing.T) {
-		t.Run("401 を受けたとき、ErrUnauthorized になる", func(t *testing.T) {
+	t.Run("ListPlayerProductsのステータスマッピング", func(t *testing.T) {
+		t.Run("401を受けたとき、ErrUnauthorizedになる", func(t *testing.T) {
 			srv := apishopserverfake.NewServer()
 			defer srv.Close()
 			srv.GetProductsFn = func(_ string) (int, any) { return http.StatusUnauthorized, nil }
@@ -36,44 +36,44 @@ func TestClient_ListPlayerProducts_StatusMapping(t *testing.T) {
 }
 
 func TestClient_PurchaseProduct_StatusMapping(t *testing.T) {
-	t.Run("PurchaseProduct のステータスマッピング", func(t *testing.T) {
+	t.Run("PurchaseProductのステータスマッピング", func(t *testing.T) {
 		cases := []struct {
 			name       string
 			status     int
 			wantTarget error
 		}{
 			{
-				name:       "400 を受けたとき、ErrBadRequest になる",
+				name:       "400を受けたとき、ErrBadRequestになる",
 				status:     http.StatusBadRequest,
 				wantTarget: apishopclient.ErrBadRequest,
 			},
 			{
-				name:       "401 を受けたとき、ErrUnauthorized になる",
+				name:       "401を受けたとき、ErrUnauthorizedになる",
 				status:     http.StatusUnauthorized,
 				wantTarget: apishopclient.ErrUnauthorized,
 			},
 			{
-				name:       "402 を受けたとき、ErrPaymentRequired になる",
+				name:       "402を受けたとき、ErrPaymentRequiredになる",
 				status:     http.StatusPaymentRequired,
 				wantTarget: apishopclient.ErrPaymentRequired,
 			},
 			{
-				name:       "404 を受けたとき、ErrNotFound になる",
+				name:       "404を受けたとき、ErrNotFoundになる",
 				status:     http.StatusNotFound,
 				wantTarget: apishopclient.ErrNotFound,
 			},
 			{
-				name:       "409 を受けたとき、ErrConflict になる",
+				name:       "409を受けたとき、ErrConflictになる",
 				status:     http.StatusConflict,
 				wantTarget: apishopclient.ErrConflict,
 			},
 			{
-				name:       "500 を受けたとき、ErrInternalServer になる",
+				name:       "500を受けたとき、ErrInternalServerになる",
 				status:     http.StatusInternalServerError,
 				wantTarget: apishopclient.ErrInternalServer,
 			},
 			{
-				name:       "503 を受けたとき、ErrInternalServer になる",
+				name:       "503を受けたとき、ErrInternalServerになる",
 				status:     http.StatusServiceUnavailable,
 				wantTarget: apishopclient.ErrInternalServer,
 			},
@@ -96,12 +96,12 @@ func TestClient_PurchaseProduct_StatusMapping(t *testing.T) {
 			wantErrContains string
 		}{
 			{
-				name:            "499 を受けたとき、unexpected status エラーになる",
+				name:            "499を受けたとき、unexpected statusエラーになる",
 				status:          499,
 				wantErrContains: "unexpected status 499",
 			},
 			{
-				name:            "403 を受けたとき、unexpected status エラーになる",
+				name:            "403を受けたとき、unexpected statusエラーになる",
 				status:          http.StatusForbidden,
 				wantErrContains: "unexpected status 403",
 			},
@@ -121,29 +121,29 @@ func TestClient_PurchaseProduct_StatusMapping(t *testing.T) {
 }
 
 func TestClient_SubscribeProduct_StatusMapping(t *testing.T) {
-	t.Run("SubscribeProduct のステータスマッピング", func(t *testing.T) {
+	t.Run("SubscribeProductのステータスマッピング", func(t *testing.T) {
 		cases := []struct {
 			name       string
 			status     int
 			wantTarget error
 		}{
 			{
-				name:       "400 を受けたとき、ErrBadRequest になる",
+				name:       "400を受けたとき、ErrBadRequestになる",
 				status:     http.StatusBadRequest,
 				wantTarget: apishopclient.ErrBadRequest,
 			},
 			{
-				name:       "401 を受けたとき、ErrUnauthorized になる",
+				name:       "401を受けたとき、ErrUnauthorizedになる",
 				status:     http.StatusUnauthorized,
 				wantTarget: apishopclient.ErrUnauthorized,
 			},
 			{
-				name:       "402 を受けたとき、ErrPaymentRequired になる",
+				name:       "402を受けたとき、ErrPaymentRequiredになる",
 				status:     http.StatusPaymentRequired,
 				wantTarget: apishopclient.ErrPaymentRequired,
 			},
 			{
-				name:       "404 を受けたとき、ErrNotFound になる",
+				name:       "404を受けたとき、ErrNotFoundになる",
 				status:     http.StatusNotFound,
 				wantTarget: apishopclient.ErrNotFound,
 			},
@@ -165,7 +165,7 @@ func TestClient_SubscribeProduct_StatusMapping(t *testing.T) {
 
 func TestClient_RequestEditor(t *testing.T) {
 	t.Run("リクエストエディタの適用", func(t *testing.T) {
-		t.Run("WithRequestEditorFn で渡した editor が全リクエストに適用される", func(t *testing.T) {
+		t.Run("WithRequestEditorFnで渡したeditorが全リクエストに適用される", func(t *testing.T) {
 			// X-Internal-Auth header 注入の接続点として SDK が機能することを担保する。
 			var gotHeader string
 			spy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

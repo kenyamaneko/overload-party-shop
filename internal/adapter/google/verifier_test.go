@@ -54,13 +54,13 @@ func TestSplitGoogleToken(t *testing.T) {
 			wantToken     string
 		}{
 			{
-				name:          "productId:token のとき、二分割する",
+				name:          "productId:tokenのとき、二分割する",
 				composite:     "premium_monthly:opaque-token",
 				wantProductID: "premium_monthly",
 				wantToken:     "opaque-token",
 			},
 			{
-				name:          "token 部分に区切り文字を含むとき、最初の : だけで分割する",
+				name:          "token部分に区切り文字を含むとき、最初の : だけで分割する",
 				composite:     "premium_monthly:opaque:token",
 				wantProductID: "premium_monthly",
 				wantToken:     "opaque:token",
@@ -109,7 +109,7 @@ func TestVerifier_VerifyPurchase(t *testing.T) {
 			want   *port.VerifyResult
 		}{
 			{
-				name:   "purchased(0) のとき、トークン由来の productID と order を持つ有効な結果になる",
+				name:   "purchased(0)のとき、トークン由来のproductIDとorderを持つ有効な結果になる",
 				token:  "prod-1:opaque-token",
 				status: http.StatusOK,
 				body:   fmt.Sprintf(`{"purchaseState":%d,"orderId":%q,"purchaseTimeMillis":"%d"}`, purchaseStatePurchased, testOrderID, purchaseTimeMillis),
@@ -121,14 +121,14 @@ func TestVerifier_VerifyPurchase(t *testing.T) {
 				},
 			},
 			{
-				name:   "canceled(1) のとき、無効な結果になる",
+				name:   "canceled(1)のとき、無効な結果になる",
 				token:  "prod-1:opaque-token",
 				status: http.StatusOK,
 				body:   fmt.Sprintf(`{"purchaseState":%d}`, purchaseStateCanceled),
 				want:   &port.VerifyResult{IsValid: false},
 			},
 			{
-				name:   "pending(2) のとき、無効な結果になる",
+				name:   "pending(2)のとき、無効な結果になる",
 				token:  "prod-1:opaque-token",
 				status: http.StatusOK,
 				body:   fmt.Sprintf(`{"purchaseState":%d}`, purchaseStatePending),
@@ -152,14 +152,14 @@ func TestVerifier_VerifyPurchase(t *testing.T) {
 			want   *port.VerifyResult
 		}{
 			{
-				name:   "Google Play API がエラー応答を返すとき、無効な結果とエラーになる",
+				name:   "Google Play APIがエラー応答を返すとき、無効な結果とエラーになる",
 				token:  "prod-1:opaque-token",
 				status: http.StatusNotFound,
 				body:   `{}`,
 				want:   &port.VerifyResult{IsValid: false},
 			},
 			{
-				name:   "区切り文字の無いトークンのとき、API 呼び出し前に無効な結果とエラーになる",
+				name:   "区切り文字の無いトークンのとき、API呼び出し前に無効な結果とエラーになる",
 				token:  "no-separator",
 				status: http.StatusOK,
 				body:   `{}`,
@@ -201,7 +201,7 @@ func TestVerifier_VerifySubscription(t *testing.T) {
 				},
 			},
 			{
-				name:    "Google Play API がエラー応答を返すとき、無効な結果とエラーになる",
+				name:    "Google Play APIがエラー応答を返すとき、無効な結果とエラーになる",
 				token:   "premium_monthly:opaque-token",
 				status:  http.StatusInternalServerError,
 				body:    `{}`,
@@ -209,7 +209,7 @@ func TestVerifier_VerifySubscription(t *testing.T) {
 				wantErr: true,
 			},
 			{
-				name:    "区切り文字の無いトークンのとき、API 呼び出し前に無効な結果とエラーになる",
+				name:    "区切り文字の無いトークンのとき、API呼び出し前に無効な結果とエラーになる",
 				token:   "no-separator",
 				status:  http.StatusOK,
 				body:    `{}`,
@@ -246,7 +246,7 @@ func TestSubVerifier_GetSubscriptionExpiry(t *testing.T) {
 				want:   time.UnixMilli(expiryTimeMillis),
 			},
 			{
-				name:    "Google Play API がエラー応答を返すとき、ゼロ値とエラーになる",
+				name:    "Google Play APIがエラー応答を返すとき、ゼロ値とエラーになる",
 				token:   "premium_monthly:opaque-token",
 				status:  http.StatusInternalServerError,
 				body:    `{}`,
@@ -254,7 +254,7 @@ func TestSubVerifier_GetSubscriptionExpiry(t *testing.T) {
 				wantErr: true,
 			},
 			{
-				name:    "区切り文字の無いトークンのとき、API 呼び出し前にゼロ値とエラーになる",
+				name:    "区切り文字の無いトークンのとき、API呼び出し前にゼロ値とエラーになる",
 				token:   "no-separator",
 				status:  http.StatusOK,
 				body:    `{}`,

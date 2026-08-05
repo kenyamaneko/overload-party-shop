@@ -65,7 +65,7 @@ func TestVerifier_VerifyPurchase(t *testing.T) {
 			wantErr  bool
 		}{
 			{
-				name:   "200 と検証済み transaction のとき、有効な結果を写像する",
+				name:   "200と検証済みtransactionのとき、有効な結果を写像する",
 				status: http.StatusOK,
 				body:   `{"signedTransactionInfo":"signed-txn"}`,
 				verifyFn: func(string) ([]byte, error) {
@@ -88,7 +88,7 @@ func TestVerifier_VerifyPurchase(t *testing.T) {
 				wantErr:  true,
 			},
 			{
-				name:     "JWS 署名検証に失敗するとき、結果を返さずエラーを伝播する",
+				name:     "JWS署名検証に失敗するとき、結果を返さずエラーを伝播する",
 				status:   http.StatusOK,
 				body:     `{"signedTransactionInfo":"signed-txn"}`,
 				verifyFn: func(string) ([]byte, error) { return nil, errors.New("x5c chain verify failed") },
@@ -96,7 +96,7 @@ func TestVerifier_VerifyPurchase(t *testing.T) {
 				wantErr:  true,
 			},
 			{
-				name:     "署名は通るが payload が JSON でないとき、エラーになる",
+				name:     "署名は通るがpayloadがJSONでないとき、エラーになる",
 				status:   http.StatusOK,
 				body:     `{"signedTransactionInfo":"signed-txn"}`,
 				verifyFn: func(string) ([]byte, error) { return []byte("not-json"), nil },
@@ -127,7 +127,7 @@ func TestVerifier_VerifySubscription(t *testing.T) {
 			want     *port.SubscriptionInfo
 		}{
 			{
-				name:   "200 と検証済み transaction/renewal のとき、有効なサブスク結果を写像する",
+				name:   "200と検証済みtransaction/renewalのとき、有効なサブスク結果を写像する",
 				status: http.StatusOK,
 				body:   subBody,
 				verifyFn: func(string) ([]byte, error) {
@@ -142,7 +142,7 @@ func TestVerifier_VerifySubscription(t *testing.T) {
 				},
 			},
 			{
-				name:   "autoRenewStatus が 1 以外のとき、自動更新は false になる",
+				name:   "autoRenewStatusが1以外のとき、自動更新はfalseになる",
 				status: http.StatusOK,
 				body:   subBody,
 				verifyFn: func(string) ([]byte, error) {
@@ -195,7 +195,7 @@ func TestVerifier_VerifySubscription(t *testing.T) {
 				want:     &port.SubscriptionInfo{IsValid: false},
 			},
 			{
-				name:     "JWS 署名検証に失敗するとき、結果を返さずエラーを伝播する",
+				name:     "JWS署名検証に失敗するとき、結果を返さずエラーを伝播する",
 				status:   http.StatusOK,
 				body:     subBody,
 				verifyFn: func(string) ([]byte, error) { return nil, errors.New("x5c chain verify failed") },

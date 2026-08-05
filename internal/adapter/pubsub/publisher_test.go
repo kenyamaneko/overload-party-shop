@@ -40,13 +40,13 @@ func TestNew(t *testing.T) {
 			wantSubs  string
 		}{
 			{
-				name:      "プロジェクト ID が空のとき、生成に失敗する",
+				name:      "プロジェクトIDが空のとき、生成に失敗する",
 				projectID: "",
 				override:  func(*publisherTopics) {},
 				wantSubs:  "projectID is empty",
 			},
 			{
-				name:      "card-pack-purchased topic 名が空のとき、生成に失敗する",
+				name:      "card-pack-purchased topic名が空のとき、生成に失敗する",
 				projectID: "test-project",
 				override: func(topics *publisherTopics) {
 					topics.cardPackPurchased = ""
@@ -54,7 +54,7 @@ func TestNew(t *testing.T) {
 				wantSubs: "all topic names are required",
 			},
 			{
-				name:      "faction-acquired topic 名が空のとき、生成に失敗する",
+				name:      "faction-acquired topic名が空のとき、生成に失敗する",
 				projectID: "test-project",
 				override: func(topics *publisherTopics) {
 					topics.factionAcquired = ""
@@ -62,7 +62,7 @@ func TestNew(t *testing.T) {
 				wantSubs: "all topic names are required",
 			},
 			{
-				name:      "premium-updated topic 名が空のとき、生成に失敗する",
+				name:      "premium-updated topic名が空のとき、生成に失敗する",
 				projectID: "test-project",
 				override: func(topics *publisherTopics) {
 					topics.premiumUpdated = ""

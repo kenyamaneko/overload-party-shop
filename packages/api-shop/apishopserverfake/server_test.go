@@ -15,7 +15,7 @@ import (
 
 func TestServer(t *testing.T) {
 	t.Run("サーバフェイク", func(t *testing.T) {
-		t.Run("Fn 未設定の endpoint は既定応答を返す", func(t *testing.T) {
+		t.Run("Fn未設定のendpointは既定応答を返す", func(t *testing.T) {
 			// consumer テストが setup を書かなくても最低限の HTTP 応答が得られる契約。
 			tests := []struct {
 				name       string
@@ -25,28 +25,28 @@ func TestServer(t *testing.T) {
 				wantStatus int
 			}{
 				{
-					name:       "SelectFaction は 200 で空 Response を返す",
+					name:       "SelectFactionは200で空Responseを返す",
 					method:     http.MethodPost,
 					path:       "/internal/v1/players/p-1/select-faction",
 					reqBody:    []byte(`{"faction":"Tenki"}`),
 					wantStatus: http.StatusOK,
 				},
 				{
-					name:       "GetProducts は 200 で空配列を返す",
+					name:       "GetProductsは200で空配列を返す",
 					method:     http.MethodGet,
 					path:       "/api/v1/shop/products",
 					reqBody:    nil,
 					wantStatus: http.StatusOK,
 				},
 				{
-					name:       "Purchase は 204 No Content を返す",
+					name:       "Purchaseは204 No Contentを返す",
 					method:     http.MethodPost,
 					path:       "/api/v1/shop/purchase",
 					reqBody:    []byte(`{}`),
 					wantStatus: http.StatusNoContent,
 				},
 				{
-					name:       "Subscribe は 200 で空 Response を返す",
+					name:       "Subscribeは200で空Responseを返す",
 					method:     http.MethodPost,
 					path:       "/api/v1/shop/subscribe",
 					reqBody:    []byte(`{}`),
@@ -71,7 +71,7 @@ func TestServer(t *testing.T) {
 			}
 		})
 
-		t.Run("SelectFactionFn は playerID と request body を typed で受け取れる", func(t *testing.T) {
+		t.Run("SelectFactionFnはplayerIDとrequest bodyをtypedで受け取れる", func(t *testing.T) {
 			srv := apishopserverfake.NewServer()
 			defer srv.Close()
 
@@ -94,7 +94,7 @@ func TestServer(t *testing.T) {
 			assert.Equal(t, "SHE", gotFaction)
 		})
 
-		t.Run("PurchaseFn は X-Player-Id ヘッダ由来の playerID と apishop.PurchaseRequest を typed で受け取れる", func(t *testing.T) {
+		t.Run("PurchaseFnはX-Player-Idヘッダ由来のplayerIDとapishop.PurchaseRequestをtypedで受け取れる", func(t *testing.T) {
 			srv := apishopserverfake.NewServer()
 			defer srv.Close()
 
@@ -121,7 +121,7 @@ func TestServer(t *testing.T) {
 			assert.Equal(t, "tok-1", gotReq.PurchaseToken)
 		})
 
-		t.Run("SubscribeFn は ExpiresAt を *time.Time として shopclient が decode できる形で返す", func(t *testing.T) {
+		t.Run("SubscribeFnはExpiresAtを *time.Timeとしてshopclientがdecodeできる形で返す", func(t *testing.T) {
 			srv := apishopserverfake.NewServer()
 			defer srv.Close()
 

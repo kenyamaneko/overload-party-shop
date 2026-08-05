@@ -58,7 +58,7 @@ func TestItemPurchaseRepository_CreatePurchase(t *testing.T) {
 		token    string
 	}
 
-	t.Run("item 購入の作成", func(t *testing.T) {
+	t.Run("item購入の作成", func(t *testing.T) {
 		successCases := []struct {
 			name          string
 			seeds         []seed
@@ -71,7 +71,7 @@ func TestItemPurchaseRepository_CreatePurchase(t *testing.T) {
 			wantItems     int
 		}{
 			{
-				name:          "新規トークンのとき、purchase / token / item が作成される",
+				name:          "新規トークンのとき、purchase / token / itemが作成される",
 				playerID:      user1,
 				itemNo:        1,
 				platform:      domain.PlatformIOS,
@@ -81,7 +81,7 @@ func TestItemPurchaseRepository_CreatePurchase(t *testing.T) {
 				wantItems:     1,
 			},
 			{
-				name: "同一ユーザーの既存トークンのとき、べき等で created=false、item も増えない",
+				name: "同一ユーザーの既存トークンのとき、べき等でcreated=false、itemも増えない",
 				seeds: []seed{
 					{user1, 1, domain.PlatformIOS, "dup-token"},
 				},
@@ -94,7 +94,7 @@ func TestItemPurchaseRepository_CreatePurchase(t *testing.T) {
 				wantItems:     1,
 			},
 			{
-				name: "別ユーザーが同一 item を別トークンで買うとき、追加される",
+				name: "別ユーザーが同一itemを別トークンで買うとき、追加される",
 				seeds: []seed{
 					{user1, 1, domain.PlatformIOS, "tok-u1"},
 				},
@@ -123,19 +123,19 @@ func TestItemPurchaseRepository_CreatePurchase(t *testing.T) {
 			})
 		}
 
-		t.Run("unsupported platform のとき、ErrUnsupportedPlatform になる", func(t *testing.T) {
+		t.Run("unsupported platformのとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			_, err := repo.CreatePurchase(ctx, newPurchase(user1), newItem(user1, 1), "windows", "tok")
 			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 		})
 
-		t.Run("player_id が空文字 (UUID 不正) のとき、エラーになる", func(t *testing.T) {
+		t.Run("player_idが空文字 (UUID不正)のとき、エラーになる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			_, err := repo.CreatePurchase(ctx, newPurchase(""), newItem("", 1), domain.PlatformIOS, "tok")
 			assert.Error(t, err)
 		})
 
-		t.Run("player_item の INSERT が PK 違反で失敗するとき、purchase と token が rollback される", func(t *testing.T) {
+		t.Run("player_itemのINSERTがPK違反で失敗するとき、purchaseとtokenがrollbackされる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			const playerID = "99999999-9999-9999-9999-999999999999"
 			seedPlayerItem(t, playerID, domain.ItemTypePlaymat, 1, time.Now().UTC())
@@ -162,7 +162,7 @@ func TestItemPurchaseRepository_CreatePurchase(t *testing.T) {
 			assert.Equal(t, 1, items, "既存seed分のみ残る")
 		})
 
-		t.Run("token が VARCHAR(256) 超過で失敗するとき、purchase / token / item が作成されない", func(t *testing.T) {
+		t.Run("tokenがVARCHAR(256)超過で失敗するとき、purchase / token / itemが作成されない", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			const playerID = "88888888-8888-8888-8888-888888888888"
 			tooLongToken := strings.Repeat("y", 257)
@@ -194,7 +194,7 @@ func TestItemPurchaseRepository_ListPlayerItems(t *testing.T) {
 	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("所有 item 一覧の取得", func(t *testing.T) {
+	t.Run("所有item一覧の取得", func(t *testing.T) {
 		const (
 			userA = "aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa"
 			userB = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
@@ -213,17 +213,17 @@ func TestItemPurchaseRepository_ListPlayerItems(t *testing.T) {
 			wantCount int
 		}{
 			{
-				name:      "userA が 2 件所有するとき、2 件返す",
+				name:      "userAが2件所有するとき、2件返す",
 				playerID:  userA,
 				wantCount: 2,
 			},
 			{
-				name:      "userB が 1 件所有するとき、1 件返す",
+				name:      "userBが1件所有するとき、1件返す",
 				playerID:  userB,
 				wantCount: 1,
 			},
 			{
-				name:      "所有行の無い userC のとき、空を返す",
+				name:      "所有行の無いuserCのとき、空を返す",
 				playerID:  userC,
 				wantCount: 0,
 			},
@@ -237,7 +237,7 @@ func TestItemPurchaseRepository_ListPlayerItems(t *testing.T) {
 			})
 		}
 
-		t.Run("player_id が空文字 (UUID 不正) のとき、エラーになる", func(t *testing.T) {
+		t.Run("player_idが空文字 (UUID不正)のとき、エラーになる", func(t *testing.T) {
 			_, err := repo.ListPlayerItems(ctx, "")
 			assert.Error(t, err)
 		})
@@ -248,7 +248,7 @@ func TestItemPurchaseRepository_HasPlayerItem(t *testing.T) {
 	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("item 所有判定", func(t *testing.T) {
+	t.Run("item所有判定", func(t *testing.T) {
 		const (
 			userA = "aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa"
 			userB = "bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb"
@@ -267,28 +267,28 @@ func TestItemPurchaseRepository_HasPlayerItem(t *testing.T) {
 			want     bool
 		}{
 			{
-				name:     "所有 item のとき、true になる",
+				name:     "所有itemのとき、trueになる",
 				playerID: userA,
 				itemType: domain.ItemTypePlaymat,
 				itemNo:   1,
 				want:     true,
 			},
 			{
-				name:     "別 item_no のとき、false になる",
+				name:     "別item_noのとき、falseになる",
 				playerID: userA,
 				itemType: domain.ItemTypePlaymat,
 				itemNo:   999,
 				want:     false,
 			},
 			{
-				name:     "別 item_type のとき、false になる",
+				name:     "別item_typeのとき、falseになる",
 				playerID: userA,
 				itemType: domain.ItemTypeSleeve,
 				itemNo:   1,
 				want:     false,
 			},
 			{
-				name:     "別ユーザーの所有は検出せず、false になる",
+				name:     "別ユーザーの所有は検出せず、falseになる",
 				playerID: userA,
 				itemType: domain.ItemTypeIcon,
 				itemNo:   9,
@@ -304,7 +304,7 @@ func TestItemPurchaseRepository_HasPlayerItem(t *testing.T) {
 			})
 		}
 
-		t.Run("player_id が空文字 (UUID 不正) のとき、エラーになる", func(t *testing.T) {
+		t.Run("player_idが空文字 (UUID不正)のとき、エラーになる", func(t *testing.T) {
 			_, err := repo.HasPlayerItem(ctx, "", domain.ItemTypePlaymat, 1)
 			assert.Error(t, err)
 		})

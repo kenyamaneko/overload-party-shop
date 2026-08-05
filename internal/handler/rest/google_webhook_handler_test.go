@@ -26,7 +26,7 @@ func (f *fakeGoogleNotifier) HandleNotification(_ context.Context, _ subscriptio
 }
 
 func TestGoogleWebhookHandler(t *testing.T) {
-	t.Run("Google 通知 webhook の応答変換", func(t *testing.T) {
+	t.Run("Google通知webhookの応答変換", func(t *testing.T) {
 		validBody := []byte(`{"message":{"data":"fake-base64"}}`)
 
 		tests := []struct {
@@ -37,34 +37,34 @@ func TestGoogleWebhookHandler(t *testing.T) {
 			wantCalls  int
 		}{
 			{
-				name:       "notifier が成功するとき、200 で ack する",
+				name:       "notifierが成功するとき、200でackする",
 				body:       validBody,
 				wantStatus: http.StatusOK,
 				wantCalls:  1,
 			},
 			{
-				name:       "usecase が ErrDecodeRTDNData を wrap したエラーを返すとき、200 で ack する",
+				name:       "usecaseがErrDecodeRTDNDataをwrapしたエラーを返すとき、200でackする",
 				body:       validBody,
 				svcErr:     fmt.Errorf("wrap: %w", subscription.ErrDecodeRTDNData),
 				wantStatus: http.StatusOK,
 				wantCalls:  1,
 			},
 			{
-				name:       "usecase が ErrUnmarshalRTDNData を wrap したエラーを返すとき、200 で ack する",
+				name:       "usecaseがErrUnmarshalRTDNDataをwrapしたエラーを返すとき、200でackする",
 				body:       validBody,
 				svcErr:     fmt.Errorf("wrap: %w", subscription.ErrUnmarshalRTDNData),
 				wantStatus: http.StatusOK,
 				wantCalls:  1,
 			},
 			{
-				name:       "usecase が一時的エラーを返すとき、500 になる",
+				name:       "usecaseが一時的エラーを返すとき、500になる",
 				body:       validBody,
 				svcErr:     errors.New("pubsub timeout"),
 				wantStatus: http.StatusInternalServerError,
 				wantCalls:  1,
 			},
 			{
-				name:       "body が JSON として parse できないとき、400 になり notifier は呼ばれない",
+				name:       "bodyがJSONとしてparseできないとき、400になりnotifierは呼ばれない",
 				body:       []byte(`not json`),
 				wantStatus: http.StatusBadRequest,
 				wantCalls:  0,

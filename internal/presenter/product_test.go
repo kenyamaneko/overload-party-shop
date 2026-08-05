@@ -13,7 +13,7 @@ import (
 )
 
 func TestToProductResponse(t *testing.T) {
-	t.Run("ProductResponse の組み立て", func(t *testing.T) {
+	t.Run("ProductResponseの組み立て", func(t *testing.T) {
 		desc := "説明"
 		img := "https://example.com/p.png"
 		tests := []struct {
@@ -23,7 +23,7 @@ func TestToProductResponse(t *testing.T) {
 			wantContent string
 		}{
 			{
-				name: "faction_set のとき、faction が content にエンコードされる",
+				name: "faction_setのとき、factionがcontentにエンコードされる",
 				view: domain.FactionSetProduct{
 					Product: domain.Product{
 						ProductID:   "faction_tenki",
@@ -40,7 +40,7 @@ func TestToProductResponse(t *testing.T) {
 				wantContent: `{"faction":"Tenki"}`,
 			},
 			{
-				name: "cosmetic のとき、item_type と item_no が content にエンコードされる",
+				name: "cosmeticのとき、item_typeとitem_noがcontentにエンコードされる",
 				view: domain.CosmeticProduct{
 					Product: domain.Product{
 						ProductID: "stamp_001",
@@ -56,7 +56,7 @@ func TestToProductResponse(t *testing.T) {
 				wantContent: `{"item_type":"stamp","item_no":1}`,
 			},
 			{
-				name: "subscription のとき、content が空オブジェクトになる",
+				name: "subscriptionのとき、contentが空オブジェクトになる",
 				view: domain.SubscriptionProduct{
 					Product: domain.Product{
 						ProductID: "premium_monthly",
@@ -89,7 +89,7 @@ func TestToProductResponse(t *testing.T) {
 			})
 		}
 
-		t.Run("description と imageURL が未設定のとき、wire でも nil で透過する", func(t *testing.T) {
+		t.Run("descriptionとimageURLが未設定のとき、wireでもnilで透過する", func(t *testing.T) {
 			in := domain.ProductWithOwnership{
 				ProductView: domain.SubscriptionProduct{
 					Product: domain.Product{
@@ -113,7 +113,7 @@ func TestToProductResponse(t *testing.T) {
 }
 
 func TestToProductResponses(t *testing.T) {
-	t.Run("ProductResponse スライスへの変換", func(t *testing.T) {
+	t.Run("ProductResponseスライスへの変換", func(t *testing.T) {
 		t.Run("複数件のとき、入力順のまま各要素が変換される", func(t *testing.T) {
 			in := []domain.ProductWithOwnership{
 				{
@@ -143,7 +143,7 @@ func TestToProductResponses(t *testing.T) {
 			assert.False(t, got[1].IsOwned)
 		})
 
-		t.Run("nil が渡されたとき、nil ではなく空スライスが返る", func(t *testing.T) {
+		t.Run("nilが渡されたとき、nilではなく空スライスが返る", func(t *testing.T) {
 			got, err := presenter.ToProductResponses(nil)
 			require.NoError(t, err)
 			// JSON エンコード時に null ではなく [] にするため空 slice を返す

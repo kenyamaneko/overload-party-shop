@@ -12,7 +12,7 @@ import (
 )
 
 func TestEnumDriftAgainstOpenAPISpec(t *testing.T) {
-	t.Run("domain と openapi.yaml の enum 整合", func(t *testing.T) {
+	t.Run("domainとopenapi.yamlのenum整合", func(t *testing.T) {
 		// SSoT は domain 側。openapi.yaml は外部公開ドキュメントとして同じ値集合を持つ必要があり、
 		// 値の追加・削除・rename が片方だけで起きれば本テストが失敗する。
 		spec := loadOpenAPISpec(t)
@@ -23,7 +23,7 @@ func TestEnumDriftAgainstOpenAPISpec(t *testing.T) {
 			want       []string
 		}{
 			{
-				name:       "ProductType enum が domain と openapi.yaml で一致する",
+				name:       "ProductType enumがdomainとopenapi.yamlで一致する",
 				schemaName: "ProductType",
 				want: []string{
 					domain.ProductTypeFactionSet,
@@ -33,7 +33,7 @@ func TestEnumDriftAgainstOpenAPISpec(t *testing.T) {
 				},
 			},
 			{
-				name:       "Platform enum が domain と openapi.yaml で一致する",
+				name:       "Platform enumがdomainとopenapi.yamlで一致する",
 				schemaName: "Platform",
 				want: []string{
 					domain.PlatformIOS,

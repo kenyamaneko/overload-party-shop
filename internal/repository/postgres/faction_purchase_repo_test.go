@@ -56,7 +56,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("faction 購入の作成", func(t *testing.T) {
+	t.Run("faction購入の作成", func(t *testing.T) {
 		successCases := []struct {
 			name             string
 			seeds            []factionPurchaseSeed
@@ -71,7 +71,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			wantCardPackRows int
 		}{
 			{
-				name:             "新規トークンのとき、purchase / token / owned_faction / owned_card_pack が作成される",
+				name:             "新規トークンのとき、purchase / token / owned_faction / owned_card_packが作成される",
 				seeds:            nil,
 				playerID:         factionTestUser1,
 				faction:          "Tenki",
@@ -84,7 +84,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 				wantCardPackRows: 1,
 			},
 			{
-				name: "同一ユーザーの既存トークンのとき、べき等で created=false、owned 系も増えない",
+				name: "同一ユーザーの既存トークンのとき、べき等でcreated=false、owned系も増えない",
 				seeds: []factionPurchaseSeed{
 					{factionTestUser1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "dup-token"},
 				},
@@ -99,7 +99,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 				wantCardPackRows: 1,
 			},
 			{
-				name: "別ユーザーが同一トークンを使うとき、べき等で最初の purchase に紐付いたまま",
+				name: "別ユーザーが同一トークンを使うとき、べき等で最初のpurchaseに紐付いたまま",
 				seeds: []factionPurchaseSeed{
 					{factionTestUser1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "shared-token"},
 				},
@@ -114,7 +114,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 				wantCardPackRows: 1,
 			},
 			{
-				name: "別ユーザーが同一 faction を新規トークンで買うとき、独立して追加される",
+				name: "別ユーザーが同一factionを新規トークンで買うとき、独立して追加される",
 				seeds: []factionPurchaseSeed{
 					{factionTestUser1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "tok-u1"},
 				},
@@ -161,12 +161,12 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			faction  string
 		}{
 			{
-				name:     "player_id が空文字 (UUID 不正) のとき、エラーになる",
+				name:     "player_idが空文字 (UUID不正)のとき、エラーになる",
 				playerID: "",
 				faction:  "Tenki",
 			},
 			{
-				name:     "不正な faction 文字列のとき、CHECK 制約でエラーになる",
+				name:     "不正なfaction文字列のとき、CHECK制約でエラーになる",
 				playerID: factionTestUser1,
 				faction:  "InvalidFaction",
 			},
@@ -180,13 +180,13 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			})
 		}
 
-		t.Run("unsupported platform のとき、ErrUnsupportedPlatform になる", func(t *testing.T) {
+		t.Run("unsupported platformのとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			_, err := repo.CreatePurchase(ctx, newFactionTestPurchase(factionTestUser1), "Tenki", "faction_set_tenki", "windows", "tok", newFactionPurchaseEvents())
 			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 		})
 
-		t.Run("owned_faction の INSERT が PK 違反で失敗するとき、purchase と token が rollback される", func(t *testing.T) {
+		t.Run("owned_factionのINSERTがPK違反で失敗するとき、purchaseとtokenがrollbackされる", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			const playerID = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
 			seedOwnedFaction(t, playerID, "Tenki")
@@ -215,7 +215,7 @@ func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
 			assert.Equal(t, 1, owned, "既存seed分のみ、新規INSERTは反映されない")
 		})
 
-		t.Run("token が VARCHAR(256) 超過で失敗するとき、purchase が rollback され owned_faction は INSERT されない", func(t *testing.T) {
+		t.Run("tokenがVARCHAR(256)超過で失敗するとき、purchaseがrollbackされowned_factionはINSERTされない", func(t *testing.T) {
 			sharedPg.Truncate(t)
 			const playerID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
 			tooLongToken := strings.Repeat("x", 257)
@@ -250,7 +250,7 @@ func TestFactionPurchaseRepository_ListOwnedFactions(t *testing.T) {
 	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
 	ctx := context.Background()
 
-	t.Run("所有 faction 一覧の取得", func(t *testing.T) {
+	t.Run("所有faction一覧の取得", func(t *testing.T) {
 		const (
 			userA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 			userB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -268,17 +268,17 @@ func TestFactionPurchaseRepository_ListOwnedFactions(t *testing.T) {
 			want     []string
 		}{
 			{
-				name:     "userA が SHE のみ所有するとき、SHE を返す",
+				name:     "userAがSHEのみ所有するとき、SHEを返す",
 				playerID: userA,
 				want:     []string{"SHE"},
 			},
 			{
-				name:     "userB が SHE と Tenki を所有するとき、両方を返す",
+				name:     "userBがSHEとTenkiを所有するとき、両方を返す",
 				playerID: userB,
 				want:     []string{"SHE", "Tenki"},
 			},
 			{
-				name:     "所有行の無い userC のとき、空を返す",
+				name:     "所有行の無いuserCのとき、空を返す",
 				playerID: userC,
 				want:     nil,
 			},
@@ -292,7 +292,7 @@ func TestFactionPurchaseRepository_ListOwnedFactions(t *testing.T) {
 			})
 		}
 
-		t.Run("player_id が空文字 (UUID 不正) のとき、エラーになる", func(t *testing.T) {
+		t.Run("player_idが空文字 (UUID不正)のとき、エラーになる", func(t *testing.T) {
 			_, err := repo.ListOwnedFactions(ctx, "")
 			assert.Error(t, err)
 		})

@@ -224,7 +224,7 @@ func insertSubscription(t *testing.T, sub *domain.Subscription, platform, purcha
 
 func TestPurchase(t *testing.T) {
 	t.Run("購入", func(t *testing.T) {
-		t.Run("faction_set 商品を購入したとき", func(t *testing.T) {
+		t.Run("faction_set商品を購入したとき", func(t *testing.T) {
 			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
 					return &port.VerifyResult{IsValid: true, TransactionID: "txn-123", ProductID: "faction_tenki"}, nil
@@ -235,34 +235,34 @@ func TestPurchase(t *testing.T) {
 			playerID := "11111111-1111-1111-1111-111111111111"
 			require.NoError(t, env.svc.Purchase(context.Background(), playerID, "faction_tenki", "ios", "receipt-token-1"))
 
-			t.Run("card-pack-purchased event が publish される", func(t *testing.T) {
+			t.Run("card-pack-purchased eventがpublishされる", func(t *testing.T) {
 				events := selectCardPackPurchasedEvents(t)
 				require.Len(t, events, 1)
 				assert.Equal(t, playerID, events[0].PlayerID)
 				assert.Equal(t, "faction_set_Tenki", events[0].CardPackID)
 			})
 
-			t.Run("faction-acquired event が publish される", func(t *testing.T) {
+			t.Run("faction-acquired eventがpublishされる", func(t *testing.T) {
 				events := selectFactionAcquiredEvents(t)
 				require.Len(t, events, 1)
 				assert.Equal(t, playerID, events[0].PlayerID)
 				assert.Equal(t, "Tenki", events[0].Faction)
 			})
 
-			t.Run("shop 側に owned faction が記録される", func(t *testing.T) {
+			t.Run("shop側にowned factionが記録される", func(t *testing.T) {
 				factions, err := env.factionPurchaseRepo.ListOwnedFactions(context.Background(), playerID)
 				require.NoError(t, err)
 				assert.Contains(t, factions, "Tenki")
 			})
 
-			t.Run("shop 側に owned card pack が記録される", func(t *testing.T) {
+			t.Run("shop側にowned card packが記録される", func(t *testing.T) {
 				owned, err := env.cardPackPurchaseRepo.HasPlayerCardPack(context.Background(), playerID, "faction_set_Tenki")
 				require.NoError(t, err)
 				assert.True(t, owned)
 			})
 		})
 
-		t.Run("同一トークンで再購入しても、card-pack-purchased と faction-acquired は各 1 回だけ publish される (冪等)", func(t *testing.T) {
+		t.Run("同一トークンで再購入しても、card-pack-purchasedとfaction-acquiredは各1回だけpublishされる (冪等)", func(t *testing.T) {
 			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
 					return &port.VerifyResult{IsValid: true, TransactionID: "txn-123"}, nil
@@ -282,7 +282,7 @@ func TestPurchase(t *testing.T) {
 			assert.Len(t, selectFactionAcquiredEvents(t), 1)
 		})
 
-		t.Run("レシート検証が IsValid=false のとき、ErrReceiptVerificationFailed になり何も publish されない", func(t *testing.T) {
+		t.Run("レシート検証がIsValid=falseのとき、ErrReceiptVerificationFailedになり何もpublishされない", func(t *testing.T) {
 			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
 					return &port.VerifyResult{IsValid: false}, nil
@@ -296,7 +296,7 @@ func TestPurchase(t *testing.T) {
 			assert.Empty(t, selectFactionAcquiredEvents(t))
 		})
 
-		t.Run("card_pack 商品 (faction を伴わない pure pack) を購入したとき", func(t *testing.T) {
+		t.Run("card_pack商品 (factionを伴わないpure pack)を購入したとき", func(t *testing.T) {
 			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
 					return &port.VerifyResult{IsValid: true, TransactionID: "txn-limited"}, nil
@@ -308,7 +308,7 @@ func TestPurchase(t *testing.T) {
 			ctx := context.Background()
 			require.NoError(t, env.svc.Purchase(ctx, playerID, "limited_2026_summer", "ios", "receipt-limited-1"))
 
-			t.Run("card-pack-purchased のみ publish され faction-acquired は出ない", func(t *testing.T) {
+			t.Run("card-pack-purchasedのみpublishされfaction-acquiredは出ない", func(t *testing.T) {
 				card := selectCardPackPurchasedEvents(t)
 				require.Len(t, card, 1)
 				assert.Equal(t, playerID, card[0].PlayerID)
@@ -317,13 +317,13 @@ func TestPurchase(t *testing.T) {
 			})
 
 			// 再購入禁止は player_owned_card_packs で担保する
-			t.Run("同じ card_pack を再購入すると ErrAlreadyOwned で拒否される", func(t *testing.T) {
+			t.Run("同じcard_packを再購入するとErrAlreadyOwnedで拒否される", func(t *testing.T) {
 				err := env.svc.Purchase(ctx, playerID, "limited_2026_summer", "ios", "receipt-limited-2")
 				assert.ErrorIs(t, err, ErrAlreadyOwned)
 			})
 		})
 
-		t.Run("cosmetic 商品を購入すると、card-pack-purchased も faction-acquired も publish されない", func(t *testing.T) {
+		t.Run("cosmetic商品を購入すると、card-pack-purchasedもfaction-acquiredもpublishされない", func(t *testing.T) {
 			env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
 				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
 					return &port.VerifyResult{IsValid: true, TransactionID: "txn-456"}, nil
@@ -335,18 +335,18 @@ func TestPurchase(t *testing.T) {
 			err := env.svc.Purchase(context.Background(), playerID, "playmat_01", "android", "cosmetic-receipt")
 			require.NoError(t, err)
 
-			t.Run("card-pack-purchased も faction-acquired も publish されない", func(t *testing.T) {
+			t.Run("card-pack-purchasedもfaction-acquiredもpublishされない", func(t *testing.T) {
 				assert.Empty(t, selectCardPackPurchasedEvents(t))
 				assert.Empty(t, selectFactionAcquiredEvents(t))
 			})
 
-			t.Run("購入したアイテムが shop 側に所有済みとして記録される", func(t *testing.T) {
+			t.Run("購入したアイテムがshop側に所有済みとして記録される", func(t *testing.T) {
 				owned, err := env.itemPurchaseRepo.HasPlayerItem(context.Background(), playerID, "playmat", 1)
 				require.NoError(t, err)
 				assert.True(t, owned)
 			})
 
-			t.Run("商品一覧に is_owned=true で反映される", func(t *testing.T) {
+			t.Run("商品一覧にis_owned=trueで反映される", func(t *testing.T) {
 				products, err := env.svc.GetProducts(context.Background(), playerID)
 				require.NoError(t, err)
 				require.Len(t, products, 1)
@@ -354,7 +354,7 @@ func TestPurchase(t *testing.T) {
 			})
 		})
 
-		t.Run("faction_set を所有済みで別トークン再購入すると、ErrAlreadyOwned になる", func(t *testing.T) {
+		t.Run("faction_setを所有済みで別トークン再購入すると、ErrAlreadyOwnedになる", func(t *testing.T) {
 			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
 					return &port.VerifyResult{IsValid: true, TransactionID: "txn-first"}, nil
@@ -370,7 +370,7 @@ func TestPurchase(t *testing.T) {
 			assert.ErrorIs(t, err, ErrAlreadyOwned)
 		})
 
-		t.Run("cosmetic を所有済みで再購入すると、ErrAlreadyOwned になる", func(t *testing.T) {
+		t.Run("cosmeticを所有済みで再購入すると、ErrAlreadyOwnedになる", func(t *testing.T) {
 			env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
 				VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
 					return &port.VerifyResult{IsValid: true, TransactionID: "txn-cos"}, nil
@@ -385,7 +385,7 @@ func TestPurchase(t *testing.T) {
 			assert.ErrorIs(t, err, ErrAlreadyOwned)
 		})
 
-		t.Run("存在しない product_id を購入しようとすると、ErrNotFound になり何も publish されない", func(t *testing.T) {
+		t.Run("存在しないproduct_idを購入しようとすると、ErrNotFoundになり何もpublishされない", func(t *testing.T) {
 			env := newTestShopEnv(t)
 
 			err := env.svc.Purchase(context.Background(), "12121212-1212-1212-1212-121212121212", "no_such_product", "ios", "receipt-1")
@@ -429,7 +429,7 @@ func TestPurchase(t *testing.T) {
 			wantErr   error
 		}{
 			{
-				name: "非アクティブ商品のとき、ErrProductNotActive になる",
+				name: "非アクティブ商品のとき、ErrProductNotActiveになる",
 				arrange: func(t *testing.T) *testShopEnv {
 					env := newTestShopEnv(t)
 					insertFactionSetProduct(t, "old_product", "旧商品", 100, "SHE", false)
@@ -442,7 +442,7 @@ func TestPurchase(t *testing.T) {
 				wantErr:   ErrProductNotActive,
 			},
 			{
-				name: "未対応 platform のとき、ErrUnsupportedPlatform になる",
+				name: "未対応platformのとき、ErrUnsupportedPlatformになる",
 				arrange: func(t *testing.T) *testShopEnv {
 					env := newTestShopEnv(t)
 					insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
@@ -455,7 +455,7 @@ func TestPurchase(t *testing.T) {
 				wantErr:   ErrUnsupportedPlatform,
 			},
 			{
-				name: "verifier が infra error を返すとき、ErrVerifyReceipt になる",
+				name: "verifierがinfra errorを返すとき、ErrVerifyReceiptになる",
 				arrange: func(t *testing.T) *testShopEnv {
 					env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 						VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
@@ -472,7 +472,7 @@ func TestPurchase(t *testing.T) {
 				wantErr:   ErrVerifyReceipt,
 			},
 			{
-				name: "subscription 商品を Purchase 経由で買うと、ErrUnsupportedProductType になる",
+				name: "subscription商品をPurchase経由で買うと、ErrUnsupportedProductTypeになる",
 				arrange: func(t *testing.T) *testShopEnv {
 					env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 						VerifyPurchaseFn: func(ctx context.Context, token string) (*port.VerifyResult, error) {
@@ -489,7 +489,7 @@ func TestPurchase(t *testing.T) {
 				wantErr:   ErrUnsupportedProductType,
 			},
 			{
-				name: "platform が空文字のとき、ErrUnsupportedPlatform になる",
+				name: "platformが空文字のとき、ErrUnsupportedPlatformになる",
 				arrange: func(t *testing.T) *testShopEnv {
 					env := newTestShopEnv(t)
 					insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
@@ -532,14 +532,14 @@ func TestSubscribe(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, result)
 
-			t.Run("premium-updated event が publish される", func(t *testing.T) {
+			t.Run("premium-updated eventがpublishされる", func(t *testing.T) {
 				events := selectPremiumUpdatedEvents(t)
 				require.Len(t, events, 1)
 				assert.Equal(t, playerID, events[0].PlayerID)
 				assert.True(t, events[0].IsPremium)
 			})
 
-			t.Run("active な subscription 行が作成される", func(t *testing.T) {
+			t.Run("activeなsubscription行が作成される", func(t *testing.T) {
 				sub, err := env.subRepo.GetLatestSubscription(context.Background(), playerID)
 				require.NoError(t, err)
 				require.NotNil(t, sub)
@@ -551,14 +551,14 @@ func TestSubscribe(t *testing.T) {
 				assert.True(t, expiresAt.Equal(*result))
 			})
 
-			t.Run("subscription 行の期間終了がストア検証結果の期限で永続化される", func(t *testing.T) {
+			t.Run("subscription行の期間終了がストア検証結果の期限で永続化される", func(t *testing.T) {
 				sub, err := env.subRepo.GetLatestSubscription(context.Background(), playerID)
 				require.NoError(t, err)
 				require.NotNil(t, sub)
 				assert.True(t, expiresAt.Equal(sub.CurrentPeriodEnd))
 			})
 
-			t.Run("premium-updated event の premium_expires_at がストア検証結果の期限になる", func(t *testing.T) {
+			t.Run("premium-updated eventのpremium_expires_atがストア検証結果の期限になる", func(t *testing.T) {
 				events := selectPremiumUpdatedEvents(t)
 				require.Len(t, events, 1)
 				require.NotNil(t, events[0].PremiumExpiresAt)
@@ -566,7 +566,7 @@ func TestSubscribe(t *testing.T) {
 			})
 		})
 
-		t.Run("同一トークンで再 Subscribe しても、premium-updated は 1 回のみ publish され既存の期限を返す (冪等)", func(t *testing.T) {
+		t.Run("同一トークンで再Subscribeしても、premium-updatedは1回のみpublishされ既存の期限を返す (冪等)", func(t *testing.T) {
 			expiresAt := time.Now().Add(30 * 24 * time.Hour)
 			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 				VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
@@ -589,7 +589,7 @@ func TestSubscribe(t *testing.T) {
 			assert.Len(t, selectPremiumUpdatedEvents(t), 1, "publish only on first subscribe")
 		})
 
-		t.Run("VerifySubscription が infra error を返すと、verify subscription でラップされ premium-updated は publish されない", func(t *testing.T) {
+		t.Run("VerifySubscriptionがinfra errorを返すと、verify subscriptionでラップされpremium-updatedはpublishされない", func(t *testing.T) {
 			env := newTestShopEnv(t, withAppleVerifier(&port.MockReceiptVerifier{
 				VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
 					return nil, fmt.Errorf("network timeout")
@@ -612,7 +612,7 @@ func TestSubscribe(t *testing.T) {
 			},
 		}
 
-		t.Run("存在しない product_id でサブスク登録しようとすると、ErrNotFound になり premium-updated は publish されない", func(t *testing.T) {
+		t.Run("存在しないproduct_idでサブスク登録しようとすると、ErrNotFoundになりpremium-updatedはpublishされない", func(t *testing.T) {
 			env := newTestShopEnv(t)
 			playerID := "16161616-1616-1616-1616-161616161616"
 
@@ -625,7 +625,7 @@ func TestSubscribe(t *testing.T) {
 			assert.Nil(t, sub)
 		})
 
-		t.Run("android で有効なレシートのとき、google 側トークンで subscription が作成され premium-updated が publish される", func(t *testing.T) {
+		t.Run("androidで有効なレシートのとき、google側トークンでsubscriptionが作成されpremium-updatedがpublishされる", func(t *testing.T) {
 			expiresAt := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
 			env := newTestShopEnv(t, withGoogleVerifier(&port.MockReceiptVerifier{
 				VerifySubscriptionFn: func(ctx context.Context, token string) (*port.SubscriptionInfo, error) {
@@ -659,7 +659,7 @@ func TestSubscribe(t *testing.T) {
 			wantErr       error
 		}{
 			{
-				name: "サブスク以外の商品のとき、ErrProductNotSubscription になる",
+				name: "サブスク以外の商品のとき、ErrProductNotSubscriptionになる",
 				seedProduct: func(t *testing.T) {
 					insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
 				},
@@ -670,7 +670,7 @@ func TestSubscribe(t *testing.T) {
 				wantErr:       ErrProductNotSubscription,
 			},
 			{
-				name: "レシート検証が IsValid=false のとき、ErrSubVerificationFailed になる",
+				name: "レシート検証がIsValid=falseのとき、ErrSubVerificationFailedになる",
 				seedProduct: func(t *testing.T) {
 					insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 				},
@@ -681,7 +681,7 @@ func TestSubscribe(t *testing.T) {
 				wantErr:       ErrSubVerificationFailed,
 			},
 			{
-				name: "未対応 platform のとき、ErrUnsupportedPlatform になる",
+				name: "未対応platformのとき、ErrUnsupportedPlatformになる",
 				seedProduct: func(t *testing.T) {
 					insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 				},
@@ -692,7 +692,7 @@ func TestSubscribe(t *testing.T) {
 				wantErr:       ErrUnsupportedPlatform,
 			},
 			{
-				name: "platform が空文字のとき、ErrUnsupportedPlatform になる",
+				name: "platformが空文字のとき、ErrUnsupportedPlatformになる",
 				seedProduct: func(t *testing.T) {
 					insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 				},
@@ -717,7 +717,7 @@ func TestSubscribe(t *testing.T) {
 
 func TestGetProducts(t *testing.T) {
 	t.Run("商品一覧の所有判定", func(t *testing.T) {
-		t.Run("faction を所有しているとき、その faction_set 商品だけ IsOwned=true になる", func(t *testing.T) {
+		t.Run("factionを所有しているとき、そのfaction_set商品だけIsOwned=trueになる", func(t *testing.T) {
 			env := newTestShopEnv(t)
 			insertFactionSetProduct(t, "faction_she", "SHEカードセット", 980, "SHE", true)
 			insertFactionSetProduct(t, "faction_tenki", "Tenkiカードセット", 980, "Tenki", true)
@@ -746,7 +746,7 @@ func TestGetProducts(t *testing.T) {
 			assert.False(t, byID["faction_tenki"].IsOwned)
 		})
 
-		t.Run("active な subscription があるとき、subscription 商品が IsOwned=true になる", func(t *testing.T) {
+		t.Run("activeなsubscriptionがあるとき、subscription商品がIsOwned=trueになる", func(t *testing.T) {
 			env := newTestShopEnv(t)
 			insertSubscriptionProduct(t, "premium_monthly", "プレミアム月額", 480, true)
 
@@ -779,40 +779,40 @@ func TestGetProducts(t *testing.T) {
 			wantIsOwned bool
 		}{
 			{
-				name:        "active かつ期間内のとき、IsOwned=true になる",
+				name:        "activeかつ期間内のとき、IsOwned=trueになる",
 				status:      domain.SubscriptionStatusActive,
 				periodEnd:   future,
 				wantIsOwned: true,
 			},
 			{
-				name:        "cancelled でも期間内のとき、IsOwned=true になる",
+				name:        "cancelledでも期間内のとき、IsOwned=trueになる",
 				status:      domain.SubscriptionStatusCancelled,
 				periodEnd:   future,
 				wantIsOwned: true,
 			},
 			{
-				name:        "grace_period かつ期間内のとき、IsOwned=true になる",
+				name:        "grace_periodかつ期間内のとき、IsOwned=trueになる",
 				status:      domain.SubscriptionStatusGracePeriod,
 				periodEnd:   future,
 				wantIsOwned: true,
 			},
 			{
-				name:      "active でも期限切れのとき、IsOwned=false になる",
+				name:      "activeでも期限切れのとき、IsOwned=falseになる",
 				status:    domain.SubscriptionStatusActive,
 				periodEnd: past,
 			},
 			{
-				name:      "cancelled で期限切れのとき、IsOwned=false になる",
+				name:      "cancelledで期限切れのとき、IsOwned=falseになる",
 				status:    domain.SubscriptionStatusCancelled,
 				periodEnd: past,
 			},
 			{
-				name:      "expired は期間内でも IsOwned=false になる",
+				name:      "expiredは期間内でもIsOwned=falseになる",
 				status:    domain.SubscriptionStatusExpired,
 				periodEnd: future,
 			},
 			{
-				name:      "revoked は期間内でも IsOwned=false になる",
+				name:      "revokedは期間内でもIsOwned=falseになる",
 				status:    domain.SubscriptionStatusRevoked,
 				periodEnd: future,
 			},
@@ -857,22 +857,22 @@ func TestGetProducts(t *testing.T) {
 			wantIsOwned bool
 		}{
 			{
-				name:        "item_type と item_no が完全一致のとき、IsOwned=true になる",
+				name:        "item_typeとitem_noが完全一致のとき、IsOwned=trueになる",
 				seedItem:    seedOwnedCosmetic("playmat", 1),
 				wantIsOwned: true,
 			},
 			{
-				name:        "所有アイテムが無いとき、IsOwned=false になる",
+				name:        "所有アイテムが無いとき、IsOwned=falseになる",
 				seedItem:    func(_ *testing.T, _ string) {},
 				wantIsOwned: false,
 			},
 			{
-				name:        "item_type 一致・item_no 不一致のとき、IsOwned=false になる",
+				name:        "item_type一致・item_no不一致のとき、IsOwned=falseになる",
 				seedItem:    seedOwnedCosmetic("playmat", 99),
 				wantIsOwned: false,
 			},
 			{
-				name:        "item_no 一致・item_type 不一致のとき、IsOwned=false になる",
+				name:        "item_no一致・item_type不一致のとき、IsOwned=falseになる",
 				seedItem:    seedOwnedCosmetic("sleeve", 1),
 				wantIsOwned: false,
 			},

@@ -15,7 +15,7 @@ import (
 
 func TestToCardPackPurchasedWire(t *testing.T) {
 	t.Run("カードパック購入イベントの変換", func(t *testing.T) {
-		t.Run("カードパック購入イベントが渡されたとき、event_type と各フィールドが送信内容に反映される", func(t *testing.T) {
+		t.Run("カードパック購入イベントが渡されたとき、event_typeと各フィールドが送信内容に反映される", func(t *testing.T) {
 			ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 			eventType, payload, err := presenter.ToCardPackPurchasedWire(domain.CardPackPurchasedEvent{
 				EventID:    "evt-1",
@@ -38,8 +38,8 @@ func TestToCardPackPurchasedWire(t *testing.T) {
 }
 
 func TestToFactionAcquiredWire(t *testing.T) {
-	t.Run("faction 獲得イベントの変換", func(t *testing.T) {
-		t.Run("faction 獲得イベントが渡されたとき、event_type と各フィールドが送信内容に反映される", func(t *testing.T) {
+	t.Run("faction獲得イベントの変換", func(t *testing.T) {
+		t.Run("faction獲得イベントが渡されたとき、event_typeと各フィールドが送信内容に反映される", func(t *testing.T) {
 			ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 			eventType, payload, err := presenter.ToFactionAcquiredWire(domain.FactionAcquiredEvent{
 				EventID:   "evt-2",
@@ -62,8 +62,8 @@ func TestToFactionAcquiredWire(t *testing.T) {
 }
 
 func TestToPremiumUpdatedWire(t *testing.T) {
-	t.Run("premium 更新イベントの変換", func(t *testing.T) {
-		t.Run("有効期限が設定されているとき、premium 状態と有効期限が送信内容に反映される", func(t *testing.T) {
+	t.Run("premium更新イベントの変換", func(t *testing.T) {
+		t.Run("有効期限が設定されているとき、premium状態と有効期限が送信内容に反映される", func(t *testing.T) {
 			ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 			expiresAt := time.Date(2026, 2, 2, 0, 0, 0, 0, time.UTC)
 			eventType, payload, err := presenter.ToPremiumUpdatedWire(domain.PremiumUpdatedEvent{
@@ -88,7 +88,7 @@ func TestToPremiumUpdatedWire(t *testing.T) {
 			assert.Equal(t, apishop.PremiumUpdatedSourceShop, got.Source)
 		})
 
-		t.Run("有効期限が未設定のとき、premium 無効・有効期限なしとして反映される", func(t *testing.T) {
+		t.Run("有効期限が未設定のとき、premium無効・有効期限なしとして反映される", func(t *testing.T) {
 			ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 			_, payload, err := presenter.ToPremiumUpdatedWire(domain.PremiumUpdatedEvent{
 				EventID:   "evt-3",

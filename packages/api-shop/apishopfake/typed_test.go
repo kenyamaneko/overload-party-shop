@@ -13,7 +13,7 @@ import (
 
 func TestFactionAcquired(t *testing.T) {
 	t.Run("FactionAcquired typed helper", func(t *testing.T) {
-		t.Run("Expect → Publish → Wait すると、typed publish と typed 受信が一致する", func(t *testing.T) {
+		t.Run("Expect → Publish → Waitすると、typed publishとtyped受信が一致する", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -32,7 +32,7 @@ func TestFactionAcquired(t *testing.T) {
 			assert.Equal(t, "Tenki", got.Faction)
 		})
 
-		t.Run("EventType / EventID / Timestamp を指定しないとき、補完される", func(t *testing.T) {
+		t.Run("EventType / EventID / Timestampを指定しないとき、補完される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -52,7 +52,7 @@ func TestFactionAcquired(t *testing.T) {
 			assert.False(t, got.Timestamp.Before(before), "Timestamp は未指定なら現在時刻以降")
 		})
 
-		t.Run("Expect より先に Publish したとき、Wait が timeout する", func(t *testing.T) {
+		t.Run("Expectより先にPublishしたとき、Waitがtimeoutする", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -67,7 +67,7 @@ func TestFactionAcquired(t *testing.T) {
 			require.ErrorContains(t, err, "timeout")
 		})
 
-		t.Run("イベントID と発行日時を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
+		t.Run("イベントIDと発行日時を指定してpublishすると、指定値のまま受信される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -93,7 +93,7 @@ func TestFactionAcquired(t *testing.T) {
 
 func TestCardPackPurchased(t *testing.T) {
 	t.Run("CardPackPurchased typed helper", func(t *testing.T) {
-		t.Run("Expect → Publish → Wait すると、typed publish と typed 受信が一致し EventType/EventID が補完される", func(t *testing.T) {
+		t.Run("Expect → Publish → Waitすると、typed publishとtyped受信が一致しEventType/EventIDが補完される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -114,7 +114,7 @@ func TestCardPackPurchased(t *testing.T) {
 			assert.NotEmpty(t, got.EventID)
 		})
 
-		t.Run("イベントID と発行日時を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
+		t.Run("イベントIDと発行日時を指定してpublishすると、指定値のまま受信される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -140,7 +140,7 @@ func TestCardPackPurchased(t *testing.T) {
 
 func TestPremiumUpdated(t *testing.T) {
 	t.Run("PremiumUpdated typed helper", func(t *testing.T) {
-		t.Run("Expect → Publish → Wait すると、typed publish と typed 受信が一致し EventType/EventID/Source が補完される", func(t *testing.T) {
+		t.Run("Expect → Publish → Waitすると、typed publishとtyped受信が一致しEventType/EventID/Sourceが補完される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -166,7 +166,7 @@ func TestPremiumUpdated(t *testing.T) {
 			assert.NotEmpty(t, got.EventID)
 		})
 
-		t.Run("イベントID と発行日時を指定して publish すると、指定値のまま受信される", func(t *testing.T) {
+		t.Run("イベントIDと発行日時を指定してpublishすると、指定値のまま受信される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			sub := apishopfake.NewSubscriber(broker)
@@ -191,8 +191,8 @@ func TestPremiumUpdated(t *testing.T) {
 }
 
 func TestTyped_PublishedRecordsTopicAndPayload(t *testing.T) {
-	t.Run("typed helper 経由の publish の記録", func(t *testing.T) {
-		t.Run("2 種の typed helper で publish すると、Published() に topic 順で記録される", func(t *testing.T) {
+	t.Run("typed helper経由のpublishの記録", func(t *testing.T) {
+		t.Run("2種のtyped helperでpublishすると、Published()にtopic順で記録される", func(t *testing.T) {
 			broker := apishopfake.NewBroker()
 			pub := apishopfake.NewPublisher(broker)
 			ctx := context.Background()

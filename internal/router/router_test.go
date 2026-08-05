@@ -89,15 +89,15 @@ func postWebhook(r http.Handler, path, body string) *httptest.ResponseRecorder {
 }
 
 func TestNew(t *testing.T) {
-	t.Run("ルーターの webhook 配線", func(t *testing.T) {
-		t.Run("/health は webhook の登録状態に関わらず 200 を返す", func(t *testing.T) {
+	t.Run("ルーターのwebhook配線", func(t *testing.T) {
+		t.Run("/healthはwebhookの登録状態に関わらず200を返す", func(t *testing.T) {
 			r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 			assert.Equal(t, http.StatusOK, w.Code)
 		})
 
-		t.Run("apple webhook のみ登録したとき、apple は notifier に到達し google は 404 のままになる", func(t *testing.T) {
+		t.Run("apple webhookのみ登録したとき、appleはnotifierに到達しgoogleは404のままになる", func(t *testing.T) {
 			n := &fakeAppleNotifier{}
 			r := New(rest.NewShopHandler(nil), rest.NewAppleWebhookHandler(n), nil, testVerifier())
 
@@ -109,7 +109,7 @@ func TestNew(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, sibling.Code)
 		})
 
-		t.Run("google webhook のみ登録したとき、google は notifier に到達し apple は 404 のままになる", func(t *testing.T) {
+		t.Run("google webhookのみ登録したとき、googleはnotifierに到達しappleは404のままになる", func(t *testing.T) {
 			n := &fakeGoogleNotifier{}
 			r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier())
 
@@ -121,7 +121,7 @@ func TestNew(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, sibling.Code)
 		})
 
-		t.Run("webhook handler が nil のとき、ルートが未登録のまま 404 になる", func(t *testing.T) {
+		t.Run("webhook handlerがnilのとき、ルートが未登録のまま404になる", func(t *testing.T) {
 			tests := []struct {
 				name string
 				path string
@@ -148,8 +148,8 @@ func TestNew(t *testing.T) {
 		})
 	})
 
-	t.Run("/api/v1/shop の内部認証配線", func(t *testing.T) {
-		t.Run("auth header が欠落しているとき、401 になり handler に到達しない", func(t *testing.T) {
+	t.Run("/api/v1/shopの内部認証配線", func(t *testing.T) {
+		t.Run("auth headerが欠落しているとき、401になりhandlerに到達しない", func(t *testing.T) {
 			// VerifyFn 未設定: header 欠落時は middleware が verifier に到達しないことの検出を兼ねる
 			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{})
 
@@ -184,7 +184,7 @@ func TestNew(t *testing.T) {
 			}
 		})
 
-		t.Run("verifier がエラーを返すとき、401 になり handler に到達しない", func(t *testing.T) {
+		t.Run("verifierがエラーを返すとき、401になりhandlerに到達しない", func(t *testing.T) {
 			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{
 				VerifyFn: func(string) (string, error) { return "", errors.New("invalid token") },
 			})
@@ -195,7 +195,7 @@ func TestNew(t *testing.T) {
 			assert.Equal(t, http.StatusUnauthorized, w.Code)
 		})
 
-		t.Run("有効なトークンのとき、handler の応答まで到達する", func(t *testing.T) {
+		t.Run("有効なトークンのとき、handlerの応答まで到達する", func(t *testing.T) {
 			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{
 				VerifyFn: func(string) (string, error) { return "TST-PLAYER-1", nil },
 			})
