@@ -92,7 +92,17 @@ services:
       DATABASE_CONN: host=postgres port=5432 dbname=shop user=shop password=shop sslmode=disable
       DATABASE_IAM_AUTH_ENABLED: "false"
       GOOGLE_CLOUD_PROJECT: overload-party-local
-      INTERNAL_AUTH_SECRET: dev-secret-not-for-prod
+      # 対になる秘密鍵でトークンを発行するため、e2e のローカルスタックと同じ公開鍵を置く。
+      INTERNAL_AUTH_PUBLIC_KEY: |
+        -----BEGIN PUBLIC KEY-----
+        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuLZaind+mEMdRYBq7ivA
+        Zo7nWFmIUYi3po4dGO6FKHo4o4ZDRBnqonBnSEeD0HOuq/95juP4D5VdrFcSjgBh
+        D8vzul2Z8+m+caZlljKs7mrOhzHj69zm78HHzHghG+iml2az0SD5LUBdNwMpRzFj
+        fxoY1Y32tCbfByhyQl2LbLHqIk8OfMCj4GlAu5e6Sfr4Dc5QOgsGd5mnGXBVCPYB
+        1guv3a8Fpwn57YrwWJDkVh3fIO35Lpubt5plD+ymEQ2kSvej7I7zWWs9e96u1Ch3
+        0Br61Jyp/TXNe473Xzkew7SkiiVviVz2hLJuszltyeSqYEEQ+Dilla27fz+rszbA
+        twIDAQAB
+        -----END PUBLIC KEY-----
       CARD_PACK_PURCHASED_TOPIC: *card_pack_purchased_topic
       FACTION_ACQUIRED_TOPIC: *faction_acquired_topic
       PREMIUM_UPDATED_TOPIC: *premium_updated_topic
