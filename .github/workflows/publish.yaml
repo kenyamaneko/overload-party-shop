@@ -36,7 +36,7 @@ permissions:
 jobs:
   publish-api-shop:
     if: inputs.target == 'api-shop'
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -71,7 +71,7 @@ jobs:
 
   publish-api-shop-npm:
     if: inputs.target == 'api-shop-npm'
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       PREFIX: packages/api-shop-npm/v
