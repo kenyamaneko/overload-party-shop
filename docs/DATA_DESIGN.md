@@ -134,6 +134,76 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 | `purchased_at` | TIMESTAMPTZ | No | 購入日時 |
 <!-- END GENERATED: one_time_purchases -->
 
+### apple_subscription_tokens
+
+`subscriptions` の外部識別子テーブル (Apple)。
+
+- **PK:** `token`
+- **FK:** `subscription_id` → `subscriptions(subscription_id)` ON DELETE CASCADE
+- **TRIGGER:** `updated_at` 自動更新
+
+<!-- BEGIN GENERATED: apple_subscription_tokens -->
+| カラム名 | 型 | Nullable | 説明 |
+|---|---|---|---|
+| `token` | VARCHAR(256) | No | Apple originalTransactionId |
+| `subscription_id` | BIGINT | No | shop.subscriptions への FK |
+| `created_at` | TIMESTAMPTZ | No | 作成日時 |
+| `updated_at` | TIMESTAMPTZ | No | 更新日時 |
+<!-- END GENERATED: apple_subscription_tokens -->
+
+### google_subscription_tokens
+
+`subscriptions` の外部識別子テーブル (Google)。
+
+- **PK:** `token`
+- **FK:** `subscription_id` → `subscriptions(subscription_id)` ON DELETE CASCADE
+- **TRIGGER:** `updated_at` 自動更新
+
+<!-- BEGIN GENERATED: google_subscription_tokens -->
+| カラム名 | 型 | Nullable | 説明 |
+|---|---|---|---|
+| `token` | VARCHAR(256) | No | Google purchaseToken |
+| `subscription_id` | BIGINT | No | shop.subscriptions への FK |
+| `created_at` | TIMESTAMPTZ | No | 作成日時 |
+| `updated_at` | TIMESTAMPTZ | No | 更新日時 |
+<!-- END GENERATED: google_subscription_tokens -->
+
+**設計判断:**
+- ドメインテーブル (`subscriptions`) と外部識別子テーブルを分離しているのは、Apple/Google が token の意味・発行タイミングを将来変更しても、ドメイン側のスキーマを変更せず token テーブル側の追加・差し替えだけで吸収するため。サブスクリプション用トークンのみ `updated_at` を持つのは、既存の subscription 行への token 再関連付けに備えたため。
+
+### apple_purchase_tokens
+
+`one_time_purchases` の外部識別子テーブル (Apple)。
+
+- **PK:** `token`
+- **FK:** `purchase_id` → `one_time_purchases(purchase_id)` ON DELETE CASCADE
+
+<!-- BEGIN GENERATED: apple_purchase_tokens -->
+| カラム名 | 型 | Nullable | 説明 |
+|---|---|---|---|
+| `token` | VARCHAR(256) | No | Apple transactionId |
+| `purchase_id` | BIGINT | No | shop.one_time_purchases への FK |
+| `created_at` | TIMESTAMPTZ | No | 作成日時 |
+<!-- END GENERATED: apple_purchase_tokens -->
+
+### google_purchase_tokens
+
+`one_time_purchases` の外部識別子テーブル (Google)。
+
+- **PK:** `token`
+- **FK:** `purchase_id` → `one_time_purchases(purchase_id)` ON DELETE CASCADE
+
+<!-- BEGIN GENERATED: google_purchase_tokens -->
+| カラム名 | 型 | Nullable | 説明 |
+|---|---|---|---|
+| `token` | VARCHAR(256) | No | Google purchaseToken |
+| `purchase_id` | BIGINT | No | shop.one_time_purchases への FK |
+| `created_at` | TIMESTAMPTZ | No | 作成日時 |
+<!-- END GENERATED: google_purchase_tokens -->
+
+**設計判断:**
+- 単発購入は再関連付けが発生しない前提のため `updated_at` を持たず append-only。
+
 ### cosmetic_items
 
 コスメティクスアイテムマスター（プレイマット・スリーブ・アイコン・スタンプ）。
@@ -194,7 +264,7 @@ shop 購入経由で付与されたファクション所有状況の shop ロー
 
 **設計判断:**
 - authoritative な所有状況は `account.player_factions` が持つが、shop は cross-schema 読み込みを許されないため、shop 内で独立した read model を保持する
-- Purchase 成功時に INSERT し、その後 `faction-acquired` イベントを publish する (account / gateway が購読)
+- Purchase 成功時に INSERT し、その後 `faction-acquired` イベントを publish する (account が購読)
 
 ### player_owned_card_packs
 
@@ -212,8 +282,42 @@ shop 購入経由で付与された card_pack 所有状況の shop ローカル 
 
 **設計判断:**
 - faction_set / card_pack の両方の商品 type で本表を使う (faction_set は同時に `player_owned_factions` にも書く)
-- Purchase 成功時に INSERT し、その後 `card-pack-purchased` イベントを publish する (card / gateway が購読)
+- Purchase 成功時に INSERT し、その後 `card-pack-purchased` イベントを publish する (card が購読)
 - `card_pack_id` は `card.card_pack.pack_id` への論理参照 (FK なし、整合性は CI と DLQ で担保)
+
+### outbox_events
+
+Pub/Sub 発行を DB commit と同一トランザクションに揃えるための Transactional Outbox。
+
+- **PK:** `event_id`
+
+<!-- BEGIN GENERATED: outbox_events -->
+| カラム名 | 型 | Nullable | 説明 |
+|---|---|---|---|
+| `event_id` | UUID | No | payload 内 eventId と一致 |
+| `event_type` | VARCHAR(100) | No | 論理イベント種別 (apishop.EventType*)。adapter が物理 topic に解決する |
+| `payload` | JSONB | No | JSON Marshal 済みイベント本体 |
+| `created_at` | TIMESTAMPTZ | No | enqueue 日時 |
+| `published_at` | TIMESTAMPTZ | Yes | NULL = 未配信 |
+| `failure_count` | INT | No | 連続失敗回数 |
+| `last_error` | TEXT | Yes | 直近エラーメッセージ |
+| `last_attempted_at` | TIMESTAMPTZ | Yes | 直近 publish 試行日時 |
+<!-- END GENERATED: outbox_events -->
+
+**設計判断:**
+- ビジネステーブルへの書き込みと同一トランザクションで INSERT し、DB commit と Pub/Sub publish の dual-write 問題を避ける ([ADR-073](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/073-shop-transactional-outbox.md))。配信済み行も削除せず保持する (監査・障害調査のため)。
+
+---
+
+## Pub/Sub イベントと subscriber
+
+| イベント | 発行契機 | subscriber |
+|---|---|---|
+| `card-pack-purchased` | `faction_set` / `card_pack` 商品購入の DB commit 後 (worker が outbox 消費) | card |
+| `faction-acquired` | `faction_set` 商品購入の DB commit 後 (worker が outbox 消費) | account |
+| `premium-updated` | サブスクリプション状態変化時 (解約時は除く) | account |
+
+gateway は Pub/Sub event を client 通知に転用しないため、いずれのイベントも購読しない ([ADR-027](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/027-gateway-pubsub-fanout-removal.md) / [ADR-031](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/031-shop-products-normalization-and-faction-purchased-decomposition.md))。
 
 ---
 
