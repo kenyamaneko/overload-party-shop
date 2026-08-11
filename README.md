@@ -2,7 +2,7 @@
 
 IAP・サブスクリプション・商品管理と Apple/Google webhook を処理する内部マイクロサービス。ポート 9006 で起動する。
 
-詳細は [API契約](data/openapi.yaml) / [データ設計書](docs/DATA_DESIGN.md) を参照。設計判断 (Why) は [common の ADR](https://github.com/kenyamaneko/overload-party-common/tree/main/docs/adr) に記録する。
+詳細は [API契約](data/openapi.yaml) / [データ設計書](docs/DATA_DESIGN.md) / [ブランチ・CI/CD](docs/BRANCHING.md) を参照。設計判断 (Why) は [common の ADR](https://github.com/kenyamaneko/overload-party-common/tree/main/docs/adr) に記録する。
 
 IAP シークレットの投入手順は [運用手順書](docs/operations/IAP_SECRETS.md) を参照。
 
