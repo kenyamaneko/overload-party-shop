@@ -12,7 +12,7 @@ import (
 )
 
 // New は shop の HTTP ルーターを構築する。appleWebhookHandler / googleWebhookHandler が nil なら該当 webhook ルートを登録しない。
-func New(shopHandler *rest.ShopHandler, appleWebhookHandler *rest.AppleWebhookHandler, googleWebhookHandler *rest.GoogleWebhookHandler, authVerifier internalauth.Verifier) *gin.Engine {
+func New(shopHandler *rest.ShopHandler, appleWebhookHandler *rest.AppleWebhookHandler, googleWebhookHandler *rest.GoogleWebhookHandler, authVerifier internalauth.Verifier, pushValidator PubSubPushTokenValidator, pushServiceAccountEmail, pushAudience string) *gin.Engine {
 	r := gin.New()
 	r.Use(newRequestLogger(), gin.Recovery())
 
@@ -28,13 +28,14 @@ func New(shopHandler *rest.ShopHandler, appleWebhookHandler *rest.AppleWebhookHa
 		api.POST("/subscribe", shopHandler.Subscribe)
 	}
 
-	// ストア webhook — 外部到達可能。Apple/Google がリクエストに署名するため
-	// gateway 側の認証は不要。各 handler は独立に登録され、片側だけ有効化することも可能。
+	// ストア webhook — 外部到達可能。Apple は payload の JWS 署名、Google は Pub/Sub push が
+	// 付与する OIDC トークンでそれぞれ requester を検証するため、gateway 側の認証は不要。
+	// 各 handler は独立に登録され、片側だけ有効化することも可能。
 	if appleWebhookHandler != nil {
 		r.POST("/webhook/apple", appleWebhookHandler.Handle)
 	}
 	if googleWebhookHandler != nil {
-		r.POST("/webhook/google", googleWebhookHandler.Handle)
+		r.POST("/webhook/google", verifyPubSubPush(pushValidator, pushServiceAccountEmail, pushAudience), googleWebhookHandler.Handle)
 	}
 	return r
 }

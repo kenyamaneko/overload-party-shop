@@ -32,6 +32,33 @@ func testVerifier() internalauth.Verifier {
 	return fakeRouterVerifier{}
 }
 
+const (
+	testPushServiceAccountEmail = "push-sa@example.com"
+	testPushAudience            = "TST-PUBSUB-PUSH-AUDIENCE"
+	testValidPushAuthHeader     = "Bearer valid-id-token"
+)
+
+// fakePushValidator は router 単体テスト用の PubSubPushTokenValidator 最小 fake。
+// 常に testPushServiceAccountEmail を返して push 認証を通過させる。
+type fakePushValidator struct{}
+
+func (fakePushValidator) Validate(context.Context, string, string) (string, error) {
+	return testPushServiceAccountEmail, nil
+}
+
+func testPushValidator() PubSubPushTokenValidator {
+	return fakePushValidator{}
+}
+
+// stubPushValidator は push 認証の判定結果テスト用の PubSubPushTokenValidator stub。
+type stubPushValidator struct {
+	validateFn func(ctx context.Context, idToken, audience string) (string, error)
+}
+
+func (s *stubPushValidator) Validate(ctx context.Context, idToken, audience string) (string, error) {
+	return s.validateFn(ctx, idToken, audience)
+}
+
 // stubShopService は固定値を返す shop usecase スタブ。
 type stubShopService struct{}
 
@@ -88,10 +115,23 @@ func postWebhook(r http.Handler, path, body string) *httptest.ResponseRecorder {
 	return w
 }
 
+// postGoogleWebhook は JSON body 付き POST を /webhook/google に投げる。authHeader が空でなければ
+// Authorization ヘッダーとして設定する。
+func postGoogleWebhook(r http.Handler, body, authHeader string) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, googleWebhookPath, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
+	}
+	r.ServeHTTP(w, req)
+	return w
+}
+
 func TestNew(t *testing.T) {
 	t.Run("ルーターのwebhook配線", func(t *testing.T) {
 		t.Run("/healthはwebhookの登録状態に関わらず200を返す", func(t *testing.T) {
-			r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
+			r := New(rest.NewShopHandler(nil), nil, nil, testVerifier(), testPushValidator(), testPushServiceAccountEmail, testPushAudience)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 			assert.Equal(t, http.StatusOK, w.Code)
@@ -99,7 +139,7 @@ func TestNew(t *testing.T) {
 
 		t.Run("apple webhookのみ登録したとき、appleはnotifierに到達しgoogleは404のままになる", func(t *testing.T) {
 			n := &fakeAppleNotifier{}
-			r := New(rest.NewShopHandler(nil), rest.NewAppleWebhookHandler(n), nil, testVerifier())
+			r := New(rest.NewShopHandler(nil), rest.NewAppleWebhookHandler(n), nil, testVerifier(), testPushValidator(), testPushServiceAccountEmail, testPushAudience)
 
 			w := postWebhook(r, appleWebhookPath, appleValidBody)
 			assert.Equal(t, http.StatusOK, w.Code)
@@ -111,9 +151,9 @@ func TestNew(t *testing.T) {
 
 		t.Run("google webhookのみ登録したとき、googleはnotifierに到達しappleは404のままになる", func(t *testing.T) {
 			n := &fakeGoogleNotifier{}
-			r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier())
+			r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier(), testPushValidator(), testPushServiceAccountEmail, testPushAudience)
 
-			w := postWebhook(r, googleWebhookPath, googleValidBody)
+			w := postGoogleWebhook(r, googleValidBody, testValidPushAuthHeader)
 			assert.Equal(t, http.StatusOK, w.Code)
 			assert.Equal(t, 1, n.calls)
 
@@ -140,7 +180,7 @@ func TestNew(t *testing.T) {
 			}
 			for _, tc := range tests {
 				t.Run(tc.name, func(t *testing.T) {
-					r := New(rest.NewShopHandler(nil), nil, nil, testVerifier())
+					r := New(rest.NewShopHandler(nil), nil, nil, testVerifier(), testPushValidator(), testPushServiceAccountEmail, testPushAudience)
 					w := postWebhook(r, tc.path, tc.body)
 					assert.Equal(t, http.StatusNotFound, w.Code)
 				})
@@ -151,7 +191,7 @@ func TestNew(t *testing.T) {
 	t.Run("/api/v1/shopの内部認証配線", func(t *testing.T) {
 		t.Run("auth headerが欠落しているとき、401になりhandlerに到達しない", func(t *testing.T) {
 			// VerifyFn 未設定: header 欠落時は middleware が verifier に到達しないことの検出を兼ねる
-			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{})
+			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{}, testPushValidator(), testPushServiceAccountEmail, testPushAudience)
 
 			cases := []struct {
 				name   string
@@ -187,7 +227,7 @@ func TestNew(t *testing.T) {
 		t.Run("verifierがエラーを返すとき、401になりhandlerに到達しない", func(t *testing.T) {
 			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{
 				VerifyFn: func(string) (string, error) { return "", errors.New("invalid token") },
-			})
+			}, testPushValidator(), testPushServiceAccountEmail, testPushAudience)
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil)
 			req.Header.Set(internalauth.HeaderName, "any.token")
@@ -198,12 +238,79 @@ func TestNew(t *testing.T) {
 		t.Run("有効なトークンのとき、handlerの応答まで到達する", func(t *testing.T) {
 			r := New(rest.NewShopHandler(stubShopService{}), nil, nil, &internalauth.MockVerifier{
 				VerifyFn: func(string) (string, error) { return "TST-PLAYER-1", nil },
-			})
+			}, testPushValidator(), testPushServiceAccountEmail, testPushAudience)
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/shop/products", nil)
 			req.Header.Set(internalauth.HeaderName, "any.token")
 			r.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusOK, w.Code)
+		})
+	})
+
+	t.Run("/webhook/googleのPub/Sub push認証配線", func(t *testing.T) {
+		t.Run("Authorizationヘッダーが無いとき、401になりnotifierに到達しない", func(t *testing.T) {
+			n := &fakeGoogleNotifier{}
+			r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier(), testPushValidator(), testPushServiceAccountEmail, testPushAudience)
+
+			w := postGoogleWebhook(r, googleValidBody, "")
+
+			assert.Equal(t, http.StatusUnauthorized, w.Code)
+			assert.Equal(t, 0, n.calls)
+		})
+
+		t.Run(`Authorizationヘッダーが"Bearer "で始まらないとき、401になりnotifierに到達しない`, func(t *testing.T) {
+			n := &fakeGoogleNotifier{}
+			r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier(), testPushValidator(), testPushServiceAccountEmail, testPushAudience)
+
+			w := postGoogleWebhook(r, googleValidBody, "Token xyz")
+
+			assert.Equal(t, http.StatusUnauthorized, w.Code)
+			assert.Equal(t, 0, n.calls)
+		})
+
+		t.Run("OIDCトークンの検証が失敗するとき、401になりnotifierに到達しない", func(t *testing.T) {
+			n := &fakeGoogleNotifier{}
+			validator := &stubPushValidator{
+				validateFn: func(context.Context, string, string) (string, error) {
+					return "", errors.New("signature invalid")
+				},
+			}
+			r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier(), validator, testPushServiceAccountEmail, testPushAudience)
+
+			w := postGoogleWebhook(r, googleValidBody, testValidPushAuthHeader)
+
+			assert.Equal(t, http.StatusUnauthorized, w.Code)
+			assert.Equal(t, 0, n.calls)
+		})
+
+		t.Run("OIDCトークンの検証は成功するが、署名者のメールアドレスが想定するpush用サービスアカウントと一致しないとき、401になりnotifierに到達しない", func(t *testing.T) {
+			n := &fakeGoogleNotifier{}
+			validator := &stubPushValidator{
+				validateFn: func(context.Context, string, string) (string, error) {
+					return "other-sa@example.com", nil
+				},
+			}
+			r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier(), validator, testPushServiceAccountEmail, testPushAudience)
+
+			w := postGoogleWebhook(r, googleValidBody, testValidPushAuthHeader)
+
+			assert.Equal(t, http.StatusUnauthorized, w.Code)
+			assert.Equal(t, 0, n.calls)
+		})
+
+		t.Run("OIDCトークンの検証が成功し、署名者のメールアドレスが想定するpush用サービスアカウントと一致するとき、notifierに到達する", func(t *testing.T) {
+			n := &fakeGoogleNotifier{}
+			validator := &stubPushValidator{
+				validateFn: func(context.Context, string, string) (string, error) {
+					return testPushServiceAccountEmail, nil
+				},
+			}
+			r := New(rest.NewShopHandler(nil), nil, rest.NewGoogleWebhookHandler(n), testVerifier(), validator, testPushServiceAccountEmail, testPushAudience)
+
+			w := postGoogleWebhook(r, googleValidBody, testValidPushAuthHeader)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, 1, n.calls)
 		})
 	})
 }

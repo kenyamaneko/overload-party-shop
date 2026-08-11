@@ -36,6 +36,8 @@ var allEnvKeys = []string{
 	"INTERNAL_AUTH_PUBLIC_KEY",
 	"DATABASE_IAM_AUTH_ENABLED",
 	"CLOUDSQL_CONNECTION_NAME",
+	"PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL",
+	"PUBSUB_PUSH_AUDIENCE",
 }
 
 // setEnv は allEnvKeys を一括で上書きする。envs に無いキーは "" (未設定相当) として
@@ -76,6 +78,13 @@ var validLocalEnv = map[string]string{
 	"OUTBOX_VISIBILITY_TIMEOUT": "30s",
 	"INTERNAL_AUTH_PUBLIC_KEY":  testPublicKeyPEM,
 	"DATABASE_IAM_AUTH_ENABLED": "false",
+}
+
+// validPubSubPushEnv は IAP_VERIFIER=store のときに追加で必須になる、Google webhook の
+// Pub/Sub push 認証用 env の最小構成。
+var validPubSubPushEnv = map[string]string{
+	"PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL": "pubsub-push@test-project.iam.gserviceaccount.com",
+	"PUBSUB_PUSH_AUDIENCE":              "overload-party-pubsub-push-shop-test",
 }
 
 func TestFromEnv(t *testing.T) {
@@ -276,7 +285,7 @@ func TestFromEnv(t *testing.T) {
 			},
 			{
 				name: "IAP_VERIFIERがstoreかつAPPLE_ENVIRONMENTが未設定のとき、エラーになる",
-				envs: mergeEnv(validLocalEnv, map[string]string{
+				envs: mergeEnv(validLocalEnv, validPubSubPushEnv, map[string]string{
 					"IAP_VERIFIER":      "store",
 					"APPLE_ENVIRONMENT": "",
 				}),
@@ -284,11 +293,29 @@ func TestFromEnv(t *testing.T) {
 			},
 			{
 				name: "IAP_VERIFIERがstoreかつAPPLE_ENVIRONMENTが未定義値 (staging)のとき、エラーになる",
-				envs: mergeEnv(validLocalEnv, map[string]string{
+				envs: mergeEnv(validLocalEnv, validPubSubPushEnv, map[string]string{
 					"IAP_VERIFIER":      "store",
 					"APPLE_ENVIRONMENT": "staging",
 				}),
 				wantErr: "APPLE_ENVIRONMENT must be",
+			},
+			{
+				name: "IAP_VERIFIERがstoreかつPUBSUB_PUSH_SERVICE_ACCOUNT_EMAILが未設定のとき、エラーになる",
+				envs: mergeEnv(validLocalEnv, validPubSubPushEnv, map[string]string{
+					"IAP_VERIFIER":                      "store",
+					"APPLE_ENVIRONMENT":                 "Sandbox",
+					"PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL": "",
+				}),
+				wantErr: "PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL is required",
+			},
+			{
+				name: "IAP_VERIFIERがstoreかつPUBSUB_PUSH_AUDIENCEが未設定のとき、エラーになる",
+				envs: mergeEnv(validLocalEnv, validPubSubPushEnv, map[string]string{
+					"IAP_VERIFIER":         "store",
+					"APPLE_ENVIRONMENT":    "Sandbox",
+					"PUBSUB_PUSH_AUDIENCE": "",
+				}),
+				wantErr: "PUBSUB_PUSH_AUDIENCE is required",
 			},
 			{
 				name:    "OUTBOX_POLL_INTERVALが未設定のとき、エラーになる",

@@ -112,17 +112,17 @@ repo (`postgres.OutboxRepository`) は `port.OutboxStore` を実装する pure d
 Apple と Google で信頼の引き方が違う。新プラットフォーム追加時や webhook まわりを触るときに必要な前提:
 
 - **Apple**: payload は JWS (JSON Web Signature) で署名されている。shop 自身が `x5c` 証明書チェーンを Apple Root CA (`internal/adapter/apple/apple_root_ca_g3.pem`) まで検証してからデコードする。**payload レベルの認証**。
-- **Google**: Pub/Sub push delivery 経由。メッセージ本体は署名されておらず、Google Cloud の Pub/Sub subscription auth (transport レベル) で担保する。
+- **Google**: Pub/Sub push delivery 経由。メッセージ本体は署名されていないため、push subscription が付与する OIDC ID トークン (`Authorization: Bearer`) を shop 自身が検証する (`internal/router` の push 認証 middleware。署名・audience・push 用サービスアカウントの email を確認する)。**リクエストレベルの認証**。Cloud Run は IAM をサービス単位でしか評価できず、Apple webhook 向けに `allUsers` を付与すると Google 側もこの IAM 保護を失うため、shop 自身での検証が必須になる。
 
-どちらも gateway を経由しない外部エンドポイントだが、信頼境界を引くレイヤが異なる。この前提があるため、router に gateway 認証を挟んでいない。
+どちらも gateway を経由しない外部エンドポイントであり、それぞれ独自の手段で requester を検証する。この前提があるため、router に gateway の内部認証 (internalauth) は挟んでいない。
 
 webhook の deterministic error (decode 失敗 / unknown subscription 等) は **200 で ack** してストア側のリトライを止める。transient error (DB・pub/sub 障害等) は 5xx を返してリトライさせる (`internal/handler/rest/webhook_handler.go` の `respondWebhook`)。outbox 導入後は webhook 起点の DB 更新 + outbox 行も同一 tx なので、DB 失敗で 5xx が返るケースはビジネス行と outbox 行を両方巻き戻した上でストアリトライを待つ形になる。
 
 ## IAP_VERIFIER=stub の構造的安全性
 
-`IAP_VERIFIER=stub` は実ストアを叩かず全レシートを有効として扱うため、Apple/Google verifier を初期化しない。**未認証 POST が nil verifier に到達する経路はコードの構造上存在しない**。これは 3 ファイルの合意で成立している:
+`IAP_VERIFIER=stub` は実ストアを叩かず全レシートを有効として扱うため、Apple/Google verifier を初期化しない。**未認証 POST が nil verifier に到達する経路はコードの構造上存在しない**。これは以下のファイルの合意で成立している:
 
-1. `cmd/server/main.go`: `IAP_VERIFIER=stub` のとき verifier 系を全て nil のまま返し、webhookH も nil 構築する
+1. `cmd/server/main.go`: `IAP_VERIFIER=stub` のとき verifier 系 (Google webhook の push トークン検証を含む) を全て nil のまま返し、webhookH も nil 構築する
 2. `internal/router/router.go`: `webhookH == nil` のとき `/webhook/*` ルートを **登録しない**
 3. `internal/usecase/purchase/service.go` の `getVerifier`: 内部 `/purchase` / `/subscribe` ルートから呼ばれ、platform 不明時は `ErrUnsupportedPlatform`
 
@@ -132,7 +132,7 @@ webhook の deterministic error (decode 失敗 / unknown subscription 等) は *
 
 ### 環境変数 / Secret Manager
 
-環境変数の一覧と必須条件は [internal/config/config.go](../internal/config/config.go) が SSoT (`loadStoreIAP` / `loadStubIAP` / `loadOutboxConfig` が起動時に検証、欠ければ即 fail)。
+環境変数の一覧と必須条件は [internal/config/config.go](../internal/config/config.go) が SSoT (`loadStoreIAP` / `loadStubIAP` / `loadOutboxConfig` / `validatePubSubPushConfig` が起動時に検証、欠ければ即 fail)。
 
 レシート検証の相手 (`IAP_VERIFIER`)、ログ形式 (`LOG_MODE`)、叩くストア環境 (`APPLE_ENVIRONMENT` = Sandbox / Production) は互いに独立した関心なので、それぞれ別の環境変数で決める。
 
@@ -140,6 +140,7 @@ webhook の deterministic error (decode 失敗 / unknown subscription 等) は *
 
 - **`IAP_VERIFIER=store`** では Apple/Google の機密情報 (`shop-apple-*` / `shop-google-package-name` 等) を Secret Manager から起動時に取得する。デプロイの定義には値を載せない。
 - シークレットの入れ物と読み取り権限は Terraform が作り、値は人が投入する。手順は [運用手順書](operations/IAP_SECRETS.md) にある
+- **`PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL` / `PUBSUB_PUSH_AUDIENCE`** は `IAP_VERIFIER=store` のときのみ必須で、Google webhook の push トークン検証に使う。値は該当する Pub/Sub push subscription (infra 側) の設定と一致させる。gateway の `/internal/v1/pubsub/*` も同じ仕組みで同名の env を使っている。
 - **`OUTBOX_POLL_INTERVAL` / `OUTBOX_BATCH_SIZE` / `OUTBOX_FAILURE_THRESHOLD`** は負荷試験やインシデント時にデプロイなしで試行錯誤できるよう env で持つ。
 - ローカル開発では `make run` が env を自動注入するため shell 側 export は不要。
 
