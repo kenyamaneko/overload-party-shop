@@ -72,6 +72,13 @@ type Config struct {
 	// Google Play
 	GooglePackageName string
 
+	// Pub/Sub push 認証（Google webhook。IAP_VERIFIER=store のときのみ必須）
+	// PubSubPushServiceAccountEmail は Google Play RTDN の push subscription が OIDC トークンの
+	// 署名に使う push 用サービスアカウントの email。
+	PubSubPushServiceAccountEmail string
+	// PubSubPushAudience は上記トークンに期待する aud クレーム。
+	PubSubPushAudience string
+
 	// Outbox worker のチューニング値。
 	OutboxPollInterval      time.Duration
 	OutboxBatchSize         int
@@ -82,15 +89,17 @@ type Config struct {
 // FromEnv は環境変数から Config を構築する。全 env は必須で未設定は fail する。
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		DatabaseConn:           os.Getenv("DATABASE_CONN"),
-		GoogleCloudProject:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
-		CardPackPurchasedTopic: os.Getenv("CARD_PACK_PURCHASED_TOPIC"),
-		FactionAcquiredTopic:   os.Getenv("FACTION_ACQUIRED_TOPIC"),
-		PremiumUpdatedTopic:    os.Getenv("PREMIUM_UPDATED_TOPIC"),
-		IAPVerifier:            IAPVerifier(os.Getenv("IAP_VERIFIER")),
-		LogMode:                LogMode(os.Getenv("LOG_MODE")),
-		InternalAuthPublicKey:  os.Getenv("INTERNAL_AUTH_PUBLIC_KEY"),
-		AppleEnvironment:       os.Getenv("APPLE_ENVIRONMENT"),
+		DatabaseConn:                  os.Getenv("DATABASE_CONN"),
+		GoogleCloudProject:            os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		CardPackPurchasedTopic:        os.Getenv("CARD_PACK_PURCHASED_TOPIC"),
+		FactionAcquiredTopic:          os.Getenv("FACTION_ACQUIRED_TOPIC"),
+		PremiumUpdatedTopic:           os.Getenv("PREMIUM_UPDATED_TOPIC"),
+		IAPVerifier:                   IAPVerifier(os.Getenv("IAP_VERIFIER")),
+		LogMode:                       LogMode(os.Getenv("LOG_MODE")),
+		InternalAuthPublicKey:         os.Getenv("INTERNAL_AUTH_PUBLIC_KEY"),
+		AppleEnvironment:              os.Getenv("APPLE_ENVIRONMENT"),
+		PubSubPushServiceAccountEmail: os.Getenv("PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL"),
+		PubSubPushAudience:            os.Getenv("PUBSUB_PUSH_AUDIENCE"),
 	}
 
 	rawPort := os.Getenv("PORT")
@@ -150,6 +159,9 @@ func FromEnv() (*Config, error) {
 
 	switch cfg.IAPVerifier {
 	case IAPVerifierStore:
+		if err := validatePubSubPushConfig(cfg); err != nil {
+			return nil, err
+		}
 		if err := loadStoreIAP(cfg); err != nil {
 			return nil, err
 		}
@@ -159,6 +171,19 @@ func FromEnv() (*Config, error) {
 		return nil, fmt.Errorf("config: IAP_VERIFIER must be %q or %q, got %q", IAPVerifierStore, IAPVerifierStub, cfg.IAPVerifier)
 	}
 	return cfg, nil
+}
+
+// validatePubSubPushConfig は Google webhook (Pub/Sub push) の OIDC トークン検証に必要な env の
+// 必須チェックを行う。IAP_VERIFIER=store のときのみ Google webhook ルートが有効になるため、
+// このタイミングでのみ必須とする。
+func validatePubSubPushConfig(cfg *Config) error {
+	if cfg.PubSubPushServiceAccountEmail == "" {
+		return fmt.Errorf("config: PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL is required when IAP_VERIFIER=%q", IAPVerifierStore)
+	}
+	if cfg.PubSubPushAudience == "" {
+		return fmt.Errorf("config: PUBSUB_PUSH_AUDIENCE is required when IAP_VERIFIER=%q", IAPVerifierStore)
+	}
+	return nil
 }
 
 // loadStoreIAP は Secret Manager から実ストアのレシート検証に使う認証情報を取得する。

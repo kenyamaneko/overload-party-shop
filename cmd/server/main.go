@@ -203,6 +203,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifi
 	var (
 		appleWebhookHandler  *rest.AppleWebhookHandler
 		googleWebhookHandler *rest.GoogleWebhookHandler
+		pushValidator        router.PubSubPushTokenValidator
 	)
 	if cfg.IAPVerifier == config.IAPVerifierStore {
 		appleWebhookHandler = rest.NewAppleWebhookHandler(
@@ -211,6 +212,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifi
 		googleWebhookHandler = rest.NewGoogleWebhookHandler(
 			subscription.NewGoogleNotifier(subscriptionRepo, verifierSet.googleSub),
 		)
+		pushValidator = router.NewGoogleIDTokenValidator()
 	}
 	internalAuthKey, err := internalauth.ParsePublicKeyPEM([]byte(cfg.InternalAuthPublicKey))
 	if err != nil {
@@ -219,7 +221,10 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifi
 	authVerifier := internalauth.NewVerifier(
 		internalauth.StaticPublicKeyResolver(internalAuthKey, internalauth.DefaultKeyID),
 	)
-	return router.New(shopHandler, appleWebhookHandler, googleWebhookHandler, authVerifier), nil
+	return router.New(
+		shopHandler, appleWebhookHandler, googleWebhookHandler, authVerifier,
+		pushValidator, cfg.PubSubPushServiceAccountEmail, cfg.PubSubPushAudience,
+	), nil
 }
 
 // buildOutboxTicker は outbox 消費フローの relay と worker ticker を組み立てる。
