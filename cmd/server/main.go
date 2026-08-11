@@ -205,6 +205,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifi
 		googleWebhookHandler *rest.GoogleWebhookHandler
 		pushValidator        router.PubSubPushTokenValidator
 	)
+	// nil のままなら router.New が webhook ルートを登録しないため、stub モードで未認証の webhook 入口ができない
 	if cfg.IAPVerifier == config.IAPVerifierStore {
 		appleWebhookHandler = rest.NewAppleWebhookHandler(
 			subscription.NewAppleNotifier(subscriptionRepo, verifierSet.appleJWS),

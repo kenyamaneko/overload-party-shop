@@ -92,8 +92,8 @@ CREATE INDEX idx_one_time_purchases_player_id ON shop.one_time_purchases (player
 CREATE TABLE shop.apple_subscription_tokens (
   token            VARCHAR(256) NOT NULL,                          -- Apple originalTransactionId
   subscription_id  BIGINT NOT NULL,                                 -- shop.subscriptions への FK
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),              -- 作成日時
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),              -- 更新日時
   PRIMARY KEY (token),
   CONSTRAINT apple_subscription_tokens_subscription_id_fkey FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
 );
@@ -102,8 +102,8 @@ CREATE TRIGGER trg_apple_subscription_tokens_updated_at BEFORE UPDATE ON shop.ap
 CREATE TABLE shop.google_subscription_tokens (
   token            VARCHAR(256) NOT NULL,                          -- Google purchaseToken
   subscription_id  BIGINT NOT NULL,                                 -- shop.subscriptions への FK
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),              -- 作成日時
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),              -- 更新日時
   PRIMARY KEY (token),
   CONSTRAINT google_subscription_tokens_subscription_id_fkey FOREIGN KEY (subscription_id) REFERENCES shop.subscriptions (subscription_id) ON DELETE CASCADE
 );
@@ -112,7 +112,7 @@ CREATE TRIGGER trg_google_subscription_tokens_updated_at BEFORE UPDATE ON shop.g
 CREATE TABLE shop.apple_purchase_tokens (
   token        VARCHAR(256) NOT NULL,                              -- Apple transactionId
   purchase_id  BIGINT NOT NULL,                                     -- shop.one_time_purchases への FK
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),                  -- 作成日時
   PRIMARY KEY (token),
   CONSTRAINT apple_purchase_tokens_purchase_id_fkey FOREIGN KEY (purchase_id) REFERENCES shop.one_time_purchases (purchase_id) ON DELETE CASCADE
 );
@@ -120,7 +120,7 @@ CREATE TABLE shop.apple_purchase_tokens (
 CREATE TABLE shop.google_purchase_tokens (
   token        VARCHAR(256) NOT NULL,                              -- Google purchaseToken
   purchase_id  BIGINT NOT NULL,                                     -- shop.one_time_purchases への FK
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),                  -- 作成日時
   PRIMARY KEY (token),
   CONSTRAINT google_purchase_tokens_purchase_id_fkey FOREIGN KEY (purchase_id) REFERENCES shop.one_time_purchases (purchase_id) ON DELETE CASCADE
 );
@@ -165,7 +165,7 @@ CREATE TABLE shop.product_cosmetic (
 -- 所有状況の shop ローカル射影。authoritative な所有状況は account.player_factions
 -- が持つが、shop は cross-schema 読み込みを許されないため GetProducts の
 -- IsOwned 判定用に shop 内で独立した read model を保持する。
--- Purchase 成功時に書き込まれ、faction-selected イベントの outbox 行は
+-- Purchase 成功時に書き込まれ、faction-acquired イベントの outbox 行は
 -- この INSERT と同一トランザクションで書き込まれる。
 CREATE TABLE shop.player_owned_factions (
   player_id  UUID NOT NULL,                           -- 所有プレイヤー

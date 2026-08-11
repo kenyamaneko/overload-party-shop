@@ -228,6 +228,7 @@ func loadStoreIAP(cfg *Config) error {
 }
 
 // loadOutboxConfig は outbox worker のチューニング値を env から読む。
+// 負荷試験やインシデント時にデプロイなしで調整できるよう env で持つ。
 func loadOutboxConfig(cfg *Config) error {
 	raw := os.Getenv("OUTBOX_POLL_INTERVAL")
 	if raw == "" {

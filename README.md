@@ -2,7 +2,9 @@
 
 IAP・サブスクリプション・商品管理と Apple/Google webhook を処理する内部マイクロサービス。ポート 9006 で起動する。
 
-詳細は [サービス設計書](docs/ARCHITECTURE.md) / [API契約](data/openapi.yaml) / [データ設計書](docs/DATA_DESIGN.md) を参照。
+詳細は [API契約](data/openapi.yaml) / [データ設計書](docs/DATA_DESIGN.md) を参照。設計判断 (Why) は [common の ADR](https://github.com/kenyamaneko/overload-party-common/tree/main/docs/adr) に記録する。
+
+IAP シークレットの投入手順は [運用手順書](docs/operations/IAP_SECRETS.md) を参照。
 
 [テスト観点カタログ](https://kenyamaneko.github.io/overload-party-shop/): テスト名から生成した、テスト済みの観点の一覧。
 
@@ -13,8 +15,9 @@ Gateway
   └─ Shop (:9006)
        ├─ PostgreSQL (shop スキーマ)
        └─ Pub/Sub
-            ├─ faction-purchased → account / card / gateway
-            └─ premium-updated   → account / gateway
+            ├─ card-pack-purchased → card
+            ├─ faction-acquired    → account
+            └─ premium-updated     → account
 
 外部 (Gateway を経由しない)
   ├─ POST /webhook/apple   ← App Store Server Notifications V2

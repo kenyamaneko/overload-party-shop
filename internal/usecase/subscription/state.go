@@ -73,6 +73,7 @@ func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.T
 }
 
 // writeNoEvent は subscription 行を更新し、premium-updated を発行しない (cancelled 遷移用)。
+// Apple/Google どちらの解約通知もこの関数を呼ぶことで、両プラットフォームで同一のエンタイトルメント維持契約を保つ。
 func writeNoEvent(ctx context.Context, subscriptionRepo port.SubscriptionRepo, subscription *domain.Subscription) error {
 	if err := subscriptionRepo.UpdateSubscription(ctx, subscription); err != nil {
 		return fmt.Errorf("update subscription: %w", err)

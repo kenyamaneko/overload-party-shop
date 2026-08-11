@@ -113,7 +113,6 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 		subscription.Status = domain.SubscriptionStatusCancelled
 		subscription.UpdatedAt = time.Now()
 		// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
-		// (エンタイトルメント維持契約: docs/ARCHITECTURE.md)。
 		if err := writeNoEvent(ctx, n.subscriptionRepo, subscription); err != nil {
 			return err
 		}
