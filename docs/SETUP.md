@@ -1,22 +1,4 @@
-# アーキテクチャ概要・ローカル開発
-
-## アーキテクチャ概要
-
-```
-Gateway
-  └─ Shop (:9006)
-       ├─ PostgreSQL (shop スキーマ)
-       └─ Pub/Sub
-            ├─ card-pack-purchased → card
-            ├─ faction-acquired    → account
-            └─ premium-updated     → account
-
-外部 (Gateway を経由しない)
-  ├─ POST /webhook/apple   ← App Store Server Notifications V2
-  └─ POST /webhook/google  ← Real-Time Developer Notifications
-```
-
-サービス間の状態同期は Pub/Sub で fan-out し、shop から他サービスを直接呼び出さない。
+# セットアップ
 
 ## ローカル開発
 
