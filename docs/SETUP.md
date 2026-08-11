@@ -13,5 +13,5 @@ make test     # Testcontainers でテスト実行（Docker 必須）
 ```
 
 アプリはコンテナ内で `go run` する。ソースを編集して `docker compose restart shop` すれば、
-イメージを作り直さずに反映される。private module は host の module cache を読み取り専用でマウント
-して解決するため、`make run` は先に host 側で `go mod download` を実行する。
+イメージを作り直さずに反映される。private module はホストの module cache を読み取り専用でマウント
+して解決するため、`make run` は先にホスト側で `go mod download` を実行する。
