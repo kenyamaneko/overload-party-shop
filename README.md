@@ -1,9 +1,29 @@
 # overload-party-shop
 
-IAP・サブスクリプション・商品管理と Apple/Google webhook を処理する内部マイクロサービス。ポート 9006 で起動する。
+カードゲーム Overload Party の IAP・サブスクリプション・商品管理と Apple/Google webhook 処理を担うマイクロサービス。
 
-詳細は [API契約](data/openapi.yaml) / [データ設計書](docs/DATA_DESIGN.md) / [ブランチ・CI/CD](docs/BRANCHING.md) を参照。設計判断 (Why) は [common の ADR](https://github.com/kenyamaneko/overload-party-common/tree/main/docs/adr)、サービス構成全体の図は [common のシステム構成図](https://github.com/kenyamaneko/overload-party-common#システム構成図) を参照。ローカル開発は [docs/SETUP.md](docs/SETUP.md) を参照。
+## 技術スタック
 
-IAP シークレットの投入手順は [運用手順書](docs/operations/IAP_SECRETS.md) を参照。
+| レイヤー | 技術 |
+|---|---|
+| 言語 | Go |
+| フレームワーク | Gin |
+| データベース | Cloud SQL PostgreSQL |
+| NoSQL | Cloud Firestore |
+| シークレット管理 | Secret Manager |
+| 同期通信 | REST |
+| 非同期通信 | Cloud Pub/Sub |
 
-[テスト観点カタログ](https://kenyamaneko.github.io/overload-party-shop/): テスト名から生成した、テスト済みの観点の一覧。
+## ドキュメント
+
+| ドキュメント | 内容 |
+|---|---|
+| [セットアップ](docs/SETUP.md) | ローカル開発環境の起動手順 |
+| [API仕様書](data/openapi.yaml) | REST API のエンドポイント定義 |
+| [Pub/Sub仕様書](data/asyncapi.yaml) | Pub/Sub イベントの定義 |
+| [データ設計書](docs/DATA_DESIGN.md) | テーブル定義 |
+| [ブランチ・CI/CD](docs/BRANCHING.md) | ブランチ運用と CI/CD の構成 |
+| [運用手順書](docs/operations/IAP_SECRETS.md) | IAP シークレットの投入手順 |
+| [ADR](https://github.com/kenyamaneko/overload-party-common/tree/main/docs/adr)（commonリポジトリ） | 設計判断の背景・理由・結果 |
+| [システム構成図](https://github.com/kenyamaneko/overload-party-common#システム構成図)（commonリポジトリ） | Overload Party 全体の構成図 |
+| [テスト観点カタログ](https://kenyamaneko.github.io/overload-party-shop/) | テスト名から自動生成した、テスト済みの観点一覧 |
