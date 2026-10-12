@@ -21,9 +21,34 @@ import (
 //go:embed apple_root_ca_g3.pem
 var appleRootCAG3PEM string
 
-var appleRootPool *x509.CertPool
+// JWSVerifier は Apple JWS を信頼するルート証明書に対して検証する port.AppleJWSVerifier 実装。
+type JWSVerifier struct {
+	trustedRoots *x509.CertPool
+}
 
-func init() {
+var _ port.AppleJWSVerifier = (*JWSVerifier)(nil)
+
+// JWSVerifierOption は JWSVerifier の構築時の設定を差し替える。
+type JWSVerifierOption func(*JWSVerifier)
+
+// WithTrustedRoots は信頼するルート証明書を Apple Root CA - G3 から差し替える。
+func WithTrustedRoots(roots *x509.CertPool) JWSVerifierOption {
+	return func(v *JWSVerifier) {
+		v.trustedRoots = roots
+	}
+}
+
+// NewJWSVerifier は Apple Root CA - G3 を信頼する JWSVerifier を構築する。
+func NewJWSVerifier(opts ...JWSVerifierOption) *JWSVerifier {
+	v := &JWSVerifier{trustedRoots: mustLoadAppleRootPool()}
+	for _, opt := range opts {
+		opt(v)
+	}
+	return v
+}
+
+// mustLoadAppleRootPool は埋め込みの証明書が読めないときに panic する。埋め込みの証明書の破損はビルドの不具合であり、起動を続けても検証できないため。
+func mustLoadAppleRootPool() *x509.CertPool {
 	block, _ := pem.Decode([]byte(appleRootCAG3PEM))
 	if block == nil {
 		panic("Apple Root CA - G3: failed to decode PEM block")
@@ -32,17 +57,9 @@ func init() {
 	if err != nil {
 		panic("Apple Root CA - G3: " + err.Error())
 	}
-	appleRootPool = x509.NewCertPool()
-	appleRootPool.AddCert(cert)
-}
-
-// JWSVerifier は Apple JWS を Apple Root CA に対して検証する port.AppleJWSVerifier 実装。
-type JWSVerifier struct{}
-
-var _ port.AppleJWSVerifier = (*JWSVerifier)(nil)
-
-func NewJWSVerifier() *JWSVerifier {
-	return &JWSVerifier{}
+	pool := x509.NewCertPool()
+	pool.AddCert(cert)
+	return pool
 }
 
 type jwsHeader struct {
@@ -96,7 +113,7 @@ func (v *JWSVerifier) Verify(jws string) ([]byte, error) {
 	}
 
 	if _, err := leaf.Verify(x509.VerifyOptions{
-		Roots:         appleRootPool,
+		Roots:         v.trustedRoots,
 		Intermediates: intermediates,
 	}); err != nil {
 		return nil, fmt.Errorf("verify x5c certificate chain: %w", err)

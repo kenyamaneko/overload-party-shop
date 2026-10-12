@@ -18,11 +18,11 @@ func NewVerifier() *Verifier {
 var _ port.ReceiptVerifier = (*Verifier)(nil)
 
 // VerifyPurchase はレシートを検証せず常に有効として返す。
-func (v *Verifier) VerifyPurchase(_ context.Context, purchaseToken string) (*port.VerifyResult, error) {
-	return &port.VerifyResult{IsValid: true, TransactionID: purchaseToken}, nil
+func (v *Verifier) VerifyPurchase(_ context.Context, _ string) (*port.VerifyResult, error) {
+	return &port.VerifyResult{IsValid: true}, nil
 }
 
 // VerifySubscription はレシートを検証せず常に有効として返す。
-func (v *Verifier) VerifySubscription(_ context.Context, purchaseToken string) (*port.SubscriptionInfo, error) {
-	return &port.SubscriptionInfo{IsValid: true, TransactionID: purchaseToken}, nil
+func (v *Verifier) VerifySubscription(_ context.Context, _ string) (*port.SubscriptionInfo, error) {
+	return &port.SubscriptionInfo{IsValid: true}, nil
 }

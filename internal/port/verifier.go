@@ -7,19 +7,15 @@ import (
 
 // VerifyResult は単発購入レシート検証の結果。
 type VerifyResult struct {
-	IsValid       bool
-	TransactionID string
-	ProductID     string
-	PurchaseTime  time.Time
+	IsValid   bool
+	ProductID string
 }
 
 // SubscriptionInfo はサブスクリプションレシート検証の結果。
 type SubscriptionInfo struct {
-	IsValid        bool
-	ProductID      string
-	TransactionID  string
-	ExpiresAt      time.Time
-	IsAutoRenewing bool
+	IsValid   bool
+	ProductID string
+	ExpiresAt time.Time
 }
 
 // ReceiptVerifier はプラットフォーム横断のレシート/購入検証を抽象化する。

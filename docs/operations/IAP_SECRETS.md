@@ -14,7 +14,7 @@ shop は `IAP_VERIFIER=store` の環境で、起動時に Secret Manager から 
 | `shop-apple-private-key` | 上記 API キーの秘密鍵 (`.p8` ファイルの中身) | キー作成時に一度だけダウンロードできる。PKCS#8 PEM のまま投入する |
 | `shop-google-package-name` | Android アプリのパッケージ名 | Google Play Console のアプリ。クライアントの `appId` と一致する |
 
-秘密鍵は起動時に PKCS#8 の EC 鍵としてパースされる。改行を含む PEM をそのまま入れる必要があり、仮の文字列では起動しない。
+秘密鍵は起動時に PKCS#8 の P-256 の EC 鍵としてパースされる。改行を含む PEM をそのまま入れる必要があり、仮の文字列では起動しない。
 
 ## 手順
 

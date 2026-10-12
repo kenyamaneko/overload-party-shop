@@ -39,7 +39,7 @@ func writeWithEvent(
 	isPremium bool,
 	expiresAt *time.Time,
 ) error {
-	event, err := buildPremiumUpdatedEvent(subscription.PlayerID, isPremium, expiresAt)
+	event, err := BuildPremiumUpdatedEvent(subscription.PlayerID, isPremium, expiresAt)
 	if err != nil {
 		return fmt.Errorf("build premium-updated: %w", err)
 	}
@@ -49,7 +49,8 @@ func writeWithEvent(
 	return nil
 }
 
-func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
+// BuildPremiumUpdatedEvent はプレミアム状態の更新を伝える premium-updated イベントを outbox 用に組み立てる。
+func BuildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
 	if playerID == "" {
 		return port.OutboxEvent{}, errors.New("subscription: playerID is empty")
 	}

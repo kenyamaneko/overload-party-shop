@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
@@ -29,11 +28,11 @@ type googleRTDNData struct {
 
 // Google RTDN 通知種別
 const (
-	googleSubscriptionRecovered = 2
+	googleSubscriptionRecovered = 1
+	googleSubscriptionRenewed   = 2
 	googleSubscriptionCanceled  = 3
-	googleSubscriptionRenewed   = 4
-	googleSubscriptionExpired   = 12
-	googleSubscriptionRevoked   = 13
+	googleSubscriptionRevoked   = 12
+	googleSubscriptionExpired   = 13
 )
 
 // GoogleNotifier は Google Play RTDN webhook を処理する。
@@ -90,28 +89,24 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 		}
 		subscription.Status = domain.SubscriptionStatusActive
 		subscription.CurrentPeriodEnd = newExpiry
-		subscription.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, true, &newExpiry); err != nil {
 			return err
 		}
 
 	case googleSubscriptionExpired:
 		subscription.Status = domain.SubscriptionStatusExpired
-		subscription.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubscriptionRevoked:
 		subscription.Status = domain.SubscriptionStatusRevoked
-		subscription.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
 
 	case googleSubscriptionCanceled:
 		subscription.Status = domain.SubscriptionStatusCancelled
-		subscription.UpdatedAt = time.Now()
 		// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
 		if err := writeNoEvent(ctx, n.subscriptionRepo, subscription); err != nil {
 			return err
