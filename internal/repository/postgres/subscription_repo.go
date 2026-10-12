@@ -24,16 +24,15 @@ func NewSubscriptionRepository(pool *pgxpool.Pool) *SubscriptionRepository {
 }
 
 func resolveSubscriptionTokenTable(platform string) (string, error) {
-	switch platform {
-	case domain.PlatformIOS:
-		return "shop.apple_subscription_tokens", nil
-	case domain.PlatformAndroid:
-		return "shop.google_subscription_tokens", nil
-	default:
-		return "", fmt.Errorf("%w: subscription platform %q", port.ErrUnsupportedPlatform, platform)
+	prefix, err := resolveTokenTablePrefix(platform)
+	if err != nil {
+		return "", err
 	}
+	return fmt.Sprintf("shop.%s_subscription_tokens", prefix), nil
 }
 
+// CreateSubscription は subscriptions 行・token 行・outbox 行を同一 tx で挿入する。
+// 同じ token が既に保存されているときは何も保存せず成功を返す。
 func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, subscription *domain.Subscription, platform, purchaseToken string, event port.OutboxEvent) error {
 	tokenTable, err := resolveSubscriptionTokenTable(platform)
 	if err != nil {
@@ -56,11 +55,15 @@ func (r *SubscriptionRepository) CreateSubscription(ctx context.Context, subscri
 		return fmt.Errorf("insert subscription: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx,
-		fmt.Sprintf(`INSERT INTO %s (token, subscription_id) VALUES ($1, $2)`, tokenTable),
+	tag, err := tx.Exec(ctx,
+		fmt.Sprintf(`INSERT INTO %s (token, subscription_id) VALUES ($1, $2) ON CONFLICT (token) DO NOTHING`, tokenTable),
 		purchaseToken, subscription.SubscriptionID,
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("insert subscription token: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
 	}
 
 	if err := writeOutboxEvent(ctx, tx, event); err != nil {
@@ -130,7 +133,7 @@ func scanSubscription(row pgx.Row) (*domain.Subscription, error) {
 	return &s, nil
 }
 
-// UpdateSubscription は subscriptions 行のみを更新する (outbox 行を伴わない)。
+// UpdateSubscription は subscriptions 行のみを更新する (outbox 行を伴わない)。対象の行が無ければ port.ErrNotFound を返す。
 func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, subscription *domain.Subscription) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -148,7 +151,7 @@ func (r *SubscriptionRepository) UpdateSubscription(ctx context.Context, subscri
 	return nil
 }
 
-// UpdateSubscriptionWithEvent は subscriptions 更新と outbox 行 INSERT を同一 tx で行う。
+// UpdateSubscriptionWithEvent は subscriptions 更新と outbox 行 INSERT を同一 tx で行う。対象の行が無ければ outbox 行を書かず port.ErrNotFound を返す。
 func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context, subscription *domain.Subscription, event port.OutboxEvent) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -170,19 +173,21 @@ func (r *SubscriptionRepository) UpdateSubscriptionWithEvent(ctx context.Context
 }
 
 func updateSubscriptionRow(ctx context.Context, tx pgx.Tx, subscription *domain.Subscription) error {
-	if _, err := tx.Exec(ctx,
+	tag, err := tx.Exec(ctx,
 		`UPDATE shop.subscriptions SET
 			status = $1,
 			current_period_start = $2,
-			current_period_end = $3,
-			updated_at = $4
-		  WHERE subscription_id = $5`,
+			current_period_end = $3
+		  WHERE subscription_id = $4`,
 		subscription.Status,
 		subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd,
-		subscription.UpdatedAt,
 		subscription.SubscriptionID,
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("update subscription: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update subscription subscription_id=%d: %w", subscription.SubscriptionID, port.ErrNotFound)
 	}
 	return nil
 }

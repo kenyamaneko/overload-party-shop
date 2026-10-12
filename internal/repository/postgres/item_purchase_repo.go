@@ -21,19 +21,19 @@ func NewItemPurchaseRepository(pool *pgxpool.Pool) *ItemPurchaseRepository {
 	return &ItemPurchaseRepository{pool: pool}
 }
 
-func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, item *domain.PlayerItem, platform, purchaseToken string) (created bool, err error) {
+func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, item *domain.PlayerItem, platform, purchaseToken string) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("begin tx: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	created, err = insertOneTimePurchaseAndToken(ctx, tx, purchase, platform, purchaseToken)
+	isInserted, err := insertOneTimePurchaseAndToken(ctx, tx, purchase, platform, purchaseToken)
 	if err != nil {
-		return false, err
+		return err
 	}
-	if !created {
-		return false, nil
+	if !isInserted {
+		return nil
 	}
 
 	if _, err := tx.Exec(ctx,
@@ -41,13 +41,13 @@ func (r *ItemPurchaseRepository) CreatePurchase(ctx context.Context, purchase *d
 		 VALUES ($1,$2,$3,$4)`,
 		item.PlayerID, item.ItemType, item.ItemNo, item.AcquiredAt,
 	); err != nil {
-		return false, fmt.Errorf("insert player item: %w", err)
+		return fmt.Errorf("insert player item: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit tx: %w", err)
+		return fmt.Errorf("commit tx: %w", err)
 	}
-	return true, nil
+	return nil
 }
 
 func (r *ItemPurchaseRepository) HasPlayerItem(ctx context.Context, playerID, itemType string, itemNo int64) (bool, error) {
