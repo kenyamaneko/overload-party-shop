@@ -6,86 +6,91 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kenyamaneko/overload-party-shop/packages/api-shop/apishopfake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kenyamaneko/overload-party-shop/packages/api-shop/apishopfake"
+	"github.com/kenyamaneko/overload-party-shop/packages/api-shop/apishopfake/apishopfaketest"
 )
 
-func TestStream(t *testing.T) {
-	t.Run("Streamのconsumeとhandler結果の公開", func(t *testing.T) {
-		t.Run("handlerがnilを返すとき、handledにnilが流れる", func(t *testing.T) {
-			broker := apishopfake.NewBroker()
-			pub := apishopfake.NewPublisher(broker)
-			stream := apishopfake.NewStream(apishopfake.NewSubscriber(broker), "t")
+const (
+	streamTopic       = "TST-TOPIC"
+	streamWaitTimeout = time.Second
+)
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			go func() { _ = stream.Consume(ctx, func(_ context.Context, _ []byte) error { return nil }) }()
+func startConsuming(
+	ctx context.Context,
+	stream *apishopfake.Stream,
+	handler func(ctx context.Context, data []byte) error,
+) <-chan error {
+	finished := make(chan error, 1)
+	go func() {
+		finished <- stream.Consume(ctx, handler)
+	}()
+	return finished
+}
 
-			require.NoError(t, pub.Publish(ctx, "t", []byte(`{"k":"v"}`)))
+func succeedHandler(context.Context, []byte) error {
+	return nil
+}
 
-			got := stream.ExpectHandled(t, time.Second)
-			assert.NoError(t, got)
-		})
+func TestStreamConsumption(t *testing.T) {
+	t.Run("[イベント配信フェイク]ストリームの消費", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("メッセージの処理が成功したとき、そのメッセージの処理結果を確認すると成功(エラーなし)になる", func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				publisher, subscriber := apishopfaketest.NewPublisherAndSubscriber()
+				stream := apishopfake.NewStream(subscriber, streamTopic)
+				startConsuming(ctx, stream, succeedHandler)
 
-		t.Run("handlerがerrorを返すとき、handledに同じerrorが流れる", func(t *testing.T) {
-			broker := apishopfake.NewBroker()
-			pub := apishopfake.NewPublisher(broker)
-			stream := apishopfake.NewStream(apishopfake.NewSubscriber(broker), "t")
+				require.NoError(t, publisher.Publish(ctx, streamTopic, []byte("TST-DATA-0001")))
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			go func() {
-				_ = stream.Consume(ctx, func(_ context.Context, _ []byte) error { return errors.New("boom") })
-			}()
+				assert.NoError(t, stream.ExpectHandled(t, streamWaitTimeout))
+			})
 
-			require.NoError(t, pub.Publish(ctx, "t", []byte(`{}`)))
+			t.Run("メッセージの処理がエラーboomで失敗したとき、そのメッセージの処理結果を確認すると同じエラーboomになる", func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				boom := errors.New("boom")
+				publisher, subscriber := apishopfaketest.NewPublisherAndSubscriber()
+				stream := apishopfake.NewStream(subscriber, streamTopic)
+				startConsuming(ctx, stream, func(context.Context, []byte) error {
+					return boom
+				})
 
-			got := stream.ExpectHandled(t, time.Second)
-			assert.EqualError(t, got, "boom")
-		})
+				require.NoError(t, publisher.Publish(ctx, streamTopic, []byte("TST-DATA-0001")))
 
-		t.Run("ctxがキャンセルされたとき、Consumeはnilを返す", func(t *testing.T) {
-			// consumer ランナー側で「ctx キャンセル = 正常終了」として扱える契約。
-			broker := apishopfake.NewBroker()
-			stream := apishopfake.NewStream(apishopfake.NewSubscriber(broker), "t")
+				assert.Equal(t, boom, stream.ExpectHandled(t, streamWaitTimeout))
+			})
 
-			ctx, cancel := context.WithCancel(context.Background())
-			done := make(chan error, 1)
-			go func() {
-				done <- stream.Consume(ctx, func(_ context.Context, _ []byte) error { return nil })
-			}()
+			t.Run("ストリームを作ったあと、消費を始める前に発行したメッセージは、消費を始めたあとにメッセージの処理がそのまま受け取る", func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				publisher, subscriber := apishopfaketest.NewPublisherAndSubscriber()
+				stream := apishopfake.NewStream(subscriber, streamTopic)
+				require.NoError(t, publisher.Publish(ctx, streamTopic, []byte("TST-DATA-0001")))
+				handled := make(chan []byte, 1)
 
-			cancel()
-
-			select {
-			case err := <-done:
-				assert.NoError(t, err, "ctx キャンセルは nil 終了")
-			case <-time.After(time.Second):
-				t.Fatal("Consume did not return after ctx cancel")
-			}
-		})
-
-		t.Run("Consume開始前にpublishしても、eager subscribeでメッセージは失われない", func(t *testing.T) {
-			// subscribe は NewStream の時点で行うため「NewStream → publish → Consume 開始」順序でも届く。
-			broker := apishopfake.NewBroker()
-			pub := apishopfake.NewPublisher(broker)
-			stream := apishopfake.NewStream(apishopfake.NewSubscriber(broker), "t")
-
-			require.NoError(t, pub.Publish(context.Background(), "t", []byte(`x`)))
-
-			var received []byte
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			go func() {
-				_ = stream.Consume(ctx, func(_ context.Context, data []byte) error {
-					received = data
+				startConsuming(ctx, stream, func(_ context.Context, data []byte) error {
+					handled <- data
 					return nil
 				})
-			}()
 
-			stream.ExpectHandled(t, time.Second)
-			assert.Equal(t, `x`, string(received))
+				assert.Equal(t, []byte("TST-DATA-0001"), apishopfaketest.ReceiveWithin(t, handled, streamWaitTimeout))
+			})
+
+			t.Run("消費中に消費の中止を指示したとき、消費はエラーなしで終わる", func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				_, subscriber := apishopfaketest.NewPublisherAndSubscriber()
+				stream := apishopfake.NewStream(subscriber, streamTopic)
+				finished := startConsuming(ctx, stream, succeedHandler)
+
+				cancel()
+
+				assert.NoError(t, apishopfaketest.ReceiveWithin(t, finished, streamWaitTimeout))
+			})
 		})
 	})
 }

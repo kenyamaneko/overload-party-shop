@@ -5,147 +5,120 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kenyamaneko/overload-party-shop/packages/api-shop/apishopfake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kenyamaneko/overload-party-shop/packages/api-shop/apishopfake"
+	"github.com/kenyamaneko/overload-party-shop/packages/api-shop/apishopfake/apishopfaketest"
 )
 
-func TestBroker(t *testing.T) {
-	t.Run("ブローカーの配送と分離", func(t *testing.T) {
-		deliveryCases := []struct {
-			name    string
-			topic   string
-			payload string
-		}{
-			{
-				name:    "空ペイロードのとき、そのままsubscriberに届く",
-				topic:   "t",
-				payload: "",
-			},
-			{
-				name:    "jsonペイロードのとき、そのままsubscriberに届く",
-				topic:   "a",
-				payload: `{"k":"v"}`,
-			},
-			{
-				name:    "topic名にhyphenを含むとき、そのままsubscriberに届く",
-				topic:   "faction-purchased",
-				payload: `{"x":1}`,
-			},
-		}
-		for _, tt := range deliveryCases {
-			t.Run(tt.name, func(t *testing.T) {
-				broker := apishopfake.NewBroker()
-				pub := apishopfake.NewPublisher(broker)
-				sub := apishopfake.NewSubscriber(broker)
+const messageReceiveTimeout = time.Second
 
-				ch := sub.Messages(tt.topic)
-				require.NoError(t, pub.Publish(context.Background(), tt.topic, []byte(tt.payload)))
+func TestPublishedMessageDelivery(t *testing.T) {
+	t.Run("[イベント配信フェイク]メッセージの配信", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("発行したメッセージの配信", func(t *testing.T) {
+				cases := []struct {
+					name  string
+					topic string
+					data  []byte
+				}{
+					{name: "本文が空のとき、購読者に空のまま届く", topic: "TST-TOPIC", data: []byte{}},
+					{name: "本文が`{\"k\":\"v\"}`のとき、購読者にそのまま届く", topic: "TST-TOPIC", data: []byte(`{"k":"v"}`)},
+					{name: "トピック名がハイフンを含む`topic-with-hyphen`のとき、購読者にそのまま届く", topic: "topic-with-hyphen", data: []byte("TST-DATA-0001")},
+				}
+				for _, tc := range cases {
+					t.Run(tc.name, func(t *testing.T) {
+						publisher, subscriber := apishopfaketest.NewPublisherAndSubscriber()
+						messages := subscriber.Messages(tc.topic)
 
-				got := receiveWithin(t, ch, time.Second)
-				assert.Equal(t, tt.payload, string(got))
+						require.NoError(t, publisher.Publish(context.Background(), tc.topic, tc.data))
+
+						assert.Equal(t, string(tc.data), string(apishopfaketest.ReceiveWithin(t, messages, messageReceiveTimeout)))
+					})
+				}
 			})
-		}
 
-		t.Run("別topicにpublishしたとき、別topicのsubscriberには届かない", func(t *testing.T) {
-			// 実 Pub/Sub の topic-based routing を fake でも保つ。
-			broker := apishopfake.NewBroker()
-			pub := apishopfake.NewPublisher(broker)
-			sub := apishopfake.NewSubscriber(broker)
+			t.Run("topic-aに発行したとき、topic-bの購読者が受信できるメッセージは無い", func(t *testing.T) {
+				publisher, subscriber := apishopfaketest.NewPublisherAndSubscriber()
+				messages := subscriber.Messages("topic-b")
 
-			chA := sub.Messages("topic-a")
-			chB := sub.Messages("topic-b")
+				require.NoError(t, publisher.Publish(context.Background(), "topic-a", []byte("TST-DATA-0001")))
 
-			require.NoError(t, pub.Publish(context.Background(), "topic-a", []byte(`a`)))
+				assert.Empty(t, messages)
+			})
 
-			assert.Equal(t, `a`, string(receiveWithin(t, chA, time.Second)))
-			assertNoMessageWithin(t, chB, 50*time.Millisecond)
-		})
+			t.Run("同じトピックの購読者が2人いるとき、2人とも発行したメッセージを受信できる", func(t *testing.T) {
+				broker := apishopfake.NewBroker()
+				publisher := apishopfake.NewPublisher(broker)
+				firstMessages := apishopfake.NewSubscriber(broker).Messages("TST-TOPIC")
+				secondMessages := apishopfake.NewSubscriber(broker).Messages("TST-TOPIC")
 
-		t.Run("同一topicに複数subscriberがいるとき、全員に配信される", func(t *testing.T) {
-			broker := apishopfake.NewBroker()
-			pub := apishopfake.NewPublisher(broker)
-			sub := apishopfake.NewSubscriber(broker)
+				require.NoError(t, publisher.Publish(context.Background(), "TST-TOPIC", []byte("TST-DATA-0001")))
 
-			ch1 := sub.Messages("topic")
-			ch2 := sub.Messages("topic")
+				assert.Equal(t, []byte("TST-DATA-0001"), apishopfaketest.ReceiveWithin(t, firstMessages, messageReceiveTimeout))
+				assert.Equal(t, []byte("TST-DATA-0001"), apishopfaketest.ReceiveWithin(t, secondMessages, messageReceiveTimeout))
+			})
 
-			require.NoError(t, pub.Publish(context.Background(), "topic", []byte(`x`)))
+			t.Run("発行したあとに購読を始めた購読者が受信できるメッセージは無い", func(t *testing.T) {
+				publisher, subscriber := apishopfaketest.NewPublisherAndSubscriber()
+				require.NoError(t, publisher.Publish(context.Background(), "TST-TOPIC", []byte("TST-DATA-0001")))
 
-			for i, ch := range []<-chan []byte{ch1, ch2} {
-				assert.Equal(t, `x`, string(receiveWithin(t, ch, time.Second)), "subscriber %d", i+1)
-			}
-		})
+				messages := subscriber.Messages("TST-TOPIC")
 
-		t.Run("subscribeより先にpublishしたとき、後から購読しても届かない", func(t *testing.T) {
-			// 実 Pub/Sub の新規 subscription 挙動に合わせ、過去メッセージを再生しない。
-			broker := apishopfake.NewBroker()
-			pub := apishopfake.NewPublisher(broker)
-			sub := apishopfake.NewSubscriber(broker)
-
-			require.NoError(t, pub.Publish(context.Background(), "topic", []byte(`early`)))
-
-			chLate := sub.Messages("topic")
-			assertNoMessageWithin(t, chLate, 50*time.Millisecond)
+				assert.Empty(t, messages)
+			})
 		})
 	})
 }
 
-func TestPublisher(t *testing.T) {
-	t.Run("Publisherの発行記録", func(t *testing.T) {
-		t.Run("publishした全メッセージを発行順にPublished()で返す", func(t *testing.T) {
-			broker := apishopfake.NewBroker()
-			pub := apishopfake.NewPublisher(broker)
-			ctx := context.Background()
+func TestPublishedRecords(t *testing.T) {
+	t.Run("[イベント配信フェイク]発行記録", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("topic-1にa、topic-2にb、topic-1にcの順に発行したとき、発行記録は発行順にトピックと本文を並べて返る", func(t *testing.T) {
+				publisher, _ := apishopfaketest.NewPublisherAndSubscriber()
+				require.NoError(t, publisher.Publish(context.Background(), "topic-1", []byte("a")))
+				require.NoError(t, publisher.Publish(context.Background(), "topic-2", []byte("b")))
+				require.NoError(t, publisher.Publish(context.Background(), "topic-1", []byte("c")))
 
-			require.NoError(t, pub.Publish(ctx, "t1", []byte(`a`)))
-			require.NoError(t, pub.Publish(ctx, "t2", []byte(`b`)))
-			require.NoError(t, pub.Publish(ctx, "t1", []byte(`c`)))
+				got := publisher.Published()
 
-			history := pub.Published()
-			require.Len(t, history, 3)
-			assert.Equal(t, "t1", history[0].Topic)
-			assert.Equal(t, `a`, string(history[0].Data))
-			assert.Equal(t, "t2", history[1].Topic)
-			assert.Equal(t, `b`, string(history[1].Data))
-			assert.Equal(t, "t1", history[2].Topic)
-			assert.Equal(t, `c`, string(history[2].Data))
-		})
+				assert.Equal(t, []apishopfake.PublishedMessage{
+					{Topic: "topic-1", Data: []byte("a")},
+					{Topic: "topic-2", Data: []byte("b")},
+					{Topic: "topic-1", Data: []byte("c")},
+				}, got)
+			})
 
-		t.Run("Published()の戻り値をcallerがmutateしても、内部状態には影響しない", func(t *testing.T) {
-			broker := apishopfake.NewBroker()
-			pub := apishopfake.NewPublisher(broker)
-			require.NoError(t, pub.Publish(context.Background(), "t", []byte(`orig`)))
+			t.Run("返された発行記録のトピックを書き換えても、次に取得する発行記録のトピックは書き換え前のままになる", func(t *testing.T) {
+				publisher, _ := apishopfaketest.NewPublisherAndSubscriber()
+				require.NoError(t, publisher.Publish(context.Background(), "topic-1", []byte("a")))
+				returned := publisher.Published()
 
-			snap := pub.Published()
-			snap[0].Topic = "mutated"
-			snap[0].Data[0] = 'X'
+				returned[0].Topic = "TST-REWRITTEN"
 
-			again := pub.Published()
-			assert.Equal(t, "t", again[0].Topic)
-			assert.Equal(t, `orig`, string(again[0].Data))
+				assert.Equal(t, "topic-1", publisher.Published()[0].Topic)
+			})
+
+			t.Run("返された発行記録の本文を書き換えても、次に取得する発行記録の本文は書き換え前のままになる", func(t *testing.T) {
+				publisher, _ := apishopfaketest.NewPublisherAndSubscriber()
+				require.NoError(t, publisher.Publish(context.Background(), "topic-1", []byte("a")))
+				returned := publisher.Published()
+
+				returned[0].Data[0] = 'z'
+
+				assert.Equal(t, []byte("a"), publisher.Published()[0].Data)
+			})
+
+			t.Run("発行した本文を、発行後に呼び出し側が書き換えても、発行記録の本文は発行時のままになる", func(t *testing.T) {
+				publisher, _ := apishopfaketest.NewPublisherAndSubscriber()
+				data := []byte("a")
+				require.NoError(t, publisher.Publish(context.Background(), "topic-1", data))
+
+				data[0] = 'z'
+
+				assert.Equal(t, []byte("a"), publisher.Published()[0].Data)
+			})
 		})
 	})
-}
-
-// receiveWithin は channel からメッセージを timeout 付きで受信する (timeout 時は t.Fatal)。
-func receiveWithin(t *testing.T, ch <-chan []byte, timeout time.Duration) []byte {
-	t.Helper()
-	select {
-	case data := <-ch:
-		return data
-	case <-time.After(timeout):
-		t.Fatalf("timeout waiting for message after %s", timeout)
-		return nil
-	}
-}
-
-// assertNoMessageWithin は within 内に channel へメッセージが来ないことを確認する。
-func assertNoMessageWithin(t *testing.T, ch <-chan []byte, within time.Duration) {
-	t.Helper()
-	select {
-	case got := <-ch:
-		t.Fatalf("expected no message but received %s", got)
-	case <-time.After(within):
-	}
 }
