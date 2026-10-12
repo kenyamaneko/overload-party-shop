@@ -4,8 +4,8 @@ package postgres_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,372 +13,545 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres/postgrestest"
 )
 
-// normalizeJSON は JSONB round-trip で付与される空白等の差異を吸収する。
-// compact 形式に揃えることで「書き込んだ JSON が取り出せた」ことだけを固定する。
-func normalizeJSON(t *testing.T, raws []string) []string {
+const (
+	unboundedClaimLimit         = 1000
+	unreachableFailureThreshold = 1000
+)
+
+func createUnpublishedEvents(t *testing.T, count int) []uuid.UUID {
 	t.Helper()
-	out := make([]string, 0, len(raws))
-	for _, s := range raws {
-		var v interface{}
-		require.NoError(t, json.Unmarshal([]byte(s), &v))
-		b, err := json.Marshal(v)
+	eventIDs := make([]uuid.UUID, 0, count)
+	for i := range count {
+		eventID := uuid.New()
+		err := pg.CreateCardPackPurchaseWithEvent(playerA, fmt.Sprintf("TST-PACK-%d", i), fmt.Sprintf("TST-TOKEN-%d", i), postgrestest.NewOutboxEventWithID(eventID))
 		require.NoError(t, err)
-		out = append(out, string(b))
+		eventIDs = append(eventIDs, eventID)
 	}
-	return out
+	return eventIDs
 }
 
-// insertOutboxRow はユニークな player_id / token / card_pack_id で outbox 行を **1 本** 挿入する。
-// 書き込み API は package 外に公開していないので card_pack_purchase 経由で作る (本 repo は 1 outbox 行のみ書く)。
-// faction_purchase は 2 outbox 行を書くので seed 件数の意味付けが変わるため使わない。
-// seed 追加の変種 (published 済み / in-flight 等) は apply 関数で後続の mutation を合成する。
-func insertOutboxRow(t *testing.T, testIdx, seedIdx int, payload []byte) uuid.UUID {
+func claimWith(t *testing.T, limit int, visibilityTimeout time.Duration, failureThreshold int) []port.ClaimedOutboxEvent {
 	t.Helper()
-	id := uuid.New()
-	playerID := fmt.Sprintf("%08d-%04d-%04d-0000-000000000000", testIdx+1, seedIdx, seedIdx)
-	cardPackID := fmt.Sprintf("pack-%d-%d", testIdx, seedIdx)
-	token := fmt.Sprintf("tok-%d-%d", testIdx, seedIdx)
-
-	cardPackRepo := postgres.NewCardPackPurchaseRepository(sharedPg.Pool)
-	purchase := &domain.OneTimePurchase{PlayerID: playerID, ProductID: cardPackID, PurchasedAt: time.Now().UTC()}
-	ev := port.OutboxEvent{EventID: id, EventType: apishop.EventTypeCardPackPurchased, Payload: payload}
-	_, err := cardPackRepo.CreatePurchase(context.Background(), purchase, cardPackID, domain.PlatformIOS, token, ev)
+	claimed, err := pg.OutboxRepository().ClaimUnpublished(context.Background(), limit, visibilityTimeout, failureThreshold)
 	require.NoError(t, err)
-	return id
+	return claimed
 }
 
-// markPublishedDirectly は seed 後に published_at を埋める（既配信行のシミュレーション）。
-func markPublishedDirectly(t *testing.T, id uuid.UUID) {
+func recordFailures(t *testing.T, eventID uuid.UUID, count int) {
 	t.Helper()
-	_, err := sharedPg.Pool.Exec(context.Background(),
-		`UPDATE shop.outbox_events SET published_at = now() WHERE event_id = $1`, id)
-	require.NoError(t, err)
-}
-
-// backdateLastAttempted は last_attempted_at を過去方向に移動させ、別 worker が既に
-// 試行中 (visibility timeout 内) もしくは試行後 (timeout 超過) の状態を作る。
-func backdateLastAttempted(t *testing.T, id uuid.UUID, ago time.Duration) {
-	t.Helper()
-	interval := fmt.Sprintf("%d milliseconds", ago.Milliseconds())
-	_, err := sharedPg.Pool.Exec(context.Background(),
-		`UPDATE shop.outbox_events SET last_attempted_at = now() - ($2::text)::interval WHERE event_id = $1`,
-		id, interval)
-	require.NoError(t, err)
-}
-
-// seed は 1 行の挿入と、必要に応じた状態変更までを含む自己完結した Given 断片。
-// runner は insert 関数を呼ぶだけで、ケースごとの if 分岐を持たない。
-type seed struct {
-	payload string
-	insert  func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID
-}
-
-// insertUnpublished は基本の未配信行を挿入する。
-func insertUnpublished(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
-	return insertOutboxRow(t, testIdx, seedIdx, []byte(payload))
-}
-
-// insertAlreadyPublished は seed 時点で既に配信済みの行 (published_at あり)。
-func insertAlreadyPublished(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
-	id := insertOutboxRow(t, testIdx, seedIdx, []byte(payload))
-	markPublishedDirectly(t, id)
-	return id
-}
-
-// insertInFlight は別 worker が試行中 (visibility timeout 以内) の行を作る。
-func insertInFlight(ago time.Duration) func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
-	return func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
-		id := insertOutboxRow(t, testIdx, seedIdx, []byte(payload))
-		backdateLastAttempted(t, id, ago)
-		return id
+	for range count {
+		require.NoError(t, pg.OutboxRepository().RecordFailure(context.Background(), eventID, "TST-ERROR"))
 	}
 }
 
-// setFailureCount は seed 後に failure_count を直接指定値に更新する。
-func setFailureCount(t *testing.T, id uuid.UUID, count int) {
+func readLastError(t *testing.T, eventID uuid.UUID) *string {
 	t.Helper()
-	_, err := sharedPg.Pool.Exec(context.Background(),
-		`UPDATE shop.outbox_events SET failure_count = $2 WHERE event_id = $1`, id, count)
+	var lastError *string
+	err := pg.Pool.QueryRow(context.Background(), "SELECT last_error FROM shop.outbox_events WHERE event_id = $1", eventID).Scan(&lastError)
 	require.NoError(t, err)
+	return lastError
 }
 
-// insertWithFailureCount は failure_count を指定値に設定した行を作る seed 関数。
-func insertWithFailureCount(count int) func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
-	return func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
-		id := insertOutboxRow(t, testIdx, seedIdx, []byte(payload))
-		setFailureCount(t, id, count)
-		return id
-	}
-}
-
-// insertExhausted は failure_count が閾値に到達した行を作る seed 関数。
-func insertExhausted(threshold int) func(t *testing.T, testIdx, seedIdx int, payload string) uuid.UUID {
-	return insertWithFailureCount(threshold)
-}
-
-// defaultVisibility はケース指定がない時の visibility timeout (30s)。
-const defaultVisibility = 30 * time.Second
-
-// defaultFailureThreshold はケース指定がない時の failure threshold。
-// 既存テストは閾値超過行を扱わないため、十分大きい値を設定。
-const defaultFailureThreshold = 100
-
-func TestOutboxRepository_ClaimUnpublished(t *testing.T) {
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
+func TestOutboxWriteEvent(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("未配信イベントの取得", func(t *testing.T) {
-		const failureThreshold = 3
-
-		tests := []struct {
-			name              string
-			seeds             []seed
-			limit             int
-			visibilityTimeout time.Duration
-			failureThreshold  int
-			wantPayloads      []string // order-insensitive. 空スライスは「何も claim されない」を表す。
-		}{
-			{
-				name: "未配信行があるとき、payloadそのままで返す",
-				seeds: []seed{
-					{payload: `{"k":"a"}`, insert: insertUnpublished},
-					{payload: `{"k":"b"}`, insert: insertUnpublished},
-				},
-				limit:             10,
-				visibilityTimeout: defaultVisibility,
-				failureThreshold:  defaultFailureThreshold,
-				wantPayloads:      []string{`{"k":"a"}`, `{"k":"b"}`},
-			},
-			{
-				name: "published_atが埋まった行があるとき、スキップする",
-				seeds: []seed{
-					{payload: `{"k":"old"}`, insert: insertAlreadyPublished},
-					{payload: `{"k":"new"}`, insert: insertUnpublished},
-				},
-				limit:             10,
-				visibilityTimeout: defaultVisibility,
-				failureThreshold:  defaultFailureThreshold,
-				wantPayloads:      []string{`{"k":"new"}`},
-			},
-			{
-				name: "visibility timeout以内に試行された行があるとき、in-flightとしてスキップする",
-				seeds: []seed{
-					{payload: `{"k":"in-flight"}`, insert: insertInFlight(5 * time.Second)},
-					{payload: `{"k":"available"}`, insert: insertUnpublished},
-				},
-				limit:             10,
-				visibilityTimeout: defaultVisibility,
-				failureThreshold:  defaultFailureThreshold,
-				wantPayloads:      []string{`{"k":"available"}`},
-			},
-			{
-				name: "visibility timeoutを超えた行があるとき、再claim対象にする (workerクラッシュ後の再試行)",
-				seeds: []seed{
-					{payload: `{"k":"recovered"}`, insert: insertInFlight(60 * time.Second)},
-				},
-				limit:             10,
-				visibilityTimeout: defaultVisibility,
-				failureThreshold:  defaultFailureThreshold,
-				wantPayloads:      []string{`{"k":"recovered"}`},
-			},
-			{
-				name:              "未配信行が無いとき、空で返す",
-				seeds:             nil,
-				limit:             10,
-				visibilityTimeout: defaultVisibility,
-				failureThreshold:  defaultFailureThreshold,
-				wantPayloads:      []string{},
-			},
-			{
-				name: "failure_countが閾値に達した行があるとき、スキップする",
-				seeds: []seed{
-					{payload: `{"k":"exhausted"}`, insert: insertExhausted(failureThreshold)},
-					{payload: `{"k":"healthy"}`, insert: insertUnpublished},
-				},
-				limit:             10,
-				visibilityTimeout: defaultVisibility,
-				failureThreshold:  failureThreshold,
-				wantPayloads:      []string{`{"k":"healthy"}`},
-			},
-			{
-				name: "failure_countが閾値未満の行があるとき、claimされる",
-				seeds: []seed{
-					{payload: `{"k":"below-threshold"}`, insert: insertWithFailureCount(failureThreshold - 1)},
-				},
-				limit:             10,
-				visibilityTimeout: defaultVisibility,
-				failureThreshold:  failureThreshold,
-				wantPayloads:      []string{`{"k":"below-threshold"}`},
-			},
-		}
-
-		for i, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				sharedPg.Truncate(t)
-				for j, s := range tt.seeds {
-					s.insert(t, i, j, s.payload)
+	t.Run("[アウトボックス]イベントの書き込み", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("プレイヤーAがカードパック購入を作成する", func(t *testing.T) {
+				eventID := uuid.MustParse("00000000-0000-4000-8000-0000000000e1")
+				prepare := func(t *testing.T) port.ClaimedOutboxEvent {
+					pg.Truncate(t)
+					event := port.OutboxEvent{EventID: eventID, EventType: "TST-EVENT-TYPE-WRITE", Payload: []byte(`{"playerId":"TST-PLAYER","count":3}`)}
+					require.NoError(t, pg.CreateCardPackPurchaseWithEvent(playerA, cardPackX, tokenOne, event))
+					claimed := pg.ClaimAll(t)
+					require.Len(t, claimed, 1)
+					return claimed[0]
 				}
 
-				claimed, err := repo.ClaimUnpublished(ctx, tt.limit, tt.visibilityTimeout, tt.failureThreshold)
-				require.NoError(t, err)
+				t.Run("取得したイベントのイベントIDは、渡したイベントIDになる", func(t *testing.T) {
+					claimed := prepare(t)
 
-				got := make([]string, len(claimed))
-				for k, ev := range claimed {
-					got[k] = string(ev.Payload)
-				}
-				assert.ElementsMatch(t, tt.wantPayloads, normalizeJSON(t, got))
+					assert.Equal(t, eventID, claimed.EventID)
+				})
+
+				t.Run("取得したイベントのイベント種別は、渡したイベント種別になる", func(t *testing.T) {
+					claimed := prepare(t)
+
+					assert.Equal(t, "TST-EVENT-TYPE-WRITE", claimed.EventType)
+				})
+
+				t.Run("取得したイベントのペイロードは、渡したペイロードと同じJSONの内容になる", func(t *testing.T) {
+					claimed := prepare(t)
+
+					assert.JSONEq(t, `{"playerId":"TST-PLAYER","count":3}`, string(claimed.Payload))
+				})
+
+				t.Run("取得したイベントの失敗回数は0になる", func(t *testing.T) {
+					claimed := prepare(t)
+
+					assert.Equal(t, 0, claimed.FailureCount)
+				})
 			})
-		}
-
-		t.Run("上限を超えて取得せず、取得されなかった行は未試行のまま残る", func(t *testing.T) {
-			// どの行が選ばれるかは同 ms 挿入時に不定なので、件数のみで固定する。
-			sharedPg.Truncate(t)
-
-			const totalSeeded = 3
-			const limit = 2
-			for j := range totalSeeded {
-				insertUnpublished(t, 0, j, fmt.Sprintf(`{"k":"%d"}`, j))
-			}
-
-			claimed, err := repo.ClaimUnpublished(ctx, limit, defaultVisibility, defaultFailureThreshold)
-			require.NoError(t, err)
-			assert.Len(t, claimed, limit, "limit で claim 件数が制限される")
-
-			var remaining int
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.outbox_events
-				  WHERE published_at IS NULL AND last_attempted_at IS NULL`,
-			).Scan(&remaining))
-			assert.Equal(t, totalSeeded-limit, remaining, "claim されなかった行は未試行のまま残る")
 		})
 
-		t.Run("取得成功後、last_attempted_atがnow()に更新される", func(t *testing.T) {
-			sharedPg.Truncate(t)
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("プレイヤーBのカードパックYの購入で保存済みのイベントと同じイベントIDのイベントを持つ、プレイヤーAのカードパックXの購入を作成する", func(t *testing.T) {
+				createWithDuplicateEventID := func(t *testing.T) error {
+					pg.Truncate(t)
+					eventID := uuid.New()
+					require.NoError(t, pg.CreateCardPackPurchaseWithEvent(playerB, cardPackY, tokenOne, postgrestest.NewOutboxEventWithID(eventID)))
+					return pg.CreateCardPackPurchaseWithEvent(playerA, cardPackX, tokenFailed, postgrestest.NewOutboxEventWithID(eventID))
+				}
 
-			id := insertOutboxRow(t, 0, 0, []byte(`{"k":"v"}`))
+				t.Run("エラーの原因はイベントIDの重複になる", func(t *testing.T) {
+					err := createWithDuplicateEventID(t)
 
-			_, err := repo.ClaimUnpublished(ctx, 10, defaultVisibility, defaultFailureThreshold)
-			require.NoError(t, err)
+					postgrestest.RequireDuplicateKeyError(t, err, "outbox_events_pkey")
+				})
 
-			var lastAttemptedNotNull bool
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT last_attempted_at IS NOT NULL FROM shop.outbox_events WHERE event_id = $1`,
-				id).Scan(&lastAttemptedNotNull))
-			assert.True(t, lastAttemptedNotNull, "claim 成功後は last_attempted_at が now() に更新される")
+				t.Run("失敗した購入トークンで検索しても、購入は見つからない", func(t *testing.T) {
+					require.Error(t, createWithDuplicateEventID(t))
+
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenFailed)
+
+					assert.NoError(t, err)
+					assert.Nil(t, got)
+				})
+
+				t.Run("プレイヤーAはカードパックXを所有していない状態のままになる", func(t *testing.T) {
+					require.Error(t, createWithDuplicateEventID(t))
+
+					owned, err := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackX)
+
+					require.NoError(t, err)
+					assert.False(t, owned)
+				})
+
+				t.Run("保存済みだったイベントは1件のままになる", func(t *testing.T) {
+					require.Error(t, createWithDuplicateEventID(t))
+
+					assert.Len(t, pg.ClaimAll(t), 1)
+				})
+
+				t.Run("続けて、新しいイベントIDでプレイヤーAのカードパックXの購入を作成すると、プレイヤーAがカードパックXを所有している状態になる", func(t *testing.T) {
+					require.Error(t, createWithDuplicateEventID(t))
+					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenFailed))
+
+					owned, err := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackX)
+
+					require.NoError(t, err)
+					assert.True(t, owned)
+				})
+			})
 		})
 	})
 }
 
-func TestOutboxRepository_MarkPublished(t *testing.T) {
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
+func TestOutboxClaimUnpublished(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("配信済みマーク", func(t *testing.T) {
-		tests := []struct {
-			name string
-			seed seed
-		}{
-			{
-				name: "未配信行のとき、published_atを立てlast_errorを解除する",
-				seed: seed{payload: `{"k":"v"}`, insert: insertUnpublished},
-			},
-			{
-				// 同じ event を別 worker が重複処理しても落ちないこと (at-least-once 契約の一部)。
-				name: "既配信行に再呼び出ししても、冪等に配信済みのまま",
-				seed: seed{payload: `{"k":"v"}`, insert: insertAlreadyPublished},
-			},
-		}
+	t.Run("[アウトボックス]未配信イベントの取得", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("取得対象の絞り込み", func(t *testing.T) {
+				t.Run("未配信のイベントが2件あるとき、2件とも取得される", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 2)
 
-		for i, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				sharedPg.Truncate(t)
-				id := tt.seed.insert(t, i, 0, tt.seed.payload)
+					claimed := pg.ClaimAll(t)
 
-				require.NoError(t, repo.MarkPublished(ctx, id))
+					assert.ElementsMatch(t, eventIDs, postgrestest.ClaimedEventIDs(claimed))
+				})
 
-				var publishedAtNotNull bool
-				var lastError *string
-				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-					`SELECT published_at IS NOT NULL, last_error FROM shop.outbox_events WHERE event_id = $1`,
-					id).Scan(&publishedAtNotNull, &lastError))
-				assert.True(t, publishedAtNotNull, "published_at が立つ")
-				assert.Nil(t, lastError, "last_error は解除される")
+				t.Run("未配信のイベントが無いとき、0件になる", func(t *testing.T) {
+					pg.Truncate(t)
+
+					assert.Len(t, pg.ClaimAll(t), 0)
+				})
+
+				t.Run("配信済みのイベントと未配信のイベントがあるとき、未配信のイベントだけが取得される", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 2)
+					require.NoError(t, pg.OutboxRepository().MarkPublished(ctx, eventIDs[0]))
+
+					claimed := pg.ClaimAll(t)
+
+					assert.Equal(t, []uuid.UUID{eventIDs[1]}, postgrestest.ClaimedEventIDs(claimed))
+				})
 			})
-		}
+
+			t.Run("取得したイベントを続けて取得する", func(t *testing.T) {
+				t.Run("取得待ち時間より短い間隔で続けて取得すると、直前に取得したイベントは取得されない", func(t *testing.T) {
+					pg.Truncate(t)
+					createUnpublishedEvents(t, 2)
+					require.Len(t, pg.ClaimAll(t), 2)
+
+					claimed := claimWith(t, unboundedClaimLimit, time.Hour, unreachableFailureThreshold)
+
+					assert.Len(t, claimed, 0)
+				})
+
+				t.Run("取得待ち時間より長い間隔を空けて取得すると、直前に取得したイベントが再び取得される", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 2)
+					require.Len(t, pg.ClaimAll(t), 2)
+
+					claimed := pg.ClaimAll(t)
+
+					assert.ElementsMatch(t, eventIDs, postgrestest.ClaimedEventIDs(claimed))
+				})
+			})
+
+			t.Run("失敗が記録されたイベントを、取得待ち時間より長い間隔を空けて取得する", func(t *testing.T) {
+				cases := []struct {
+					name         string
+					failureCount int
+					wantClaimed  int
+				}{
+					{name: "失敗回数が2回で、失敗回数の閾値が3のとき、取得される", failureCount: 2, wantClaimed: 1},
+					{name: "失敗回数が3回で、失敗回数の閾値が3のとき、取得されない", failureCount: 3, wantClaimed: 0},
+				}
+				for _, tc := range cases {
+					t.Run(tc.name, func(t *testing.T) {
+						pg.Truncate(t)
+						eventIDs := createUnpublishedEvents(t, 1)
+						recordFailures(t, eventIDs[0], tc.failureCount)
+
+						claimed := claimWith(t, unboundedClaimLimit, 0, 3)
+
+						assert.Len(t, claimed, tc.wantClaimed)
+					})
+				}
+			})
+
+			t.Run("未配信のイベントが3件あるとき、取得件数の上限を2にして取得する", func(t *testing.T) {
+				t.Run("2件が取得される", func(t *testing.T) {
+					pg.Truncate(t)
+					createUnpublishedEvents(t, 3)
+
+					claimed := claimWith(t, 2, time.Hour, unreachableFailureThreshold)
+
+					assert.Len(t, claimed, 2)
+				})
+
+				t.Run("取得されるのは、作成日時が古いほうから2件になる", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 3)
+
+					claimed := claimWith(t, 2, time.Hour, unreachableFailureThreshold)
+
+					assert.Equal(t, eventIDs[:2], postgrestest.ClaimedEventIDs(claimed))
+				})
+
+				t.Run("続けて取得すると、残りの1件が取得される", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 3)
+					require.Len(t, claimWith(t, 2, time.Hour, unreachableFailureThreshold), 2)
+
+					claimed := claimWith(t, 2, time.Hour, unreachableFailureThreshold)
+
+					assert.Equal(t, []uuid.UUID{eventIDs[2]}, postgrestest.ClaimedEventIDs(claimed))
+				})
+			})
+
+			t.Run("取得したイベントの内容", func(t *testing.T) {
+				eventID := uuid.MustParse("00000000-0000-4000-8000-0000000000e2")
+				prepare := func(t *testing.T) port.ClaimedOutboxEvent {
+					pg.Truncate(t)
+					event := port.OutboxEvent{EventID: eventID, EventType: "TST-EVENT-TYPE-CLAIM", Payload: []byte(`{"key":"value","number":5}`)}
+					require.NoError(t, pg.CreateCardPackPurchaseWithEvent(playerA, cardPackX, tokenOne, event))
+					recordFailures(t, eventID, 2)
+					claimed := pg.ClaimAll(t)
+					require.Len(t, claimed, 1)
+					return claimed[0]
+				}
+
+				t.Run("イベントIDは、保存したイベントIDになる", func(t *testing.T) {
+					claimed := prepare(t)
+
+					assert.Equal(t, eventID, claimed.EventID)
+				})
+
+				t.Run("イベント種別は、保存したイベント種別になる", func(t *testing.T) {
+					claimed := prepare(t)
+
+					assert.Equal(t, "TST-EVENT-TYPE-CLAIM", claimed.EventType)
+				})
+
+				t.Run("ペイロードは、保存したJSONと同じ内容になる", func(t *testing.T) {
+					claimed := prepare(t)
+
+					assert.JSONEq(t, `{"key":"value","number":5}`, string(claimed.Payload))
+				})
+
+				t.Run("失敗を2回記録したイベントの失敗回数は2になる", func(t *testing.T) {
+					claimed := prepare(t)
+
+					assert.Equal(t, 2, claimed.FailureCount)
+				})
+			})
+
+			t.Run("未配信のイベントが10件あるとき、取得件数の上限を5にした2つの取得を同時に行う", func(t *testing.T) {
+				claimTwiceConcurrently := func(t *testing.T) ([]uuid.UUID, []uuid.UUID) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 10)
+					results := make([][]port.ClaimedOutboxEvent, 2)
+					errs := make([]error, 2)
+					var wg sync.WaitGroup
+					for i := range 2 {
+						wg.Add(1)
+						go func() {
+							defer wg.Done()
+							results[i], errs[i] = pg.OutboxRepository().ClaimUnpublished(ctx, 5, time.Hour, unreachableFailureThreshold)
+						}()
+					}
+					wg.Wait()
+					require.NoError(t, errs[0])
+					require.NoError(t, errs[1])
+					return eventIDs, append(postgrestest.ClaimedEventIDs(results[0]), postgrestest.ClaimedEventIDs(results[1])...)
+				}
+
+				t.Run("2つの取得で、同じイベントが両方に返らない", func(t *testing.T) {
+					eventIDs, returnedIDs := claimTwiceConcurrently(t)
+
+					returnedCounts := map[uuid.UUID]int{}
+					for _, returnedID := range returnedIDs {
+						returnedCounts[returnedID]++
+					}
+					for _, eventID := range eventIDs {
+						assert.LessOrEqual(t, returnedCounts[eventID], 1, "event %s returned %d times", eventID, returnedCounts[eventID])
+					}
+				})
+
+				t.Run("2つの取得で返ったイベントを合わせると10件になる", func(t *testing.T) {
+					eventIDs, returnedIDs := claimTwiceConcurrently(t)
+
+					assert.ElementsMatch(t, eventIDs, returnedIDs)
+				})
+			})
+		})
 	})
 }
 
-func TestOutboxRepository_RecordFailure(t *testing.T) {
-	repo := postgres.NewOutboxRepository(sharedPg.Pool)
+func TestOutboxMarkPublished(t *testing.T) {
 	ctx := context.Background()
 
-	// recordN は RecordFailure を n 回呼んで行を「n 回連続失敗済み」状態にするヘルパ。
-	// テストケース間で priorFailures の初期化を宣言的に揃える。
-	recordN := func(n int, msgPrefix string) func(t *testing.T, id uuid.UUID) {
-		return func(t *testing.T, id uuid.UUID) {
-			for i := range n {
-				require.NoError(t, repo.RecordFailure(context.Background(), id, fmt.Sprintf("%s-%d", msgPrefix, i)))
-			}
-		}
-	}
-	noPrior := func(t *testing.T, id uuid.UUID) {}
+	t.Run("[アウトボックス]配信済みの記録", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("イベントを配信済みにする", func(t *testing.T) {
+				cases := []struct {
+					name      string
+					markCount int
+				}{
+					{name: "未配信のイベントのとき、以後、取得待ち時間0秒で取得しても、そのイベントは取得されない", markCount: 1},
+					{name: "すでに配信済みのイベントのとき、以後、取得待ち時間0秒で取得しても、そのイベントは取得されない", markCount: 2},
+				}
+				for _, tc := range cases {
+					t.Run(tc.name, func(t *testing.T) {
+						pg.Truncate(t)
+						eventIDs := createUnpublishedEvents(t, 1)
+						for range tc.markCount {
+							require.NoError(t, pg.OutboxRepository().MarkPublished(ctx, eventIDs[0]))
+						}
 
-	t.Run("失敗の記録", func(t *testing.T) {
-		tests := []struct {
-			name             string
-			priorFailures    func(t *testing.T, id uuid.UUID) // 本体呼び出し前の状態作り
-			errMsg           string
-			wantFailureCount int
-			wantLastError    string
-		}{
-			{
-				name:             "初回失敗のとき、failure_count=1でlast_errorを記録する",
-				priorFailures:    noPrior,
-				errMsg:           "pubsub down",
-				wantFailureCount: 1,
-				wantLastError:    "pubsub down",
-			},
-			{
-				name:             "連続失敗のとき、failure_countが積み上がる (死蔵検知の素材)",
-				priorFailures:    recordN(2, "prior"),
-				errMsg:           "still down",
-				wantFailureCount: 3,
-				wantLastError:    "still down",
-			},
-			{
-				name:             "再失敗のとき、last_errorが直近エラーで上書きされる",
-				priorFailures:    recordN(1, "prior"),
-				errMsg:           "newer error",
-				wantFailureCount: 2,
-				wantLastError:    "newer error",
-			},
-		}
-
-		for i, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				sharedPg.Truncate(t)
-				id := insertOutboxRow(t, i, 0, []byte(`{"k":"v"}`))
-				tt.priorFailures(t, id)
-
-				require.NoError(t, repo.RecordFailure(ctx, id, tt.errMsg))
-
-				var fc int
-				var lastError *string
-				var publishedAtNotNull bool
-				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-					`SELECT failure_count, last_error, published_at IS NOT NULL FROM shop.outbox_events WHERE event_id = $1`,
-					id).Scan(&fc, &lastError, &publishedAtNotNull))
-				assert.Equal(t, tt.wantFailureCount, fc)
-				require.NotNil(t, lastError)
-				assert.Equal(t, tt.wantLastError, *lastError)
-				assert.False(t, publishedAtNotNull, "失敗は published_at に影響しない")
+						assert.Len(t, pg.ClaimAll(t), 0)
+					})
+				}
 			})
-		}
+
+			t.Run("失敗を記録したイベントを配信済みにする", func(t *testing.T) {
+				t.Run("直近のエラーが空になる", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 1)
+					recordFailures(t, eventIDs[0], 1)
+					require.NotNil(t, readLastError(t, eventIDs[0]))
+					require.NoError(t, pg.OutboxRepository().MarkPublished(ctx, eventIDs[0]))
+
+					assert.Nil(t, readLastError(t, eventIDs[0]))
+				})
+			})
+
+			t.Run("配信済みのイベントをもう一度配信済みにする", func(t *testing.T) {
+				t.Run("エラーにならない", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 1)
+					require.NoError(t, pg.OutboxRepository().MarkPublished(ctx, eventIDs[0]))
+
+					err := pg.OutboxRepository().MarkPublished(ctx, eventIDs[0])
+
+					assert.NoError(t, err)
+				})
+			})
+
+			t.Run("未配信のイベントが2件あるとき、1件を配信済みにする", func(t *testing.T) {
+				t.Run("もう1件のイベントは、引き続き取得される", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 2)
+					require.NoError(t, pg.OutboxRepository().MarkPublished(ctx, eventIDs[0]))
+
+					assert.Equal(t, []uuid.UUID{eventIDs[1]}, postgrestest.ClaimedEventIDs(pg.ClaimAll(t)))
+				})
+			})
+		})
+
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("未配信のイベントが1件あるとき、保存されていないイベントIDを配信済みにする", func(t *testing.T) {
+				t.Run("更新対象が見つからないエラーになる", func(t *testing.T) {
+					pg.Truncate(t)
+					createUnpublishedEvents(t, 1)
+
+					err := pg.OutboxRepository().MarkPublished(ctx, uuid.New())
+
+					assert.ErrorIs(t, err, port.ErrNotFound)
+				})
+
+				t.Run("保存済みのイベントは、引き続き取得される", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 1)
+					require.Error(t, pg.OutboxRepository().MarkPublished(ctx, uuid.New()))
+
+					assert.Equal(t, eventIDs, postgrestest.ClaimedEventIDs(pg.ClaimAll(t)))
+				})
+
+				t.Run("続けて、保存済みのイベントを配信済みにすると、以後、取得待ち時間0秒で取得しても、そのイベントは取得されない", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 1)
+					require.Error(t, pg.OutboxRepository().MarkPublished(ctx, uuid.New()))
+					require.NoError(t, pg.OutboxRepository().MarkPublished(ctx, eventIDs[0]))
+
+					assert.Len(t, pg.ClaimAll(t), 0)
+				})
+			})
+		})
+	})
+}
+
+func TestOutboxRecordFailure(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("[アウトボックス]失敗の記録", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("失敗を記録する", func(t *testing.T) {
+				cases := []struct {
+					name          string
+					priorFailures int
+					wantFailures  int
+				}{
+					{name: "失敗の記録が0回のイベントのとき、失敗回数は1になる", priorFailures: 0, wantFailures: 1},
+					{name: "失敗の記録が1回のイベントのとき、失敗回数は2になる", priorFailures: 1, wantFailures: 2},
+					{name: "失敗の記録が2回のイベントのとき、失敗回数は3になる", priorFailures: 2, wantFailures: 3},
+				}
+				for _, tc := range cases {
+					t.Run(tc.name, func(t *testing.T) {
+						pg.Truncate(t)
+						eventIDs := createUnpublishedEvents(t, 1)
+						recordFailures(t, eventIDs[0], tc.priorFailures)
+						require.NoError(t, pg.OutboxRepository().RecordFailure(ctx, eventIDs[0], "TST-ERROR"))
+
+						claimed := pg.ClaimAll(t)
+
+						require.Len(t, claimed, 1)
+						assert.Equal(t, tc.wantFailures, claimed[0].FailureCount)
+					})
+				}
+			})
+
+			t.Run("直近のエラー", func(t *testing.T) {
+				t.Run("失敗を記録すると、直近のエラーは記録したエラーの内容になる", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 1)
+					require.NoError(t, pg.OutboxRepository().RecordFailure(ctx, eventIDs[0], "TST-ERROR-FIRST"))
+
+					lastError := readLastError(t, eventIDs[0])
+
+					require.NotNil(t, lastError)
+					assert.Equal(t, "TST-ERROR-FIRST", *lastError)
+				})
+
+				t.Run("続けて別のエラーの内容で失敗を記録すると、直近のエラーは新しいエラーの内容に置き換わる", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 1)
+					require.NoError(t, pg.OutboxRepository().RecordFailure(ctx, eventIDs[0], "TST-ERROR-FIRST"))
+					require.NoError(t, pg.OutboxRepository().RecordFailure(ctx, eventIDs[0], "TST-ERROR-SECOND"))
+
+					lastError := readLastError(t, eventIDs[0])
+
+					require.NotNil(t, lastError)
+					assert.Equal(t, "TST-ERROR-SECOND", *lastError)
+				})
+			})
+
+			t.Run("失敗を記録しても、そのイベントは配信済みにならず、取得待ち時間0秒で取得すると取得される", func(t *testing.T) {
+				pg.Truncate(t)
+				eventIDs := createUnpublishedEvents(t, 1)
+				require.NoError(t, pg.OutboxRepository().RecordFailure(ctx, eventIDs[0], "TST-ERROR"))
+
+				assert.Equal(t, eventIDs, postgrestest.ClaimedEventIDs(pg.ClaimAll(t)))
+			})
+
+			t.Run("失敗を記録した直後に、取得待ち時間より短い間隔で取得すると、そのイベントは取得されない", func(t *testing.T) {
+				pg.Truncate(t)
+				eventIDs := createUnpublishedEvents(t, 1)
+				require.NoError(t, pg.OutboxRepository().RecordFailure(ctx, eventIDs[0], "TST-ERROR"))
+
+				claimed := claimWith(t, unboundedClaimLimit, time.Hour, unreachableFailureThreshold)
+
+				assert.Len(t, claimed, 0)
+			})
+
+			t.Run("2件のイベントのうち1件に失敗を記録しても、もう1件の失敗回数は0のままになる", func(t *testing.T) {
+				pg.Truncate(t)
+				eventIDs := createUnpublishedEvents(t, 2)
+				require.NoError(t, pg.OutboxRepository().RecordFailure(ctx, eventIDs[0], "TST-ERROR"))
+
+				claimed := pg.ClaimAll(t)
+
+				require.Len(t, claimed, 2)
+				failureCounts := map[uuid.UUID]int{}
+				for _, event := range claimed {
+					failureCounts[event.EventID] = event.FailureCount
+				}
+				assert.Equal(t, 0, failureCounts[eventIDs[1]])
+			})
+		})
+
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("未配信のイベントが1件あるとき、保存されていないイベントIDに失敗を記録する", func(t *testing.T) {
+				t.Run("更新対象が見つからないエラーになる", func(t *testing.T) {
+					pg.Truncate(t)
+					createUnpublishedEvents(t, 1)
+
+					err := pg.OutboxRepository().RecordFailure(ctx, uuid.New(), "TST-ERROR")
+
+					assert.ErrorIs(t, err, port.ErrNotFound)
+				})
+
+				t.Run("保存済みのイベントの失敗回数は0のままになる", func(t *testing.T) {
+					pg.Truncate(t)
+					createUnpublishedEvents(t, 1)
+					require.Error(t, pg.OutboxRepository().RecordFailure(ctx, uuid.New(), "TST-ERROR"))
+
+					claimed := pg.ClaimAll(t)
+
+					require.Len(t, claimed, 1)
+					assert.Equal(t, 0, claimed[0].FailureCount)
+				})
+
+				t.Run("続けて、保存済みのイベントに失敗を記録すると、失敗回数は1になる", func(t *testing.T) {
+					pg.Truncate(t)
+					eventIDs := createUnpublishedEvents(t, 1)
+					require.Error(t, pg.OutboxRepository().RecordFailure(ctx, uuid.New(), "TST-ERROR"))
+					require.NoError(t, pg.OutboxRepository().RecordFailure(ctx, eventIDs[0], "TST-ERROR"))
+
+					claimed := pg.ClaimAll(t)
+
+					require.Len(t, claimed, 1)
+					assert.Equal(t, 1, claimed[0].FailureCount)
+				})
+			})
+		})
 	})
 }

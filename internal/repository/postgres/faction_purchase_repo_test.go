@@ -4,297 +4,388 @@ package postgres_test
 
 import (
 	"context"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres/postgrestest"
 )
 
-// newFactionPurchaseEvents は faction_set 購入時に shop が enqueue する
-// outbox events 2 行 (card-pack-purchased + faction-acquired) を作る。
-func newFactionPurchaseEvents() []port.OutboxEvent {
-	return []port.OutboxEvent{
-		{
-			EventID:   uuid.New(),
-			EventType: apishop.EventTypeCardPackPurchased,
-			Payload:   []byte(`{}`),
-		},
-		{
-			EventID:   uuid.New(),
-			EventType: apishop.EventTypeFactionAcquired,
-			Payload:   []byte(`{}`),
-		},
-	}
+func failPurchaseOfOwnedFaction(t *testing.T) error {
+	t.Helper()
+	pg.Truncate(t)
+	require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+	return pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenFailed)
 }
 
-const (
-	factionTestUser1 = "11111111-1111-1111-1111-111111111111"
-	factionTestUser2 = "22222222-2222-2222-2222-222222222222"
-)
-
-func newFactionTestPurchase(playerID string) *domain.OneTimePurchase {
-	return &domain.OneTimePurchase{
-		PlayerID:    playerID,
-		ProductID:   "faction_tenki",
-		PurchasedAt: time.Now().UTC(),
-	}
+func failPurchaseWithOnlyCardPackOwned(t *testing.T) error {
+	t.Helper()
+	pg.Truncate(t)
+	require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackTenki, tokenOne))
+	return pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenFailed)
 }
 
-type factionPurchaseSeed struct {
-	playerID, faction, cardPackID, platform, token string
+func failPurchaseWithDuplicateEventID(t *testing.T) error {
+	t.Helper()
+	pg.Truncate(t)
+	eventID := uuid.New()
+	events := []port.OutboxEvent{postgrestest.NewOutboxEventWithID(eventID), postgrestest.NewOutboxEventWithID(eventID)}
+	return pg.CreateFactionPurchaseWithEvents(playerA, "Tenki", cardPackTenki, tokenFailed, events)
 }
 
-func TestFactionPurchaseRepository_CreatePurchase(t *testing.T) {
-	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
+func failPurchaseWithTooLongToken(t *testing.T) error {
+	t.Helper()
+	pg.Truncate(t)
+	return pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, postgrestest.TokenOfLength(257))
+}
+
+func TestFactionPurchaseCreatePurchase(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("faction購入の作成", func(t *testing.T) {
-		successCases := []struct {
-			name             string
-			seeds            []factionPurchaseSeed
-			playerID         string
-			faction          string
-			cardPackID       string
-			platform         string
-			token            string
-			wantCreated      bool
-			wantPurchaseRows int
-			wantOwnedRows    int
-			wantCardPackRows int
-		}{
-			{
-				name:             "新規トークンのとき、purchase / token / owned_faction / owned_card_packが作成される",
-				seeds:            nil,
-				playerID:         factionTestUser1,
-				faction:          "Tenki",
-				cardPackID:       "faction_set_tenki",
-				platform:         domain.PlatformIOS,
-				token:            "apple-new",
-				wantCreated:      true,
-				wantPurchaseRows: 1,
-				wantOwnedRows:    1,
-				wantCardPackRows: 1,
-			},
-			{
-				name: "同一ユーザーの既存トークンのとき、べき等でcreated=false、owned系も増えない",
-				seeds: []factionPurchaseSeed{
-					{factionTestUser1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "dup-token"},
-				},
-				playerID:         factionTestUser1,
-				faction:          "Tenki",
-				cardPackID:       "faction_set_tenki",
-				platform:         domain.PlatformIOS,
-				token:            "dup-token",
-				wantCreated:      false,
-				wantPurchaseRows: 1,
-				wantOwnedRows:    1,
-				wantCardPackRows: 1,
-			},
-			{
-				name: "別ユーザーが同一トークンを使うとき、べき等で最初のpurchaseに紐付いたまま",
-				seeds: []factionPurchaseSeed{
-					{factionTestUser1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "shared-token"},
-				},
-				playerID:         factionTestUser2,
-				faction:          "Tenki",
-				cardPackID:       "faction_set_tenki",
-				platform:         domain.PlatformIOS,
-				token:            "shared-token",
-				wantCreated:      false,
-				wantPurchaseRows: 1,
-				wantOwnedRows:    1,
-				wantCardPackRows: 1,
-			},
-			{
-				name: "別ユーザーが同一factionを新規トークンで買うとき、独立して追加される",
-				seeds: []factionPurchaseSeed{
-					{factionTestUser1, "Tenki", "faction_set_tenki", domain.PlatformIOS, "tok-u1"},
-				},
-				playerID:         factionTestUser2,
-				faction:          "Tenki",
-				cardPackID:       "faction_set_tenki",
-				platform:         domain.PlatformIOS,
-				token:            "tok-u2",
-				wantCreated:      true,
-				wantPurchaseRows: 2,
-				wantOwnedRows:    2,
-				wantCardPackRows: 2,
-			},
-		}
+	t.Run("[陣営購入]購入の作成", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("購入を作成する", func(t *testing.T) {
+				cases := []struct {
+					name   string
+					prior  func(t *testing.T)
+					create func() error
+				}{
+					{
+						name:   "プレイヤーAが新規の購入トークンで陣営Tenkiのセットを購入するとき、エラーにならない",
+						prior:  func(t *testing.T) {},
+						create: func() error { return pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne) },
+					},
+					{
+						name: "プレイヤーAが陣営Tenkiを購入済みで、別の購入トークンで陣営Sugarのセットを購入するとき、エラーにならない",
+						prior: func(t *testing.T) {
+							require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+						},
+						create: func() error { return pg.CreateFactionPurchase(playerA, "Sugar", cardPackSugar, tokenTwo) },
+					},
+					{
+						name: "プレイヤーAが陣営Tenkiを購入済みで、プレイヤーBが別の購入トークンで陣営Tenkiのセットを購入するとき、エラーにならない",
+						prior: func(t *testing.T) {
+							require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+						},
+						create: func() error { return pg.CreateFactionPurchase(playerB, "Tenki", cardPackTenki, tokenTwo) },
+					},
+				}
+				for _, tc := range cases {
+					t.Run(tc.name, func(t *testing.T) {
+						pg.Truncate(t)
+						tc.prior(t)
 
-		for _, tt := range successCases {
-			t.Run(tt.name, func(t *testing.T) {
-				sharedPg.Truncate(t)
-				for _, s := range tt.seeds {
-					_, err := repo.CreatePurchase(ctx, newFactionTestPurchase(s.playerID), s.faction, s.cardPackID, s.platform, s.token, newFactionPurchaseEvents())
+						err := tc.create()
+
+						assert.NoError(t, err)
+					})
+				}
+			})
+
+			t.Run("プレイヤーAが新規の購入トークンで陣営Tenkiのセットを購入する", func(t *testing.T) {
+				t.Run("プレイヤーAの所有陣営一覧にTenkiが含まれる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+
 					require.NoError(t, err)
+					assert.Contains(t, factions, "Tenki")
+				})
+
+				t.Run("プレイヤーAが陣営Tenkiのセットのカードパックを所有している状態になる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+
+					owned, err := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackTenki)
+
+					require.NoError(t, err)
+					assert.True(t, owned)
+				})
+
+				t.Run("購入トークンで検索すると、プレイヤーAの購入が見つかる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenOne)
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.Equal(t, playerA, got.PlayerID)
+				})
+
+				t.Run("イベントが2件保存される", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+
+					assert.Len(t, pg.ClaimAll(t), 2)
+				})
+			})
+
+			t.Run("プレイヤーAが陣営Tenkiを購入済みのとき、別の購入トークンで陣営Sugarのセットを購入する", func(t *testing.T) {
+				t.Run("プレイヤーAの所有陣営一覧にTenkiとSugarの両方が含まれる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Sugar", cardPackSugar, tokenTwo))
+
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.ElementsMatch(t, []string{"Tenki", "Sugar"}, factions)
+				})
+			})
+
+			t.Run("プレイヤーAが陣営Tenkiを購入済みのとき、プレイヤーBが別の購入トークンで陣営Tenkiのセットを購入する", func(t *testing.T) {
+				t.Run("プレイヤーAとプレイヤーBの両方の所有陣営一覧にTenkiが含まれる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+					require.NoError(t, pg.CreateFactionPurchase(playerB, "Tenki", cardPackTenki, tokenTwo))
+
+					factionsOfA, errA := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+					factionsOfB, errB := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerB)
+
+					require.NoError(t, errA)
+					require.NoError(t, errB)
+					assert.Contains(t, factionsOfA, "Tenki")
+					assert.Contains(t, factionsOfB, "Tenki")
+				})
+			})
+
+			t.Run("プレイヤーAが同じ購入トークンで陣営Tenkiのセットの購入を2回続けて行う", func(t *testing.T) {
+				purchaseTwice := func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
 				}
 
-				created, err := repo.CreatePurchase(ctx, newFactionTestPurchase(tt.playerID), tt.faction, tt.cardPackID, tt.platform, tt.token, newFactionPurchaseEvents())
-				require.NoError(t, err)
-				assert.Equal(t, tt.wantCreated, created)
+				t.Run("所有陣営は1件のままになる", func(t *testing.T) {
+					purchaseTwice(t)
 
-				var purchases, owned, cardPacks int
-				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-					`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
-				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-					`SELECT COUNT(*) FROM shop.player_owned_factions`).Scan(&owned)) //nolint
-				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-					`SELECT COUNT(*) FROM shop.player_owned_card_packs`).Scan(&cardPacks))
-				assert.Equal(t, tt.wantPurchaseRows, purchases)
-				assert.Equal(t, tt.wantOwnedRows, owned)
-				assert.Equal(t, tt.wantCardPackRows, cardPacks)
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.Len(t, factions, 1)
+				})
+
+				t.Run("カードパックの所有は1件のままになる", func(t *testing.T) {
+					purchaseTwice(t)
+
+					assert.Equal(t, 1, pg.CountRows(t, "shop.player_owned_card_packs"))
+				})
+
+				t.Run("イベントは2件のままになる", func(t *testing.T) {
+					purchaseTwice(t)
+
+					assert.Len(t, pg.ClaimAll(t), 2)
+				})
 			})
-		}
 
-		invalidInputCases := []struct {
-			name     string
-			playerID string
-			faction  string
-		}{
-			{
-				name:     "player_idが空文字 (UUID不正)のとき、エラーになる",
-				playerID: "",
-				faction:  "Tenki",
-			},
-			{
-				name:     "不正なfaction文字列のとき、CHECK制約でエラーになる",
-				playerID: factionTestUser1,
-				faction:  "InvalidFaction",
-			},
-		}
+			t.Run("プレイヤーAが同じ購入トークンで陣営Tenkiのセットの購入を同時に2回行う", func(t *testing.T) {
+				purchaseConcurrently := func(t *testing.T) []error {
+					pg.Truncate(t)
+					return postgrestest.RunConcurrently(2, func() error {
+						return pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne)
+					})
+				}
 
-		for _, tt := range invalidInputCases {
-			t.Run(tt.name, func(t *testing.T) {
-				sharedPg.Truncate(t)
-				_, err := repo.CreatePurchase(ctx, newFactionTestPurchase(tt.playerID), tt.faction, "faction_set_tenki", domain.PlatformIOS, "tok", newFactionPurchaseEvents())
-				assert.Error(t, err)
+				t.Run("2回ともエラーにならない", func(t *testing.T) {
+					errs := purchaseConcurrently(t)
+
+					assert.NoError(t, errs[0])
+					assert.NoError(t, errs[1])
+				})
+
+				t.Run("所有陣営は1件になる", func(t *testing.T) {
+					purchaseConcurrently(t)
+
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.Len(t, factions, 1)
+				})
+
+				t.Run("カードパックの所有は1件になる", func(t *testing.T) {
+					purchaseConcurrently(t)
+
+					assert.Equal(t, 1, pg.CountRows(t, "shop.player_owned_card_packs"))
+				})
+
+				t.Run("イベントは2件になる", func(t *testing.T) {
+					purchaseConcurrently(t)
+
+					assert.Len(t, pg.ClaimAll(t), 2)
+				})
 			})
-		}
-
-		t.Run("unsupported platformのとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			_, err := repo.CreatePurchase(ctx, newFactionTestPurchase(factionTestUser1), "Tenki", "faction_set_tenki", "windows", "tok", newFactionPurchaseEvents())
-			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 		})
 
-		t.Run("owned_factionのINSERTがPK違反で失敗するとき、purchaseとtokenがrollbackされる", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			const playerID = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
-			seedOwnedFaction(t, playerID, "Tenki")
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("購入トークンが257文字のとき", func(t *testing.T) {
+				t.Run("プレイヤーAは陣営Tenkiのセットのカードパックを所有していない状態のままになる", func(t *testing.T) {
+					require.Error(t, failPurchaseWithTooLongToken(t))
 
-			purchase := &domain.OneTimePurchase{
-				PlayerID:    playerID,
-				ProductID:   "faction_tenki",
-				PurchasedAt: time.Now().UTC(),
-			}
-			created, err := repo.CreatePurchase(ctx, purchase, "Tenki", "faction_set_tenki", domain.PlatformIOS, "new-token", newFactionPurchaseEvents())
-			require.Error(t, err, "player_owned_factions PK違反で失敗するはず")
-			require.Contains(t, err.Error(), "insert owned faction",
-				"owned_faction INSERTで落ちている (purchase/token INSERT後の失敗)")
-			assert.False(t, created)
+					owned, err := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackTenki)
 
-			var purchases, tokens, owned int
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.apple_purchase_tokens`).Scan(&tokens))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.player_owned_factions`).Scan(&owned)) //nolint
+					require.NoError(t, err)
+					assert.False(t, owned)
+				})
 
-			assert.Equal(t, 0, purchases, "purchaseはrollbackされているはず")
-			assert.Equal(t, 0, tokens, "tokenもrollbackされているはず")
-			assert.Equal(t, 1, owned, "既存seed分のみ、新規INSERTは反映されない")
-		})
+				t.Run("イベントは保存されない", func(t *testing.T) {
+					require.Error(t, failPurchaseWithTooLongToken(t))
 
-		t.Run("tokenがVARCHAR(256)超過で失敗するとき、purchaseがrollbackされowned_factionはINSERTされない", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			const playerID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
-			tooLongToken := strings.Repeat("x", 257)
+					assert.Empty(t, pg.ClaimAll(t))
+				})
+			})
 
-			purchase := &domain.OneTimePurchase{
-				PlayerID:    playerID,
-				ProductID:   "faction_sugar",
-				PurchasedAt: time.Now().UTC(),
-			}
-			created, err := repo.CreatePurchase(ctx, purchase, "Sugar", "faction_set_sugar", domain.PlatformIOS, tooLongToken, newFactionPurchaseEvents())
-			require.Error(t, err, "VARCHAR(256)超えでtoken INSERTが失敗するはず")
-			require.Contains(t, err.Error(), "insert purchase token",
-				"token INSERTで落ちている (purchase INSERT後の失敗)")
-			assert.False(t, created)
+			t.Run("プレイヤーAが陣営Tenkiを所有しているとき、別の購入トークンで陣営Tenkiのセットを購入する", func(t *testing.T) {
+				t.Run("エラーの原因は陣営の所有の重複になる", func(t *testing.T) {
+					err := failPurchaseOfOwnedFaction(t)
 
-			var purchases, tokens, owned int
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.apple_purchase_tokens`).Scan(&tokens))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.player_owned_factions`).Scan(&owned)) //nolint
+					postgrestest.RequireDuplicateKeyError(t, err, "player_owned_factions_pkey")
+				})
 
-			assert.Equal(t, 0, purchases)
-			assert.Equal(t, 0, tokens)
-			assert.Equal(t, 0, owned, "owned_factionは手前で短絡してINSERTされないはず")
+				t.Run("カードパックの所有は1件のままになる", func(t *testing.T) {
+					require.Error(t, failPurchaseOfOwnedFaction(t))
+
+					assert.Equal(t, 1, pg.CountRows(t, "shop.player_owned_card_packs"))
+				})
+
+				t.Run("イベントは増えない", func(t *testing.T) {
+					require.Error(t, failPurchaseOfOwnedFaction(t))
+
+					assert.Len(t, pg.ClaimAll(t), 2)
+				})
+
+				t.Run("続けて、失敗した購入トークンで陣営Sugarのセットを購入すると、プレイヤーAの所有陣営一覧にSugarが含まれる", func(t *testing.T) {
+					require.Error(t, failPurchaseOfOwnedFaction(t))
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Sugar", cardPackSugar, tokenFailed))
+
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.Contains(t, factions, "Sugar")
+				})
+			})
+
+			t.Run("プレイヤーAが陣営Tenkiのセットのカードパックだけを所有し、陣営Tenkiは所有していないとき、別の購入トークンで陣営Tenkiのセットを購入する", func(t *testing.T) {
+				t.Run("エラーの原因はカードパックの所有の重複になる", func(t *testing.T) {
+					err := failPurchaseWithOnlyCardPackOwned(t)
+
+					postgrestest.RequireDuplicateKeyError(t, err, "player_owned_card_packs_pkey")
+				})
+
+				t.Run("続けて、失敗した購入トークンで陣営Sugarのセットを購入すると、プレイヤーAの所有陣営一覧にSugarが含まれる", func(t *testing.T) {
+					require.Error(t, failPurchaseWithOnlyCardPackOwned(t))
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "Sugar", cardPackSugar, tokenFailed))
+
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.Contains(t, factions, "Sugar")
+				})
+			})
+
+			t.Run("2件目のイベントのイベントIDが1件目のイベントのイベントIDと同じとき", func(t *testing.T) {
+				t.Run("エラーの原因はイベントIDの重複になる", func(t *testing.T) {
+					err := failPurchaseWithDuplicateEventID(t)
+
+					postgrestest.RequireDuplicateKeyError(t, err, "outbox_events_pkey")
+				})
+
+				t.Run("1件目のイベントも保存されない", func(t *testing.T) {
+					require.Error(t, failPurchaseWithDuplicateEventID(t))
+
+					assert.Empty(t, pg.ClaimAll(t))
+				})
+			})
+
+			t.Run("プレイヤーAの所有陣営一覧を取得する", func(t *testing.T) {
+				cases := []struct {
+					name string
+					fail func(t *testing.T) error
+				}{
+					{name: "購入トークンが257文字で購入に失敗したとき、空のままになる", fail: failPurchaseWithTooLongToken},
+					{name: "プレイヤーAが陣営Tenkiのセットのカードパックだけを所有していて、陣営Tenkiのセットの購入に失敗したとき、空のままになる", fail: failPurchaseWithOnlyCardPackOwned},
+					{name: "2件目のイベントのイベントIDが1件目と同じで購入に失敗したとき、空のままになる", fail: failPurchaseWithDuplicateEventID},
+				}
+				for _, tc := range cases {
+					t.Run(tc.name, func(t *testing.T) {
+						require.Error(t, tc.fail(t))
+
+						factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+
+						require.NoError(t, err)
+						assert.Empty(t, factions)
+					})
+				}
+			})
+
+			t.Run("失敗した購入トークンで検索する", func(t *testing.T) {
+				cases := []struct {
+					name string
+					fail func(t *testing.T) error
+				}{
+					{name: "プレイヤーAが陣営Tenkiを所有していて、別の購入トークンでの陣営Tenkiのセットの購入に失敗したとき、購入は見つからない", fail: failPurchaseOfOwnedFaction},
+					{name: "プレイヤーAが陣営Tenkiのセットのカードパックだけを所有していて、陣営Tenkiのセットの購入に失敗したとき、購入は見つからない", fail: failPurchaseWithOnlyCardPackOwned},
+					{name: "2件目のイベントのイベントIDが1件目と同じで購入に失敗したとき、購入は見つからない", fail: failPurchaseWithDuplicateEventID},
+				}
+				for _, tc := range cases {
+					t.Run(tc.name, func(t *testing.T) {
+						require.Error(t, tc.fail(t))
+
+						got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenFailed)
+
+						assert.NoError(t, err)
+						assert.Nil(t, got)
+					})
+				}
+			})
 		})
 	})
 }
 
-func TestFactionPurchaseRepository_ListOwnedFactions(t *testing.T) {
-	repo := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
+func TestFactionPurchaseListOwnedFactions(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("所有faction一覧の取得", func(t *testing.T) {
-		const (
-			userA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-			userB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-			userC = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-		)
+	t.Run("[陣営購入]所有陣営の一覧取得", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("プレイヤーAがSHEだけを所有し、プレイヤーBがSHEとTenkiを所有し、プレイヤーCは何も所有していないとき", func(t *testing.T) {
+				prepare := func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateFactionPurchase(playerA, "SHE", cardPackSHE, "TST-TOKEN-A1"))
+					require.NoError(t, pg.CreateFactionPurchase(playerB, "SHE", cardPackSHE, "TST-TOKEN-B1"))
+					require.NoError(t, pg.CreateFactionPurchase(playerB, "Tenki", cardPackTenki, "TST-TOKEN-B2"))
+				}
 
-		sharedPg.Truncate(t)
-		seedOwnedFaction(t, userA, "SHE")
-		seedOwnedFaction(t, userB, "SHE")
-		seedOwnedFaction(t, userB, "Tenki")
+				t.Run("プレイヤーAの一覧はSHEだけになる", func(t *testing.T) {
+					prepare(t)
 
-		tests := []struct {
-			name     string
-			playerID string
-			want     []string
-		}{
-			{
-				name:     "userAがSHEのみ所有するとき、SHEを返す",
-				playerID: userA,
-				want:     []string{"SHE"},
-			},
-			{
-				name:     "userBがSHEとTenkiを所有するとき、両方を返す",
-				playerID: userB,
-				want:     []string{"SHE", "Tenki"},
-			},
-			{
-				name:     "所有行の無いuserCのとき、空を返す",
-				playerID: userC,
-				want:     nil,
-			},
-		}
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				got, err := repo.ListOwnedFactions(ctx, tt.playerID)
-				require.NoError(t, err)
-				assert.ElementsMatch(t, tt.want, got)
+					require.NoError(t, err)
+					assert.Equal(t, []string{"SHE"}, factions)
+				})
+
+				t.Run("プレイヤーBの一覧はSHEとTenkiの2件になる", func(t *testing.T) {
+					prepare(t)
+
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerB)
+
+					require.NoError(t, err)
+					assert.ElementsMatch(t, []string{"SHE", "Tenki"}, factions)
+				})
+
+				t.Run("プレイヤーCの一覧は0件になる", func(t *testing.T) {
+					prepare(t)
+
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerC)
+
+					require.NoError(t, err)
+					assert.Len(t, factions, 0)
+				})
 			})
-		}
-
-		t.Run("player_idが空文字 (UUID不正)のとき、エラーになる", func(t *testing.T) {
-			_, err := repo.ListOwnedFactions(ctx, "")
-			assert.Error(t, err)
 		})
 	})
 }
