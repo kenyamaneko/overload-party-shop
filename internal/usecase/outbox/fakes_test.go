@@ -1,0 +1,101 @@
+package outbox_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/outbox"
+)
+
+var (
+	errClaim   = errors.New("TST-claim-failed")
+	errPublish = errors.New("TST-publish-failed")
+	errRecord  = errors.New("TST-record-failed")
+)
+
+var relayConfig = outbox.Config{BatchSize: 10, FailureThreshold: 3, VisibilityTimeout: 30 * time.Second}
+
+var (
+	firstEvent = port.ClaimedOutboxEvent{
+		EventID:   uuid.MustParse("00000000-0000-4000-8000-0000000000a1"),
+		EventType: "TST-EVENT-TYPE-1",
+		Payload:   []byte(`{"TST":"payload-1"}`),
+	}
+	secondEvent = port.ClaimedOutboxEvent{
+		EventID:   uuid.MustParse("00000000-0000-4000-8000-0000000000a2"),
+		EventType: "TST-EVENT-TYPE-2",
+		Payload:   []byte(`{"TST":"payload-2"}`),
+	}
+)
+
+type publishedEvent struct {
+	EventType string
+	Payload   string
+}
+
+type recordedFailure struct {
+	EventID uuid.UUID
+	Message string
+}
+
+type fakeStore struct {
+	claimed             []port.ClaimedOutboxEvent
+	claimErr            error
+	markErrors          map[uuid.UUID]error
+	recordFailureErrors map[uuid.UUID]error
+
+	claimLimit             int
+	claimVisibilityTimeout time.Duration
+	claimFailureThreshold  int
+	markedPublished        []uuid.UUID
+	failures               []recordedFailure
+}
+
+func (s *fakeStore) ClaimUnpublished(_ context.Context, limit int, visibilityTimeout time.Duration, failureThreshold int) ([]port.ClaimedOutboxEvent, error) {
+	s.claimLimit = limit
+	s.claimVisibilityTimeout = visibilityTimeout
+	s.claimFailureThreshold = failureThreshold
+	return s.claimed, s.claimErr
+}
+
+func (s *fakeStore) MarkPublished(_ context.Context, eventID uuid.UUID) error {
+	s.markedPublished = append(s.markedPublished, eventID)
+	return s.markErrors[eventID]
+}
+
+func (s *fakeStore) RecordFailure(_ context.Context, eventID uuid.UUID, message string) error {
+	s.failures = append(s.failures, recordedFailure{EventID: eventID, Message: message})
+	return s.recordFailureErrors[eventID]
+}
+
+type fakePublisher struct {
+	errorsByPayload map[string]error
+	published       []publishedEvent
+}
+
+func (p *fakePublisher) Publish(_ context.Context, eventType string, payload []byte) error {
+	p.published = append(p.published, publishedEvent{EventType: eventType, Payload: string(payload)})
+	return p.errorsByPayload[string(payload)]
+}
+
+func newRelay(t *testing.T, store port.OutboxStore, publisher port.RawEventPublisher, config outbox.Config) *outbox.Relay {
+	t.Helper()
+	relay, err := outbox.New(store, publisher, config)
+	require.NoError(t, err)
+	return relay
+}
+
+func buildEventWithFailureCount(event port.ClaimedOutboxEvent, failureCount int) port.ClaimedOutboxEvent {
+	event.FailureCount = failureCount
+	return event
+}
+
+func buildPublishErrorsFor(event port.ClaimedOutboxEvent) map[string]error {
+	return map[string]error{string(event.Payload): errPublish}
+}

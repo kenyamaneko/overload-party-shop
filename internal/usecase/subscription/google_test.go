@@ -1,354 +1,417 @@
 //go:build integration
 
-package subscription
+package subscription_test
 
 import (
-	"context"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
+	"errors"
+	"log/slog"
 	"testing"
-	"time"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/domain"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kenyamaneko/overload-party-shop/internal/logtest"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
+	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription/subscriptiontest"
 )
 
-type mockGoogleSubVerifier struct {
-	expiry time.Time
-	err    error
+const (
+	googleSubscriptionRecovered = 1
+	googleSubscriptionRenewed   = 2
+	googleSubscriptionCanceled  = 3
+	googleSubscriptionPurchased = 4
+	googleSubscriptionRevoked   = 12
+	googleSubscriptionExpired   = 13
+	googleUndefinedType         = 99
+
+	googleUnhandledTypeMessage = "google RTDN unhandled notification type"
+	googleSkippedMessage       = "google RTDN skipped: no subscriptionNotification"
+)
+
+var errPlayDeveloperAPI = errors.New("TST-play-developer-api-failed")
+
+type googleEnv struct {
+	notifier *subscription.GoogleNotifier
+	fetcher  *subscriptiontest.GoogleExpiryFetcher
 }
 
-func (m *mockGoogleSubVerifier) GetSubscriptionExpiry(_ context.Context, _ string) (time.Time, error) {
-	return m.expiry, m.err
-}
-
-type googleTestEnv struct {
-	notifier      *GoogleNotifier
-	subRepo       *postgres.SubscriptionRepository
-	expiryFetcher *mockGoogleSubVerifier
-}
-
-func newGoogleTestEnv(t *testing.T) *googleTestEnv {
+func newGoogleEnv(t *testing.T) googleEnv {
 	t.Helper()
-	sharedPg.Truncate(t)
+	newShop(t)
+	fetcher := subscriptiontest.NewGoogleExpiryFetcher()
+	fetcher.ReturnExpiry(renewedExpiresAt)
+	return googleEnv{notifier: subscriptiontest.NewGoogleNotifier(pg.Pool, fetcher), fetcher: fetcher}
+}
 
-	subRepo := postgres.NewSubscriptionRepository(sharedPg.Pool)
-	gv := &mockGoogleSubVerifier{expiry: time.Now().Add(30 * 24 * time.Hour)}
-	notifier := NewGoogleNotifier(subRepo, gv)
-	return &googleTestEnv{
-		notifier:      notifier,
-		subRepo:       subRepo,
-		expiryFetcher: gv,
+func newActiveGoogleContract(t *testing.T) googleEnv {
+	t.Helper()
+	env := newGoogleEnv(t)
+	registerContract(t, platformAndroid, googleToken)
+	return env
+}
+
+func newExpiredGoogleContract(t *testing.T) googleEnv {
+	t.Helper()
+	env := newActiveGoogleContract(t)
+	require.NoError(t, env.receiveType(t, googleSubscriptionExpired).err)
+	return env
+}
+
+func (e googleEnv) receiveType(t *testing.T, notificationType int) outcome {
+	t.Helper()
+	return e.receive(t, subscriptiontest.BuildSubscriptionNotificationMessage(t, notificationType, googleToken))
+}
+
+func (e googleEnv) receive(t *testing.T, message subscription.GoogleRTDNMessage) outcome {
+	t.Helper()
+	return process(t, platformAndroid, googleToken, func() error {
+		return e.notifier.HandleNotification(t.Context(), message)
+	})
+}
+
+func receiveOnActiveGoogleContract(t *testing.T, notificationType int) outcome {
+	t.Helper()
+	received := newActiveGoogleContract(t).receiveType(t, notificationType)
+	require.NoError(t, received.err)
+	return received
+}
+
+func receiveOnExpiredGoogleContract(t *testing.T, notificationType int) outcome {
+	t.Helper()
+	received := newExpiredGoogleContract(t).receiveType(t, notificationType)
+	require.NoError(t, received.err)
+	return received
+}
+
+func receiveUnhandledGoogleType(t *testing.T, notificationType int) (outcome, *logtest.Logs) {
+	t.Helper()
+	logs := logtest.Capture(t)
+	return newActiveGoogleContract(t).receiveType(t, notificationType), logs
+}
+
+func receiveUnreadableRenewal(t *testing.T, notificationType int) outcome {
+	t.Helper()
+	env := newExpiredGoogleContract(t)
+	env.fetcher.FailWith(errPlayDeveloperAPI)
+	return env.receiveType(t, notificationType)
+}
+
+func receiveRenewalAfterFetchFailure(t *testing.T) outcome {
+	t.Helper()
+	env := newExpiredGoogleContract(t)
+	env.fetcher.FailWith(errPlayDeveloperAPI)
+	failed := env.receiveType(t, googleSubscriptionRenewed)
+	require.ErrorIs(t, failed.err, errPlayDeveloperAPI)
+	env.fetcher.ReturnExpiry(renewedExpiresAt)
+	retried := env.receiveType(t, googleSubscriptionRenewed)
+	require.NoError(t, retried.err)
+	return retried
+}
+
+type googleTypeCase struct {
+	name             string
+	notificationType int
+}
+
+var (
+	renewalTypeCases = []googleTypeCase{
+		{"通知種別が2(SUBSCRIPTION_RENEWED)のとき", googleSubscriptionRenewed},
+		{"通知種別が1(SUBSCRIPTION_RECOVERED)のとき", googleSubscriptionRecovered},
 	}
+	endingTypeCases = []googleTypeCase{
+		{"通知種別が13(SUBSCRIPTION_EXPIRED)のとき", googleSubscriptionExpired},
+		{"通知種別が12(SUBSCRIPTION_REVOKED)のとき", googleSubscriptionRevoked},
+	}
+)
+
+type unreadableDataCase struct {
+	name    string
+	message subscription.GoogleRTDNMessage
 }
 
-// encodeRTDN は RTDN message data フィールド (base64-encoded JSON) を構築する。
-func encodeRTDN(t *testing.T, payload map[string]interface{}) GoogleRTDNMessage {
-	t.Helper()
-	data, err := json.Marshal(payload)
-	require.NoError(t, err)
-	msg := GoogleRTDNMessage{}
-	msg.Message.Data = base64.StdEncoding.EncodeToString(data)
-	return msg
+var unreadableDataCases = []unreadableDataCase{
+	{"通知データがbase64として読めないとき", subscriptiontest.BuildRawMessage("TST-!!!-NOT-BASE64")},
+	{"通知データがJSONとして読めないとき", subscriptiontest.BuildEncodedMessage("TST-NOT-JSON")},
 }
 
-func TestHandleGoogleNotification(t *testing.T) {
-	t.Run("Google通知の処理", func(t *testing.T) {
-		publishCases := []struct {
-			name            string
-			notifType       int
-			initialStatus   string
-			expectedStatus  string
-			expectedPremium bool
-		}{
-			{
-				name:            "activeのときgoogleSubscriptionRenewed通知で、activeのままisPremium=trueがpublishされる",
-				notifType:       googleSubscriptionRenewed,
-				initialStatus:   domain.SubscriptionStatusActive,
-				expectedStatus:  domain.SubscriptionStatusActive,
-				expectedPremium: true,
-			},
-			{
-				name:           "activeのときgoogleSubscriptionRevoked通知で、revokedになりisPremium=falseがpublishされる",
-				notifType:      googleSubscriptionRevoked,
-				initialStatus:  domain.SubscriptionStatusActive,
-				expectedStatus: domain.SubscriptionStatusRevoked,
-			},
-			{
-				name:           "activeのときgoogleSubscriptionExpired通知で、expiredになりisPremium=falseがpublishされる",
-				notifType:      googleSubscriptionExpired,
-				initialStatus:  domain.SubscriptionStatusActive,
-				expectedStatus: domain.SubscriptionStatusExpired,
-			},
-			{
-				name:            "expiredのときgoogleSubscriptionRecovered通知で、activeになりisPremium=trueがpublishされる",
-				notifType:       googleSubscriptionRecovered,
-				initialStatus:   domain.SubscriptionStatusExpired,
-				expectedStatus:  domain.SubscriptionStatusActive,
-				expectedPremium: true,
-			},
-		}
-		for i, tt := range publishCases {
-			t.Run(tt.name, func(t *testing.T) {
-				env := newGoogleTestEnv(t)
-				token := "google-token-" + tt.name
-				playerID := fmt.Sprintf("bbbbbbbb-%04d-bbbb-bbbb-bbbbbbbbbbbb", i)
-				createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, tt.initialStatus)
+func TestGoogleNotifier(t *testing.T) {
+	t.Run("[サブスクリプション]Google通知の処理", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("契約状態がexpiredの契約に、更新または復旧の通知を受け取ったとき", func(t *testing.T) {
+				for _, tt := range renewalTypeCases {
+					t.Run(tt.name+"、契約状態がactiveになる", func(t *testing.T) {
+						o := receiveOnExpiredGoogleContract(t, tt.notificationType)
 
-				msg := encodeRTDN(t, map[string]interface{}{
-					"subscriptionNotification": map[string]interface{}{
-						"notificationType": tt.notifType,
-						"purchaseToken":    token,
-						"subscriptionId":   "premium_monthly",
-					},
-				})
-
-				require.NoError(t, env.notifier.HandleNotification(context.Background(), msg))
-
-				updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformAndroid, token)
-				require.NoError(t, err)
-				require.NotNil(t, updatedSub)
-				assert.Equal(t, tt.expectedStatus, updatedSub.Status)
-
-				events := selectPremiumUpdatedEvents(t)
-				require.Len(t, events, 1, "premium-updated を 1 回 enqueue")
-				assert.Equal(t, playerID, events[0].PlayerID)
-				assert.Equal(t, tt.expectedPremium, events[0].IsPremium)
-			})
-		}
-
-		noPublishCases := []struct {
-			name           string
-			notifType      int
-			initialStatus  string
-			expectedStatus string
-		}{
-			// googleSubscriptionCanceled は cancelled 遷移だが、current_period_end まで特典維持のため premium-updated を publish しない。
-			{
-				name:           "activeのときgoogleSubscriptionCanceled通知で、cancelledになりpublishされない",
-				notifType:      googleSubscriptionCanceled,
-				initialStatus:  domain.SubscriptionStatusActive,
-				expectedStatus: domain.SubscriptionStatusCancelled,
-			},
-			{
-				name:           "activeのとき未対応の通知タイプ(99)では、activeのままpublishされない",
-				notifType:      99,
-				initialStatus:  domain.SubscriptionStatusActive,
-				expectedStatus: domain.SubscriptionStatusActive,
-			},
-		}
-		for i, tt := range noPublishCases {
-			t.Run(tt.name, func(t *testing.T) {
-				env := newGoogleTestEnv(t)
-				token := "google-nopub-token-" + tt.name
-				playerID := fmt.Sprintf("dddddddd-%04d-dddd-dddd-dddddddddddd", i)
-				createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, tt.initialStatus)
-
-				msg := encodeRTDN(t, map[string]interface{}{
-					"subscriptionNotification": map[string]interface{}{
-						"notificationType": tt.notifType,
-						"purchaseToken":    token,
-						"subscriptionId":   "premium_monthly",
-					},
-				})
-
-				require.NoError(t, env.notifier.HandleNotification(context.Background(), msg))
-
-				updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformAndroid, token)
-				require.NoError(t, err)
-				require.NotNil(t, updatedSub)
-				assert.Equal(t, tt.expectedStatus, updatedSub.Status)
-				assert.Empty(t, selectPremiumUpdatedEvents(t), "publish 無しの契約")
-			})
-		}
-
-		t.Run("expiredのとき サブスクリプション復旧通知で、premium-updatedがpublishされ期間終了がPlay Developer APIの有効期限に反映される", func(t *testing.T) {
-			env := newGoogleTestEnv(t)
-			fixedExpiry := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
-			env.expiryFetcher.expiry = fixedExpiry
-			token := "google-recovered-expiry-token"
-			playerID := "19191919-1919-1919-1919-191919191919"
-			createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, domain.SubscriptionStatusExpired)
-
-			msg := encodeRTDN(t, map[string]interface{}{
-				"subscriptionNotification": map[string]interface{}{
-					"notificationType": googleSubscriptionRecovered,
-					"purchaseToken":    token,
-					"subscriptionId":   "premium_monthly",
-				},
-			})
-			require.NoError(t, env.notifier.HandleNotification(context.Background(), msg))
-
-			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformAndroid, token)
-			require.NoError(t, err)
-			require.NotNil(t, updatedSub)
-			assert.True(t, fixedExpiry.Equal(updatedSub.CurrentPeriodEnd))
-
-			events := selectPremiumUpdatedEvents(t)
-			require.Len(t, events, 1)
-			require.NotNil(t, events[0].PremiumExpiresAt)
-			assert.True(t, fixedExpiry.Equal(*events[0].PremiumExpiresAt))
-		})
-
-		t.Run("activeのとき サブスクリプション更新通知で、premium-updatedがpublishされ期間終了がPlay Developer APIの有効期限に反映される", func(t *testing.T) {
-			env := newGoogleTestEnv(t)
-			fixedExpiry := time.Now().UTC().Truncate(time.Microsecond).Add(30 * 24 * time.Hour)
-			env.expiryFetcher.expiry = fixedExpiry
-			token := "google-renewed-expiry-token"
-			playerID := "20202020-2020-2020-2020-202020202020"
-			createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, domain.SubscriptionStatusActive)
-
-			msg := encodeRTDN(t, map[string]interface{}{
-				"subscriptionNotification": map[string]interface{}{
-					"notificationType": googleSubscriptionRenewed,
-					"purchaseToken":    token,
-					"subscriptionId":   "premium_monthly",
-				},
-			})
-			require.NoError(t, env.notifier.HandleNotification(context.Background(), msg))
-
-			updatedSub, err := env.subRepo.FindSubscriptionByToken(context.Background(), domain.PlatformAndroid, token)
-			require.NoError(t, err)
-			require.NotNil(t, updatedSub)
-			assert.True(t, fixedExpiry.Equal(updatedSub.CurrentPeriodEnd))
-
-			events := selectPremiumUpdatedEvents(t)
-			require.Len(t, events, 1)
-			require.NotNil(t, events[0].PremiumExpiresAt)
-			assert.True(t, fixedExpiry.Equal(*events[0].PremiumExpiresAt))
-		})
-
-		earlyReturnCases := []struct {
-			name    string
-			rtdn    map[string]interface{}
-			wantErr error
-		}{
-			{
-				name: "subscriptionNotificationが無い通知のとき、エラーにならずpublishされない",
-				rtdn: map[string]interface{}{
-					"voidedPurchaseNotification": map[string]interface{}{
-						"orderId": "GPA.1234",
-					},
-				},
-				wantErr: nil,
-			},
-			{
-				name: "存在しないpurchaseTokenの通知のとき、ErrSubscriptionNotFoundになりpublishされない",
-				rtdn: map[string]interface{}{
-					"subscriptionNotification": map[string]interface{}{
-						"notificationType": googleSubscriptionExpired,
-						"purchaseToken":    "nonexistent-google-token",
-						"subscriptionId":   "premium_monthly",
-					},
-				},
-				wantErr: ErrSubscriptionNotFound,
-			},
-		}
-		for _, tt := range earlyReturnCases {
-			t.Run(tt.name, func(t *testing.T) {
-				env := newGoogleTestEnv(t)
-				msg := encodeRTDN(t, tt.rtdn)
-
-				err := env.notifier.HandleNotification(context.Background(), msg)
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Empty(t, selectPremiumUpdatedEvents(t), "副作用無しの契約")
-			})
-		}
-
-		withNilVerifier := func(env *googleTestEnv) {
-			env.notifier = NewGoogleNotifier(env.subRepo, nil)
-		}
-		withVerifierError := func(env *googleTestEnv) {
-			env.expiryFetcher.err = fmt.Errorf("google API 500")
-		}
-		verifierCases := []struct {
-			name          string
-			notifType     int
-			initialStatus string
-			configure     func(*googleTestEnv)
-			wantContains  []string
-		}{
-			{
-				name:          "verifier未設定のときgoogleSubscriptionRenewed通知で、not configuredエラーになりpublishされない",
-				notifType:     googleSubscriptionRenewed,
-				initialStatus: domain.SubscriptionStatusActive,
-				configure:     withNilVerifier,
-				wantContains:  []string{"google subscription verifier not configured"},
-			},
-			{
-				name:          "verifier未設定のときgoogleSubscriptionRecovered通知で、not configuredエラーになりpublishされない",
-				notifType:     googleSubscriptionRecovered,
-				initialStatus: domain.SubscriptionStatusExpired,
-				configure:     withNilVerifier,
-				wantContains:  []string{"google subscription verifier not configured"},
-			},
-			{
-				name:          "verifierがエラーを返すときgoogleSubscriptionRenewed通知で、expiry取得エラーになりpublishされない",
-				notifType:     googleSubscriptionRenewed,
-				initialStatus: domain.SubscriptionStatusActive,
-				configure:     withVerifierError,
-				wantContains:  []string{"get subscription expiry from Google"},
-			},
-			{
-				name:          "verifierがエラーを返すときgoogleSubscriptionRecovered通知で、expiry取得エラーになりpublishされない",
-				notifType:     googleSubscriptionRecovered,
-				initialStatus: domain.SubscriptionStatusExpired,
-				configure:     withVerifierError,
-				wantContains:  []string{"get subscription expiry from Google"},
-			},
-		}
-		for i, tt := range verifierCases {
-			t.Run(tt.name, func(t *testing.T) {
-				env := newGoogleTestEnv(t)
-				token := fmt.Sprintf("google-verify-token-%d", i)
-				playerID := fmt.Sprintf("cccccccc-%04d-cccc-cccc-cccccccccccc", i)
-				createTestSubscription(t, env.subRepo, domain.PlatformAndroid, playerID, token, tt.initialStatus)
-				tt.configure(env)
-
-				msg := encodeRTDN(t, map[string]interface{}{
-					"subscriptionNotification": map[string]interface{}{
-						"notificationType": tt.notifType,
-						"purchaseToken":    token,
-						"subscriptionId":   "premium_monthly",
-					},
-				})
-
-				err := env.notifier.HandleNotification(context.Background(), msg)
-				require.Error(t, err)
-				for _, want := range tt.wantContains {
-					assert.Contains(t, err.Error(), want)
+						assert.Equal(t, "active", o.findContract(t).Status)
+					})
 				}
-				assert.Empty(t, selectPremiumUpdatedEvents(t), "no publish on verifier failure")
-			})
-		}
+				for _, tt := range renewalTypeCases {
+					t.Run(tt.name+"、課金期間の終了日時が有効期限になる", func(t *testing.T) {
+						o := receiveOnExpiredGoogleContract(t, tt.notificationType)
 
-		decodeErrorCases := []struct {
-			name    string
-			input   string
-			wantErr error
-		}{
-			{
-				name:    "dataがbase64として壊れているとき、ErrDecodeRTDNDataになる",
-				input:   "!!! not base64 !!!",
-				wantErr: ErrDecodeRTDNData,
-			},
-			{
-				name:    "dataのbase64はvalidだがJSONでないとき、ErrUnmarshalRTDNDataになる",
-				input:   base64.StdEncoding.EncodeToString([]byte("not valid json {{{")),
-				wantErr: ErrUnmarshalRTDNData,
-			},
-		}
-		for _, tt := range decodeErrorCases {
-			t.Run(tt.name, func(t *testing.T) {
-				env := newGoogleTestEnv(t)
-				msg := GoogleRTDNMessage{}
-				msg.Message.Data = tt.input
-				err := env.notifier.HandleNotification(context.Background(), msg)
-				assert.ErrorIs(t, err, tt.wantErr)
+						assert.WithinDuration(t, renewedExpiresAt, o.findContract(t).CurrentPeriodEnd, 0)
+					})
+				}
+				for _, tt := range renewalTypeCases {
+					t.Run(tt.name+"、アウトボックスにpremium-updatedが1件加わる", func(t *testing.T) {
+						o := receiveOnExpiredGoogleContract(t, tt.notificationType)
+
+						assert.Len(t, o.listNewPremiumEvents(t), 1)
+					})
+				}
+				for _, tt := range renewalTypeCases {
+					t.Run(tt.name+"、アウトボックスに加わったpremium-updatedのis_premiumがtrueになる", func(t *testing.T) {
+						o := receiveOnExpiredGoogleContract(t, tt.notificationType)
+
+						assert.Equal(t, true, o.findSinglePremiumEvent(t).Payload["is_premium"])
+					})
+				}
+				for _, tt := range renewalTypeCases {
+					t.Run(tt.name+"、アウトボックスに加わったpremium-updatedのpremium_expires_atが有効期限になる", func(t *testing.T) {
+						o := receiveOnExpiredGoogleContract(t, tt.notificationType)
+
+						assert.WithinDuration(t, renewedExpiresAt, o.findSinglePremiumEvent(t).TimeField(t, "premium_expires_at"), 0)
+					})
+				}
 			})
-		}
+			t.Run("契約状態がactiveの契約に、期限切れまたは取り消しの通知を受け取ったとき", func(t *testing.T) {
+				t.Run("通知種別が13(SUBSCRIPTION_EXPIRED)のとき、契約状態がexpiredになる", func(t *testing.T) {
+					o := receiveOnActiveGoogleContract(t, googleSubscriptionExpired)
+
+					assert.Equal(t, "expired", o.findContract(t).Status)
+				})
+				t.Run("通知種別が12(SUBSCRIPTION_REVOKED)のとき、契約状態がrevokedになる", func(t *testing.T) {
+					o := receiveOnActiveGoogleContract(t, googleSubscriptionRevoked)
+
+					assert.Equal(t, "revoked", o.findContract(t).Status)
+				})
+				for _, tt := range endingTypeCases {
+					t.Run(tt.name+"、アウトボックスにpremium-updatedが1件加わる", func(t *testing.T) {
+						o := receiveOnActiveGoogleContract(t, tt.notificationType)
+
+						assert.Len(t, o.listNewPremiumEvents(t), 1)
+					})
+				}
+				for _, tt := range endingTypeCases {
+					t.Run(tt.name+"、アウトボックスに加わったpremium-updatedのis_premiumがfalseになる", func(t *testing.T) {
+						o := receiveOnActiveGoogleContract(t, tt.notificationType)
+
+						assert.Equal(t, false, o.findSinglePremiumEvent(t).Payload["is_premium"])
+					})
+				}
+				for _, tt := range endingTypeCases {
+					t.Run(tt.name+"、アウトボックスに加わったpremium-updatedにpremium_expires_atが含まれない", func(t *testing.T) {
+						o := receiveOnActiveGoogleContract(t, tt.notificationType)
+
+						assert.NotContains(t, o.findSinglePremiumEvent(t).Payload, "premium_expires_at")
+					})
+				}
+			})
+			t.Run("契約状態がactiveの契約に、通知種別が3(SUBSCRIPTION_CANCELED)の通知を受け取ったとき", func(t *testing.T) {
+				t.Run("契約状態がcancelledになる", func(t *testing.T) {
+					o := receiveOnActiveGoogleContract(t, googleSubscriptionCanceled)
+
+					assert.Equal(t, "cancelled", o.findContract(t).Status)
+				})
+				t.Run("課金期間の終了日時が通知の前と同じになる", func(t *testing.T) {
+					o := receiveOnActiveGoogleContract(t, googleSubscriptionCanceled)
+
+					assert.WithinDuration(t, o.before.CurrentPeriodEnd, o.findContract(t).CurrentPeriodEnd, 0)
+				})
+				t.Run("アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+					o := receiveOnActiveGoogleContract(t, googleSubscriptionCanceled)
+
+					assert.Empty(t, o.listNewPremiumEvents(t))
+				})
+			})
+			t.Run("subscriptionNotificationを持たない通知(voidedPurchaseNotificationなど)を受け取ったとき", func(t *testing.T) {
+				receiveVoidedPurchase := func(t *testing.T) outcome {
+					return newActiveGoogleContract(t).receive(t, subscriptiontest.BuildVoidedPurchaseNotificationMessage(t, googleToken))
+				}
+				t.Run("実行はエラーを返さない", func(t *testing.T) {
+					o := receiveVoidedPurchase(t)
+
+					assert.NoError(t, o.err)
+				})
+				t.Run("アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+					o := receiveVoidedPurchase(t)
+
+					assert.Empty(t, o.listNewPremiumEvents(t))
+				})
+				t.Run("Infoのログが1件出力される", func(t *testing.T) {
+					logs := logtest.Capture(t)
+
+					receiveVoidedPurchase(t)
+
+					assert.Len(t, logs.SelectByMessageAndLevel(googleSkippedMessage, slog.LevelInfo), 1)
+				})
+			})
+			t.Run("契約状態がactiveの契約に、通知種別が4(SUBSCRIPTION_PURCHASED)の通知を受け取ったとき", func(t *testing.T) {
+				t.Run("契約状態が通知の前と同じになる", func(t *testing.T) {
+					o, _ := receiveUnhandledGoogleType(t, googleSubscriptionPurchased)
+
+					assert.Equal(t, o.before.Status, o.findContract(t).Status)
+				})
+				t.Run("アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+					o, _ := receiveUnhandledGoogleType(t, googleSubscriptionPurchased)
+
+					assert.Empty(t, o.listNewPremiumEvents(t))
+				})
+				t.Run("実行はエラーを返さない", func(t *testing.T) {
+					o, _ := receiveUnhandledGoogleType(t, googleSubscriptionPurchased)
+
+					assert.NoError(t, o.err)
+				})
+				t.Run("Warnのログが1件出力される", func(t *testing.T) {
+					_, logs := receiveUnhandledGoogleType(t, googleSubscriptionPurchased)
+
+					assert.Len(t, logs.SelectByMessageAndLevel(googleUnhandledTypeMessage, slog.LevelWarn), 1)
+				})
+				t.Run("ログに通知種別が含まれる", func(t *testing.T) {
+					_, logs := receiveUnhandledGoogleType(t, googleSubscriptionPurchased)
+
+					records := logs.SelectByMessageAndLevel(googleUnhandledTypeMessage, slog.LevelWarn)
+					require.Len(t, records, 1)
+					assert.Equal(t, "4", records[0].String("notification_type"))
+				})
+				t.Run("ログに購入トークンが含まれる", func(t *testing.T) {
+					_, logs := receiveUnhandledGoogleType(t, googleSubscriptionPurchased)
+
+					records := logs.SelectByMessageAndLevel(googleUnhandledTypeMessage, slog.LevelWarn)
+					require.Len(t, records, 1)
+					assert.Equal(t, googleToken, records[0].String("purchase_token"))
+				})
+			})
+		})
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("契約状態がactiveの契約に、未対応の通知種別(Googleが定義していない値99)の通知を受け取ったとき", func(t *testing.T) {
+				t.Run("契約状態が通知の前と同じになる", func(t *testing.T) {
+					o, _ := receiveUnhandledGoogleType(t, googleUndefinedType)
+
+					assert.Equal(t, o.before.Status, o.findContract(t).Status)
+				})
+				t.Run("アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+					o, _ := receiveUnhandledGoogleType(t, googleUndefinedType)
+
+					assert.Empty(t, o.listNewPremiumEvents(t))
+				})
+				t.Run("実行はエラーを返さない", func(t *testing.T) {
+					o, _ := receiveUnhandledGoogleType(t, googleUndefinedType)
+
+					assert.NoError(t, o.err)
+				})
+				t.Run("Warnのログが1件出力される", func(t *testing.T) {
+					_, logs := receiveUnhandledGoogleType(t, googleUndefinedType)
+
+					assert.Len(t, logs.SelectByMessageAndLevel(googleUnhandledTypeMessage, slog.LevelWarn), 1)
+				})
+				t.Run("ログに通知種別が含まれる", func(t *testing.T) {
+					_, logs := receiveUnhandledGoogleType(t, googleUndefinedType)
+
+					records := logs.SelectByMessageAndLevel(googleUnhandledTypeMessage, slog.LevelWarn)
+					require.Len(t, records, 1)
+					assert.Equal(t, "99", records[0].String("notification_type"))
+				})
+				t.Run("ログに購入トークンが含まれる", func(t *testing.T) {
+					_, logs := receiveUnhandledGoogleType(t, googleUndefinedType)
+
+					records := logs.SelectByMessageAndLevel(googleUnhandledTypeMessage, slog.LevelWarn)
+					require.Len(t, records, 1)
+					assert.Equal(t, googleToken, records[0].String("purchase_token"))
+				})
+			})
+			t.Run("通知データが読み取れないとき", func(t *testing.T) {
+				t.Run("通知データがbase64として読めないと、通知データの復号に失敗するエラーで失敗する", func(t *testing.T) {
+					o := newActiveGoogleContract(t).receive(t, unreadableDataCases[0].message)
+
+					assert.ErrorIs(t, o.err, subscription.ErrDecodeRTDNData)
+				})
+				t.Run("通知データがbase64として読めてもJSONとして読めないと、通知データの解釈に失敗するエラーで失敗する", func(t *testing.T) {
+					o := newActiveGoogleContract(t).receive(t, unreadableDataCases[1].message)
+
+					assert.ErrorIs(t, o.err, subscription.ErrUnmarshalRTDNData)
+				})
+				for _, tt := range unreadableDataCases {
+					t.Run(tt.name+"、アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+						o := newActiveGoogleContract(t).receive(t, tt.message)
+
+						assert.Empty(t, o.listNewPremiumEvents(t))
+					})
+				}
+			})
+			t.Run("通知の購入トークンに対応する契約が無いとき", func(t *testing.T) {
+				receiveWithoutContract := func(t *testing.T) outcome {
+					env := newGoogleEnv(t)
+					message := subscriptiontest.BuildSubscriptionNotificationMessage(t, googleSubscriptionExpired, googleToken)
+					return processWithoutContract(t, func() error {
+						return env.notifier.HandleNotification(t.Context(), message)
+					})
+				}
+				t.Run("契約が見つからないエラーで失敗する", func(t *testing.T) {
+					o := receiveWithoutContract(t)
+
+					assert.ErrorIs(t, o.err, subscription.ErrSubscriptionNotFound)
+				})
+				t.Run("エラーの内容に通知の購入トークンが含まれる", func(t *testing.T) {
+					o := receiveWithoutContract(t)
+
+					assert.ErrorContains(t, o.err, googleToken)
+				})
+				t.Run("アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+					o := receiveWithoutContract(t)
+
+					assert.Empty(t, o.listNewPremiumEvents(t))
+				})
+			})
+			t.Run("更新または復旧の通知で、PlayDeveloperAPIが有効期限の取得に失敗したとき", func(t *testing.T) {
+				for _, tt := range renewalTypeCases {
+					t.Run(tt.name+"、エラーの内容にPlayDeveloperAPIのエラーのメッセージが含まれる", func(t *testing.T) {
+						o := receiveUnreadableRenewal(t, tt.notificationType)
+
+						assert.ErrorContains(t, o.err, "TST-play-developer-api-failed")
+					})
+				}
+				for _, tt := range renewalTypeCases {
+					t.Run(tt.name+"、契約状態が通知の前と同じになる", func(t *testing.T) {
+						o := receiveUnreadableRenewal(t, tt.notificationType)
+
+						assert.Equal(t, o.before.Status, o.findContract(t).Status)
+					})
+				}
+				for _, tt := range renewalTypeCases {
+					t.Run(tt.name+"、アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+						o := receiveUnreadableRenewal(t, tt.notificationType)
+
+						assert.Empty(t, o.listNewPremiumEvents(t))
+					})
+				}
+			})
+			t.Run("通知データが読み取れない失敗、契約が見つからない失敗のあとの回復", func(t *testing.T) {
+				t.Run("読み取れない通知で失敗したあとに、同じ契約への有効な通知を受け取ると、その通知の内容どおりに契約状態が変わる", func(t *testing.T) {
+					env := newActiveGoogleContract(t)
+					failed := env.receive(t, unreadableDataCases[0].message)
+					require.ErrorIs(t, failed.err, subscription.ErrDecodeRTDNData)
+
+					recovered := env.receiveType(t, googleSubscriptionExpired)
+					require.NoError(t, recovered.err)
+
+					assert.Equal(t, "expired", recovered.findContract(t).Status)
+				})
+			})
+			t.Run("有効期限の取得失敗のあとの回復", func(t *testing.T) {
+				t.Run("有効期限の取得に失敗したあと、同じ通知を再び受け取り取得に成功したとき", func(t *testing.T) {
+					t.Run("契約状態がactiveになる", func(t *testing.T) {
+						o := receiveRenewalAfterFetchFailure(t)
+
+						assert.Equal(t, "active", o.findContract(t).Status)
+					})
+					t.Run("課金期間の終了日時が有効期限になる", func(t *testing.T) {
+						o := receiveRenewalAfterFetchFailure(t)
+
+						assert.WithinDuration(t, renewedExpiresAt, o.findContract(t).CurrentPeriodEnd, 0)
+					})
+				})
+			})
+		})
 	})
 }
