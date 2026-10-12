@@ -2,7 +2,7 @@ package domain
 
 import "time"
 
-// Product は shop カタログの購入可能商品の共通属性。type 固有属性は FactionSetProduct / CosmeticProduct / SubscriptionProduct 等の per-type 型が保持する。
+// Product は shop カタログの購入可能商品の共通属性。type 固有属性は FactionSetProduct / CardPackProduct / CosmeticProduct / SubscriptionProduct の per-type 型が保持する。
 type Product struct {
 	ProductID   string
 	Name        string
@@ -67,7 +67,7 @@ type PlayerItem struct {
 	AcquiredAt time.Time
 }
 
-// ProductWithOwnership は per-type ProductView (FactionSetProduct / CosmeticProduct / SubscriptionProduct のいずれか) にリクエスト元プレイヤーの所有状態を付与した usecase 層のビュー。
+// ProductWithOwnership は per-type ProductView (FactionSetProduct / CardPackProduct / CosmeticProduct / SubscriptionProduct のいずれか) にリクエスト元プレイヤーの所有状態を付与した usecase 層のビュー。
 type ProductWithOwnership struct {
 	ProductView ProductView
 	IsOwned     bool

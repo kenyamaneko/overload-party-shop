@@ -31,6 +31,10 @@ func respondError(c *gin.Context, err error) {
 	c.JSON(resolveErrorStatus(err), gin.H{"error": err.Error()})
 }
 
+func respondBadRequest(c *gin.Context, err error) {
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+}
+
 // isNotFound は対象リソースが見つからない類のエラーか判定する。
 func isNotFound(err error) bool {
 	return errors.Is(err, port.ErrNotFound)
@@ -38,16 +42,17 @@ func isNotFound(err error) bool {
 
 // isConflict は既存リソースとの衝突 (重複登録等) によるエラーか判定する。
 func isConflict(err error) bool {
-	return errors.Is(err, purchase.ErrAlreadyOwned) ||
-		errors.Is(err, purchase.ErrFactionAlreadySelected)
+	return errors.Is(err, purchase.ErrAlreadyOwned)
 }
 
 // isValidation はクライアント入力 / 商品状態の妥当性違反によるエラーか判定する。
 func isValidation(err error) bool {
-	return errors.Is(err, purchase.ErrProductNotActive) ||
+	return errors.Is(err, errEmptyRequestBody) ||
+		errors.Is(err, errInvalidRequestBody) ||
+		errors.Is(err, purchase.ErrProductNotActive) ||
 		errors.Is(err, purchase.ErrProductNotSubscription) ||
 		errors.Is(err, purchase.ErrUnsupportedProductType) ||
-		errors.Is(err, purchase.ErrUnsupportedPlatform)
+		errors.Is(err, port.ErrUnsupportedPlatform)
 }
 
 // isPaymentFailed はストア側で無効判定された検証エラーか判定する (infra 失敗は含まない)。

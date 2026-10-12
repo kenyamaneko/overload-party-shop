@@ -9,6 +9,8 @@ import (
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+
+	"github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
 )
 
 // IAPVerifier はレシート検証に実ストアと stub のどちらを使うかを表す。
@@ -29,6 +31,11 @@ type LogMode string
 const (
 	LogModeProduction LogMode = "production"
 	LogModeLocal      LogMode = "local"
+)
+
+const (
+	minPort = 1
+	maxPort = 65535
 )
 
 // Config は shop サービスの起動設定を保持する。
@@ -66,9 +73,6 @@ type Config struct {
 	ApplePrivateKeyPEM []byte
 	AppleEnvironment   string
 
-	// Apple IAP（local mode 専用 — ファイルベース秘密鍵）
-	ApplePrivateKeyPath string
-
 	// Google Play
 	GooglePackageName string
 
@@ -86,7 +90,8 @@ type Config struct {
 	OutboxVisibilityTimeout time.Duration
 }
 
-// FromEnv は環境変数から Config を構築する。全 env は必須で未設定は fail する。
+// FromEnv は環境変数から Config を構築する。
+// IAP_VERIFIER が store のときだけ、Apple・Pub/Sub push の環境変数を必須とし、Apple と Google の認証情報を Secret Manager から取得する。
 func FromEnv() (*Config, error) {
 	cfg := &Config{
 		DatabaseConn:                  os.Getenv("DATABASE_CONN"),
@@ -109,6 +114,9 @@ func FromEnv() (*Config, error) {
 	n, err := strconv.Atoi(rawPort)
 	if err != nil {
 		return nil, fmt.Errorf("config: PORT %q: %w", rawPort, err)
+	}
+	if n < minPort || n > maxPort {
+		return nil, fmt.Errorf("config: PORT must be between %d and %d, got %q", minPort, maxPort, rawPort)
 	}
 	cfg.Port = n
 
@@ -166,7 +174,6 @@ func FromEnv() (*Config, error) {
 			return nil, err
 		}
 	case IAPVerifierStub:
-		loadStubIAP(cfg)
 	default:
 		return nil, fmt.Errorf("config: IAP_VERIFIER must be %q or %q, got %q", IAPVerifierStore, IAPVerifierStub, cfg.IAPVerifier)
 	}
@@ -189,9 +196,9 @@ func validatePubSubPushConfig(cfg *Config) error {
 // loadStoreIAP は Secret Manager から実ストアのレシート検証に使う認証情報を取得する。
 func loadStoreIAP(cfg *Config) error {
 	switch cfg.AppleEnvironment {
-	case "Production", "Sandbox":
+	case apple.EnvironmentProduction, apple.EnvironmentSandbox:
 	default:
-		return fmt.Errorf("config: APPLE_ENVIRONMENT must be %q or %q when IAP_VERIFIER=store, got %q", "Production", "Sandbox", cfg.AppleEnvironment)
+		return fmt.Errorf("config: APPLE_ENVIRONMENT must be %q or %q when IAP_VERIFIER=store, got %q", apple.EnvironmentProduction, apple.EnvironmentSandbox, cfg.AppleEnvironment)
 	}
 
 	ctx := context.Background()
@@ -282,15 +289,6 @@ func loadOutboxConfig(cfg *Config) error {
 	}
 	cfg.OutboxVisibilityTimeout = v
 	return nil
-}
-
-// loadStubIAP は stub 検証時に環境変数から IAP 設定を読み込む (欠落許容)。
-func loadStubIAP(cfg *Config) {
-	cfg.AppleKeyID = os.Getenv("APPLE_KEY_ID")
-	cfg.AppleIssuerID = os.Getenv("APPLE_ISSUER_ID")
-	cfg.AppleBundleID = os.Getenv("APPLE_BUNDLE_ID")
-	cfg.ApplePrivateKeyPath = os.Getenv("APPLE_PRIVATE_KEY_PATH")
-	cfg.GooglePackageName = os.Getenv("GOOGLE_PACKAGE_NAME")
 }
 
 func accessSecret(ctx context.Context, client *secretmanager.Client, project, secretID string) (string, error) {

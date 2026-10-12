@@ -2,7 +2,6 @@ package rest
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -26,8 +25,12 @@ func NewGoogleWebhookHandler(n googleNotifier) *GoogleWebhookHandler {
 // Handle は Google Play RTDN を受信する。
 func (h *GoogleWebhookHandler) Handle(c *gin.Context) {
 	var msg subscription.GoogleRTDNMessage
-	if err := c.ShouldBindJSON(&msg); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := decodeRequestBody(c, &msg); err != nil {
+		respondError(c, err)
+		return
+	}
+	if err := validateRequiredFields(requiredField{name: "message.data", value: msg.Message.Data}); err != nil {
+		respondBadRequest(c, err)
 		return
 	}
 

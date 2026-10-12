@@ -177,10 +177,7 @@ export interface components {
         ProductType: "faction_set" | "card_pack" | "cosmetic" | "subscription";
     };
     responses: never;
-    parameters: {
-        /** @description gateway が認証後に付与する player_id。client が直接設定するヘッダではない。 */
-        PlayerIdHeader: string;
-    };
+    parameters: never;
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -210,10 +207,7 @@ export interface operations {
     listPlayerProducts: {
         parameters: {
             query?: never;
-            header: {
-                /** @description gateway が認証後に付与する player_id。client が直接設定するヘッダではない。 */
-                "X-Player-Id": components["parameters"]["PlayerIdHeader"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -228,7 +222,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProductListResponse"];
                 };
             };
-            /** @description X-Player-Id header が欠落 */
+            /** @description X-Internal-Auth header が欠落、または検証失敗 */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -240,10 +234,7 @@ export interface operations {
     purchaseProduct: {
         parameters: {
             query?: never;
-            header: {
-                /** @description gateway が認証後に付与する player_id。client が直接設定するヘッダではない。 */
-                "X-Player-Id": components["parameters"]["PlayerIdHeader"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -262,14 +253,14 @@ export interface operations {
                     "application/json": components["schemas"]["PurchaseResponse"];
                 };
             };
-            /** @description 無効なファクション / 非アクティブ商品 / 非対応プラットフォーム */
+            /** @description 本文が空 / 本文が JSON として読めない / 必須項目の欠落 / 無効なファクション / 非アクティブ商品 / 非対応プラットフォーム */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description X-Player-Id header が欠落 */
+            /** @description X-Internal-Auth header が欠落、または検証失敗 */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -302,10 +293,7 @@ export interface operations {
     subscribeProduct: {
         parameters: {
             query?: never;
-            header: {
-                /** @description gateway が認証後に付与する player_id。client が直接設定するヘッダではない。 */
-                "X-Player-Id": components["parameters"]["PlayerIdHeader"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -324,14 +312,14 @@ export interface operations {
                     "application/json": components["schemas"]["SubscribeResponse"];
                 };
             };
-            /** @description 商品がサブスクリプションタイプでない / 非対応プラットフォーム */
+            /** @description 本文が空 / 本文が JSON として読めない / 必須項目の欠落 / 商品がサブスクリプションタイプでない / 非対応プラットフォーム */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description X-Player-Id header が欠落 */
+            /** @description X-Internal-Auth header が欠落、または検証失敗 */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -374,7 +362,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description JSON パースエラー */
+            /** @description 本文が空 / 本文が JSON として読めない / 必須項目の欠落 */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -410,7 +398,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description JSON パースエラー */
+            /** @description 本文が空 / 本文が JSON として読めない / 必須項目の欠落 */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -167,7 +167,7 @@ func (s *Service) purchaseFactionSet(ctx context.Context, playerID string, produ
 		return fmt.Errorf("build faction-acquired: %w", err)
 	}
 	events := []port.OutboxEvent{cardPackEvent, factionEvent}
-	if _, err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, product.Faction, product.CardPackID, platform, purchaseToken, events); err != nil {
+	if err := s.factionPurchaseRepo.CreatePurchase(ctx, purchase, product.Faction, product.CardPackID, platform, purchaseToken, events); err != nil {
 		return fmt.Errorf("create faction purchase: %w", err)
 	}
 	return nil
@@ -195,7 +195,7 @@ func (s *Service) purchaseCardPack(ctx context.Context, playerID string, product
 	if err != nil {
 		return fmt.Errorf("build card-pack-purchased: %w", err)
 	}
-	if _, err := s.cardPackPurchaseRepo.CreatePurchase(ctx, purchase, product.CardPackID, platform, purchaseToken, event); err != nil {
+	if err := s.cardPackPurchaseRepo.CreatePurchase(ctx, purchase, product.CardPackID, platform, purchaseToken, event); err != nil {
 		return fmt.Errorf("create card pack purchase: %w", err)
 	}
 	return nil
@@ -225,7 +225,7 @@ func (s *Service) purchaseCosmetic(ctx context.Context, playerID string, product
 		ItemNo:     product.ItemNo,
 		AcquiredAt: time.Now(),
 	}
-	if _, err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, platform, purchaseToken); err != nil {
+	if err := s.itemPurchaseRepo.CreatePurchase(ctx, purchase, item, platform, purchaseToken); err != nil {
 		return fmt.Errorf("create item purchase: %w", err)
 	}
 	return nil
@@ -243,38 +243,38 @@ func verifyPurchase(ctx context.Context, verifier port.ReceiptVerifier, purchase
 }
 
 // Subscribe はサブスクリプション購入フローを実行する (べき等チェック・レシート検証・記録・outbox enqueue)。
-func (s *Service) Subscribe(ctx context.Context, playerID, productID, platform, purchaseToken string) (*time.Time, error) {
+func (s *Service) Subscribe(ctx context.Context, playerID, productID, platform, purchaseToken string) (time.Time, error) {
 	verifier, err := s.getVerifier(platform)
 	if err != nil {
-		return nil, err
+		return time.Time{}, err
 	}
 
 	existing, err := s.subscriptionRepo.FindSubscriptionByToken(ctx, platform, purchaseToken)
 	if err != nil {
-		return nil, fmt.Errorf("check existing subscription: %w", err)
+		return time.Time{}, fmt.Errorf("check existing subscription: %w", err)
 	}
 	if existing != nil {
 		slog.Info("subscribe idempotent skip", "player_id", playerID, "product_id", productID, "platform", platform)
-		return &existing.CurrentPeriodEnd, nil
+		return existing.CurrentPeriodEnd, nil
 	}
 
 	productView, err := s.productRepo.GetProductByID(ctx, productID)
 	if err != nil {
-		return nil, fmt.Errorf("get product: %w", err)
+		return time.Time{}, fmt.Errorf("get product: %w", err)
 	}
 	if _, ok := productView.(domain.SubscriptionProduct); !ok {
-		return nil, ErrProductNotSubscription
+		return time.Time{}, ErrProductNotSubscription
 	}
 	info, err := verifier.VerifySubscription(ctx, purchaseToken)
 	if err != nil {
-		return nil, fmt.Errorf("verify subscription: %w", err)
+		return time.Time{}, fmt.Errorf("verify subscription: %w", err)
 	}
 	if !info.IsValid {
-		return nil, ErrSubVerificationFailed
+		return time.Time{}, ErrSubVerificationFailed
 	}
 
 	now := time.Now()
-	subscription := &domain.Subscription{
+	newSubscription := &domain.Subscription{
 		PlayerID:           playerID,
 		ProductID:          productID,
 		Status:             domain.SubscriptionStatusActive,
@@ -284,15 +284,15 @@ func (s *Service) Subscribe(ctx context.Context, playerID, productID, platform, 
 		UpdatedAt:          time.Now(),
 	}
 
-	event, err := buildPremiumUpdatedEvent(playerID, true, &info.ExpiresAt)
+	event, err := subscription.BuildPremiumUpdatedEvent(playerID, true, &info.ExpiresAt)
 	if err != nil {
-		return nil, fmt.Errorf("build premium-updated: %w", err)
+		return time.Time{}, fmt.Errorf("build premium-updated: %w", err)
 	}
-	if err := s.subscriptionRepo.CreateSubscription(ctx, subscription, platform, purchaseToken, event); err != nil {
-		return nil, fmt.Errorf("create subscription: %w", err)
+	if err := s.subscriptionRepo.CreateSubscription(ctx, newSubscription, platform, purchaseToken, event); err != nil {
+		return time.Time{}, fmt.Errorf("create subscription: %w", err)
 	}
 
-	return &info.ExpiresAt, nil
+	return info.ExpiresAt, nil
 }
 
 func (s *Service) getVerifier(platform string) (port.ReceiptVerifier, error) {
@@ -302,7 +302,7 @@ func (s *Service) getVerifier(platform string) (port.ReceiptVerifier, error) {
 	case domain.PlatformAndroid:
 		return s.googleVerifier, nil
 	default:
-		return nil, fmt.Errorf("%w: %s", ErrUnsupportedPlatform, platform)
+		return nil, fmt.Errorf("%w: %s", port.ErrUnsupportedPlatform, platform)
 	}
 }
 
@@ -348,29 +348,6 @@ func buildFactionAcquiredEvent(playerID, faction string) (port.OutboxEvent, erro
 	eventType, payload, err := presenter.ToFactionAcquiredWire(factionAcquired)
 	if err != nil {
 		return port.OutboxEvent{}, fmt.Errorf("present faction-acquired: %w", err)
-	}
-	return port.OutboxEvent{
-		EventID:   eventID,
-		EventType: eventType,
-		Payload:   payload,
-	}, nil
-}
-
-func buildPremiumUpdatedEvent(playerID string, isPremium bool, expiresAt *time.Time) (port.OutboxEvent, error) {
-	if playerID == "" {
-		return port.OutboxEvent{}, errors.New("purchase: playerID is empty")
-	}
-	eventID := uuid.New()
-	premiumUpdated := domain.PremiumUpdatedEvent{
-		EventID:          eventID.String(),
-		Timestamp:        time.Now().UTC(),
-		PlayerID:         playerID,
-		IsPremium:        isPremium,
-		PremiumExpiresAt: expiresAt,
-	}
-	eventType, payload, err := presenter.ToPremiumUpdatedWire(premiumUpdated)
-	if err != nil {
-		return port.OutboxEvent{}, fmt.Errorf("present premium-updated: %w", err)
 	}
 	return port.OutboxEvent{
 		EventID:   eventID,

@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: |
     Shop service の REST 契約。client が gateway 経由で叩く公開 API および外部ストアからの webhook を含む。
-    認証は gateway が担当し、shop へは `X-Player-Id` header で player_id を引き渡す。
+    player-scoped の操作は `X-Internal-Auth` (RS256 JWT) で認証し、player_id は sub クレームから解決する。
     本ファイルが SSoT。`packages/api-shop` の Go 型と `packages/api-shop-npm` の TS 型を本ファイルから生成する。
 
 paths:
@@ -24,8 +24,8 @@ paths:
     get:
       operationId: listPlayerProducts
       summary: 購入可能な商品一覧を返す (所持情報付き)
-      parameters:
-        - $ref: "#/components/parameters/PlayerIdHeader"
+      security:
+        - InternalAuth: []
       responses:
         "200":
           description: 商品一覧
@@ -34,14 +34,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProductListResponse"
         "401":
-          description: X-Player-Id header が欠落
+          description: X-Internal-Auth header が欠落、または検証失敗
 
   /api/v1/shop/purchase:
     post:
       operationId: purchaseProduct
       summary: 1 回限りの商品を購入 (faction_set / cosmetic 等)
-      parameters:
-        - $ref: "#/components/parameters/PlayerIdHeader"
+      security:
+        - InternalAuth: []
       requestBody:
         required: true
         content:
@@ -56,9 +56,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/PurchaseResponse"
         "400":
-          description: 無効なファクション / 非アクティブ商品 / 非対応プラットフォーム
+          description: 本文が空 / 本文が JSON として読めない / 必須項目の欠落 / 無効なファクション / 非アクティブ商品 / 非対応プラットフォーム
         "401":
-          description: X-Player-Id header が欠落
+          description: X-Internal-Auth header が欠落、または検証失敗
         "402":
           description: レシート検証失敗
         "404":
@@ -70,8 +70,8 @@ paths:
     post:
       operationId: subscribeProduct
       summary: サブスクリプション商品を購入 (プレミアムパス等)
-      parameters:
-        - $ref: "#/components/parameters/PlayerIdHeader"
+      security:
+        - InternalAuth: []
       requestBody:
         required: true
         content:
@@ -86,9 +86,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/SubscribeResponse"
         "400":
-          description: 商品がサブスクリプションタイプでない / 非対応プラットフォーム
+          description: 本文が空 / 本文が JSON として読めない / 必須項目の欠落 / 商品がサブスクリプションタイプでない / 非対応プラットフォーム
         "401":
-          description: X-Player-Id header が欠落
+          description: X-Internal-Auth header が欠落、または検証失敗
         "402":
           description: サブスクリプション検証失敗
         "404":
@@ -109,7 +109,7 @@ paths:
         "200":
           description: 通知受領 (空 body)
         "400":
-          description: JSON パースエラー
+          description: 本文が空 / 本文が JSON として読めない / 必須項目の欠落
         "500":
           description: 通知処理失敗
 
@@ -128,19 +128,17 @@ paths:
         "200":
           description: 通知受領 (空 body)
         "400":
-          description: JSON パースエラー
+          description: 本文が空 / 本文が JSON として読めない / 必須項目の欠落
         "500":
           description: 通知処理失敗
 
 components:
-  parameters:
-    PlayerIdHeader:
-      name: X-Player-Id
+  securitySchemes:
+    InternalAuth:
+      type: apiKey
       in: header
-      required: true
-      description: gateway が認証後に付与する player_id。client が直接設定するヘッダではない。
-      schema:
-        type: string
+      name: X-Internal-Auth
+      description: gateway が発行する RS256 JWT。sub クレームに player_id を含む。
 
   schemas:
     # ─── Health ────────────────────────────────────────────────────────

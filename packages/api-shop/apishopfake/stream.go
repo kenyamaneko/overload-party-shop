@@ -26,16 +26,13 @@ func NewStream(sub *Subscriber, topic string) *Stream {
 const handledBufferSize = 16
 
 // Consume は ctx キャンセルまで topic のメッセージを handler に渡し、戻り値を handled channel に流す。
-// ctx キャンセル / channel クローズ時は nil を返す。
+// ctx キャンセル時は nil を返す。
 func (s *Stream) Consume(ctx context.Context, handler func(ctx context.Context, data []byte) error) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case data, ok := <-s.ch:
-			if !ok {
-				return nil
-			}
+		case data := <-s.ch:
 			s.handled <- handler(ctx, data)
 		}
 	}

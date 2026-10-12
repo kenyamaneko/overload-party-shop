@@ -2,7 +2,6 @@ package rest
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -26,8 +25,12 @@ func NewAppleWebhookHandler(n appleNotifier) *AppleWebhookHandler {
 // Handle は Apple App Store Server Notifications V2 を受信する。
 func (h *AppleWebhookHandler) Handle(c *gin.Context) {
 	var payload subscription.AppleNotificationPayload
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := decodeRequestBody(c, &payload); err != nil {
+		respondError(c, err)
+		return
+	}
+	if err := validateRequiredFields(requiredField{name: "signedPayload", value: payload.SignedPayload}); err != nil {
+		respondBadRequest(c, err)
 		return
 	}
 

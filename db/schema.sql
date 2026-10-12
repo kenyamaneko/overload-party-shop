@@ -24,7 +24,7 @@ $$ LANGUAGE plpgsql;
 CREATE TABLE shop.products (
   product_id          VARCHAR(50) NOT NULL,                  -- 商品ID
   name                VARCHAR(100) NOT NULL,                 -- 商品名
-  type                VARCHAR(20) NOT NULL,                  -- 商品タイプ discriminator (faction_set / cosmetic / subscription)
+  type                VARCHAR(20) NOT NULL,                  -- 商品タイプ discriminator (faction_set / card_pack / cosmetic / subscription)
   price               BIGINT NOT NULL,                       -- 価格 (JPY)
   requires_product_id VARCHAR(50),                           -- 購入前提の商品ID（拡張セット用、NULL: なし）
   description         VARCHAR(500),                          -- 商品説明
