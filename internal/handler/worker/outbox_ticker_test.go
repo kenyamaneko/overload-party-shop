@@ -87,11 +87,11 @@ func startTicker(t *testing.T, runner *fakeRunner) *runningTicker {
 		running.err = ticker.Run(ctx)
 		close(running.finished)
 	}()
-	t.Cleanup(func() { running.stop(t) })
+	t.Cleanup(func() { running.stopAndWait(t) })
 	return running
 }
 
-func (r *runningTicker) stop(t *testing.T) error {
+func (r *runningTicker) stopAndWait(t *testing.T) {
 	t.Helper()
 	r.cancel()
 	select {
@@ -99,6 +99,11 @@ func (r *runningTicker) stop(t *testing.T) error {
 	case <-time.After(awaitDeadline):
 		require.FailNow(t, "停止の要求の後、期限内に終了しなかった")
 	}
+}
+
+func (r *runningTicker) stop(t *testing.T) error {
+	t.Helper()
+	r.stopAndWait(t)
 	return r.err
 }
 
@@ -153,7 +158,7 @@ func TestOutboxTickerPeriodicRun(t *testing.T) {
 					running := startTicker(t, runner)
 					runner.awaitCalls(t, 1)
 
-					running.stop(t)
+					running.stopAndWait(t)
 
 					assert.Len(t, logs.SelectByMessageAndLevel("outbox ticker stopping", slog.LevelInfo), 1)
 				})
@@ -166,7 +171,7 @@ func TestOutboxTickerPeriodicRun(t *testing.T) {
 					running := startTicker(t, runner)
 					runner.awaitCalls(t, 1)
 
-					running.stop(t)
+					running.stopAndWait(t)
 
 					contextErrs := runner.contextErrors()
 					require.Len(t, contextErrs, 1)
