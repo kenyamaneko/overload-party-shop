@@ -1,274 +1,413 @@
-package google
+package google_test
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/api/androidpublisher/v3"
-	"google.golang.org/api/option"
 
+	"github.com/kenyamaneko/overload-party-shop/internal/adapter/adaptertest"
+	"github.com/kenyamaneko/overload-party-shop/internal/adapter/google/googletest"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 const (
-	testPackageName    = "com.overloadparty.shop"
-	testOrderID        = "GPA.3300-0000-0000-00000"
-	purchaseTimeMillis = int64(1_700_000_000_000)
-	expiryTimeMillis   = int64(1_800_000_000_000)
-
-	purchaseStateCanceled = 1
-	purchaseStatePending  = 2
+	purchasedResponseBody     = `{"purchaseState":0}`
+	subscriptionResponseBody  = `{"expiryTimeMillis":"1800000000000"}`
+	zeroExpiryResponseBody    = `{"expiryTimeMillis":"0"}`
+	missingExpiryResponseBody = `{}`
 )
 
-// newStubService は指定したステータスとボディを返すテストサーバへ向けた androidpublisher.Service を構築する。
-func newStubService(t *testing.T, status int, body string) *androidpublisher.Service {
+func verifyPurchase(t *testing.T, server *adaptertest.Server, token string) (*port.VerifyResult, error) {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, body)
-	}))
-	t.Cleanup(server.Close)
-
-	svc, err := androidpublisher.NewService(context.Background(),
-		option.WithHTTPClient(server.Client()),
-		option.WithEndpoint(server.URL),
-	)
-	require.NoError(t, err)
-	return svc
+	return googletest.NewVerifier(t, server.URL).VerifyPurchase(context.Background(), token)
 }
 
-func TestSplitGoogleToken(t *testing.T) {
-	t.Run("合成トークンの分割", func(t *testing.T) {
-		validCases := []struct {
-			name          string
-			composite     string
-			wantProductID string
-			wantToken     string
-		}{
-			{
-				name:          "productId:tokenのとき、二分割する",
-				composite:     "premium_monthly:opaque-token",
-				wantProductID: "premium_monthly",
-				wantToken:     "opaque-token",
-			},
-			{
-				name:          "token部分に区切り文字を含むとき、最初の : だけで分割する",
-				composite:     "premium_monthly:opaque:token",
-				wantProductID: "premium_monthly",
-				wantToken:     "opaque:token",
-			},
-		}
-		for _, tc := range validCases {
-			t.Run(tc.name, func(t *testing.T) {
-				productID, token, err := splitGoogleToken(tc.composite)
-				require.NoError(t, err)
-				assert.Equal(t, tc.wantProductID, productID)
-				assert.Equal(t, tc.wantToken, token)
-			})
-		}
+func verifySubscription(t *testing.T, server *adaptertest.Server, token string) (*port.SubscriptionInfo, error) {
+	t.Helper()
+	return googletest.NewVerifier(t, server.URL).VerifySubscription(context.Background(), token)
+}
 
-		invalidCases := []struct {
-			name      string
-			composite string
-		}{
-			{
-				name:      "区切り文字が無いとき、エラーになる",
-				composite: "no-separator",
-			},
-			{
-				name:      "空文字のとき、エラーになる",
-				composite: "",
-			},
-		}
-		for _, tc := range invalidCases {
-			t.Run(tc.name, func(t *testing.T) {
-				productID, token, err := splitGoogleToken(tc.composite)
-				require.Error(t, err)
-				assert.Empty(t, productID)
-				assert.Empty(t, token)
-			})
-		}
-	})
+func getSubscriptionExpiry(t *testing.T, server *adaptertest.Server, token string) (time.Time, error) {
+	t.Helper()
+	return googletest.NewSubVerifier(t, server.URL).GetSubscriptionExpiry(context.Background(), token)
 }
 
 func TestVerifier_VerifyPurchase(t *testing.T) {
-	t.Run("単発購入の検証", func(t *testing.T) {
-		validCases := []struct {
-			name   string
-			token  string
-			status int
-			body   string
-			want   *port.VerifyResult
-		}{
-			{
-				name:   "purchased(0)のとき、トークン由来のproductIDとorderを持つ有効な結果になる",
-				token:  "prod-1:opaque-token",
-				status: http.StatusOK,
-				body:   fmt.Sprintf(`{"purchaseState":%d,"orderId":%q,"purchaseTimeMillis":"%d"}`, purchaseStatePurchased, testOrderID, purchaseTimeMillis),
-				want: &port.VerifyResult{
-					IsValid:       true,
-					TransactionID: testOrderID,
-					ProductID:     "prod-1",
-					PurchaseTime:  time.UnixMilli(purchaseTimeMillis),
-				},
-			},
-			{
-				name:   "canceled(1)のとき、無効な結果になる",
-				token:  "prod-1:opaque-token",
-				status: http.StatusOK,
-				body:   fmt.Sprintf(`{"purchaseState":%d}`, purchaseStateCanceled),
-				want:   &port.VerifyResult{IsValid: false},
-			},
-			{
-				name:   "pending(2)のとき、無効な結果になる",
-				token:  "prod-1:opaque-token",
-				status: http.StatusOK,
-				body:   fmt.Sprintf(`{"purchaseState":%d}`, purchaseStatePending),
-				want:   &port.VerifyResult{IsValid: false},
-			},
-		}
-		for _, tc := range validCases {
-			t.Run(tc.name, func(t *testing.T) {
-				v := &Verifier{service: newStubService(t, tc.status, tc.body), packageName: testPackageName}
-				got, err := v.VerifyPurchase(context.Background(), tc.token)
-				require.NoError(t, err)
-				assert.Equal(t, tc.want, got)
-			})
-		}
+	t.Run("[GooglePlay購入検証]購入トークンの商品IDとトークンへの分割", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("単発購入を検証すると", func(t *testing.T) {
+				t.Run("トークンがprod-1:opaque-tokenのとき、商品IDprod-1とトークンopaque-tokenでGooglePlayAPIに問い合わせる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
 
-		invalidCases := []struct {
-			name   string
-			token  string
-			status int
-			body   string
-			want   *port.VerifyResult
-		}{
-			{
-				name:   "Google Play APIがエラー応答を返すとき、無効な結果とエラーになる",
-				token:  "prod-1:opaque-token",
-				status: http.StatusNotFound,
-				body:   `{}`,
-				want:   &port.VerifyResult{IsValid: false},
-			},
-			{
-				name:   "区切り文字の無いトークンのとき、API呼び出し前に無効な結果とエラーになる",
-				token:  "no-separator",
-				status: http.StatusOK,
-				body:   `{}`,
-				want:   &port.VerifyResult{IsValid: false},
-			},
-		}
-		for _, tc := range invalidCases {
-			t.Run(tc.name, func(t *testing.T) {
-				v := &Verifier{service: newStubService(t, tc.status, tc.body), packageName: testPackageName}
-				got, err := v.VerifyPurchase(context.Background(), tc.token)
-				require.Error(t, err)
-				assert.Equal(t, tc.want, got)
+					_, err := verifyPurchase(t, server, "prod-1:opaque-token")
+
+					require.NoError(t, err)
+					requests := server.Requests()
+					require.Len(t, requests, 1)
+					assert.Equal(t, "/androidpublisher/v3/applications/com.test.shop/purchases/products/prod-1/tokens/opaque-token", requests[0].Path)
+				})
+
+				t.Run("トークンがprod-1:opaque:tokenのとき、最初の:で分割し、商品IDprod-1とトークンopaque:tokenでGooglePlayAPIに問い合わせる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
+
+					_, err := verifyPurchase(t, server, "prod-1:opaque:token")
+
+					require.NoError(t, err)
+					requests := server.Requests()
+					require.Len(t, requests, 1)
+					assert.Equal(t, "/androidpublisher/v3/applications/com.test.shop/purchases/products/prod-1/tokens/opaque:token", requests[0].Path)
+				})
 			})
-		}
+		})
+
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("単発購入を検証すると", func(t *testing.T) {
+				noRequestTests := []struct {
+					name  string
+					token string
+				}{
+					{name: "トークンが区切り文字の:が無い文字列no-separatorのとき、GooglePlayAPIへの問い合わせは行われない", token: "no-separator"},
+					{name: "トークンが空文字のとき、GooglePlayAPIへの問い合わせは行われない", token: ""},
+					{name: "トークンが:opaque-token（商品ID部分が空）のとき、GooglePlayAPIへの問い合わせは行われない", token: ":opaque-token"},
+					{name: "トークンがprod-1:（トークン部分が空）のとき、GooglePlayAPIへの問い合わせは行われない", token: "prod-1:"},
+				}
+				for _, tc := range noRequestTests {
+					t.Run(tc.name, func(t *testing.T) {
+						server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
+
+						_, _ = verifyPurchase(t, server, tc.token)
+
+						assert.Empty(t, server.Requests())
+					})
+				}
+
+				noResultTests := []struct {
+					name  string
+					token string
+				}{
+					{name: "トークンが区切り文字の:が無い文字列no-separatorのとき、検証結果は返らない", token: "no-separator"},
+					{name: "トークンが空文字のとき、検証結果は返らない", token: ""},
+					{name: "トークンが:opaque-token（商品ID部分が空）のとき、検証結果は返らない", token: ":opaque-token"},
+					{name: "トークンがprod-1:（トークン部分が空）のとき、検証結果は返らない", token: "prod-1:"},
+				}
+				for _, tc := range noResultTests {
+					t.Run(tc.name, func(t *testing.T) {
+						server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
+
+						got, _ := verifyPurchase(t, server, tc.token)
+
+						assert.Nil(t, got)
+					})
+				}
+
+				invalidFormatTests := []struct {
+					name  string
+					token string
+				}{
+					{name: "トークンが区切り文字の:が無い文字列no-separatorのとき、エラーの内容にトークン形式不正が含まれる", token: "no-separator"},
+					{name: "トークンが空文字のとき、エラーの内容にトークン形式不正が含まれる", token: ""},
+					{name: "トークンが:opaque-token（商品ID部分が空）のとき、エラーの内容にトークン形式不正が含まれる", token: ":opaque-token"},
+					{name: "トークンがprod-1:（トークン部分が空）のとき、エラーの内容にトークン形式不正が含まれる", token: "prod-1:"},
+				}
+				for _, tc := range invalidFormatTests {
+					t.Run(tc.name, func(t *testing.T) {
+						server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
+
+						_, err := verifyPurchase(t, server, tc.token)
+
+						assert.ErrorContains(t, err, "invalid Google purchase token format")
+					})
+				}
+			})
+		})
+	})
+
+	t.Run("[GooglePlay購入検証]単発購入のレシート検証", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("GooglePlayAPIがpurchaseState=0を返すとき", func(t *testing.T) {
+				t.Run("検証結果が有効になる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
+
+					got, err := verifyPurchase(t, server, "prod-1:opaque-token")
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.True(t, got.IsValid)
+				})
+
+				t.Run("トークンがprod-1:opaque-tokenのとき、商品IDはprod-1になる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
+
+					got, err := verifyPurchase(t, server, "prod-1:opaque-token")
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.Equal(t, "prod-1", got.ProductID)
+				})
+			})
+
+			t.Run("パッケージ名がcom.test.shopで検証器を生成したとき、GooglePlayAPIへの要求のパスにパッケージ名com.test.shopが含まれる", func(t *testing.T) {
+				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
+
+				_, err := verifyPurchase(t, server, "prod-1:opaque-token")
+
+				require.NoError(t, err)
+				requests := server.Requests()
+				require.Len(t, requests, 1)
+				assert.Contains(t, requests[0].Path, "/applications/com.test.shop/")
+			})
+		})
+
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("単発購入を検証すると", func(t *testing.T) {
+				invalidResultTests := []struct {
+					name string
+					body string
+				}{
+					{name: "GooglePlayAPIがpurchaseState=1(キャンセル)を返すとき、検証結果が無効になる", body: `{"purchaseState":1}`},
+					{name: "GooglePlayAPIがpurchaseState=2(保留)を返すとき、検証結果が無効になる", body: `{"purchaseState":2}`},
+				}
+				for _, tc := range invalidResultTests {
+					t.Run(tc.name, func(t *testing.T) {
+						server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, tc.body))
+
+						got, _ := verifyPurchase(t, server, "prod-1:opaque-token")
+
+						require.NotNil(t, got)
+						assert.False(t, got.IsValid)
+					})
+				}
+
+				t.Run("GooglePlayAPIがステータスコード404を返すとき、検証結果は返らない", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(404, "{}"))
+
+					got, _ := verifyPurchase(t, server, "prod-1:opaque-token")
+
+					assert.Nil(t, got)
+				})
+
+				noErrorTests := []struct {
+					name string
+					body string
+				}{
+					{name: "GooglePlayAPIがpurchaseState=1(キャンセル)を返すとき、エラーは返らない", body: `{"purchaseState":1}`},
+					{name: "GooglePlayAPIがpurchaseState=2(保留)を返すとき、エラーは返らない", body: `{"purchaseState":2}`},
+				}
+				for _, tc := range noErrorTests {
+					t.Run(tc.name, func(t *testing.T) {
+						server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, tc.body))
+
+						_, err := verifyPurchase(t, server, "prod-1:opaque-token")
+
+						assert.NoError(t, err)
+					})
+				}
+
+				t.Run("GooglePlayAPIがステータスコード404を返すとき、エラーの内容にステータスコード404が含まれる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(404, "{}"))
+
+					_, err := verifyPurchase(t, server, "prod-1:opaque-token")
+
+					assert.ErrorContains(t, err, "404")
+				})
+			})
+		})
 	})
 }
 
 func TestVerifier_VerifySubscription(t *testing.T) {
-	t.Run("サブスクリプションの検証", func(t *testing.T) {
-		cases := []struct {
-			name    string
-			token   string
-			status  int
-			body    string
-			want    *port.SubscriptionInfo
-			wantErr bool
-		}{
-			{
-				name:   "有効なサブスクのとき、productID/order/有効期限/自動更新を写像する",
-				token:  "premium_monthly:opaque-token",
-				status: http.StatusOK,
-				body:   fmt.Sprintf(`{"orderId":%q,"expiryTimeMillis":"%d","autoRenewing":true}`, testOrderID, expiryTimeMillis),
-				want: &port.SubscriptionInfo{
-					IsValid:        true,
-					ProductID:      "premium_monthly",
-					TransactionID:  testOrderID,
-					ExpiresAt:      time.UnixMilli(expiryTimeMillis),
-					IsAutoRenewing: true,
-				},
-			},
-			{
-				name:    "Google Play APIがエラー応答を返すとき、無効な結果とエラーになる",
-				token:   "premium_monthly:opaque-token",
-				status:  http.StatusInternalServerError,
-				body:    `{}`,
-				want:    &port.SubscriptionInfo{IsValid: false},
-				wantErr: true,
-			},
-			{
-				name:    "区切り文字の無いトークンのとき、API呼び出し前に無効な結果とエラーになる",
-				token:   "no-separator",
-				status:  http.StatusOK,
-				body:    `{}`,
-				want:    &port.SubscriptionInfo{IsValid: false},
-				wantErr: true,
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				v := &Verifier{service: newStubService(t, tc.status, tc.body), packageName: testPackageName}
-				got, err := v.VerifySubscription(context.Background(), tc.token)
-				assert.Equal(t, tc.wantErr, err != nil)
-				assert.Equal(t, tc.want, got)
+	t.Run("[GooglePlay購入検証]サブスクリプションのレシート検証", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("GooglePlayAPIが0でないexpiryTimeMillisを含むステータスコード200を返すとき", func(t *testing.T) {
+				t.Run("検証結果が有効になる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
+
+					got, err := verifySubscription(t, server, "sub-1:opaque-token")
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.True(t, got.IsValid)
+				})
+
+				t.Run("トークンがsub-1:opaque-tokenのとき、商品IDはsub-1になる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
+
+					got, err := verifySubscription(t, server, "sub-1:opaque-token")
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.Equal(t, "sub-1", got.ProductID)
+				})
+
+				t.Run("応答のexpiryTimeMillisが1800000000000のとき、有効期限は2027-01-15T08:00:00Zになる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
+
+					got, err := verifySubscription(t, server, "sub-1:opaque-token")
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.Equal(t, "2027-01-15T08:00:00Z", got.ExpiresAt.UTC().Format(time.RFC3339))
+				})
 			})
-		}
+
+			t.Run("パッケージ名がcom.test.shop、トークンがsub-1:opaque-tokenのとき、GooglePlayAPIの/androidpublisher/v3/applications/com.test.shop/purchases/subscriptions/sub-1/tokens/opaque-tokenにGETで要求が届く", func(t *testing.T) {
+				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
+
+				_, err := verifySubscription(t, server, "sub-1:opaque-token")
+
+				require.NoError(t, err)
+				requests := server.Requests()
+				require.Len(t, requests, 1)
+				assert.Equal(t, "GET", requests[0].Method)
+				assert.Equal(t, "/androidpublisher/v3/applications/com.test.shop/purchases/subscriptions/sub-1/tokens/opaque-token", requests[0].Path)
+			})
+		})
+
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("サブスクリプションを検証すると", func(t *testing.T) {
+				noResultTests := []struct {
+					name   string
+					status int
+					body   string
+					token  string
+				}{
+					{name: "GooglePlayAPIがステータスコード500を返すとき、検証結果は返らない", status: 500, body: "{}", token: "sub-1:opaque-token"},
+					{name: "トークンに区切り文字の:が無いとき、検証結果は返らない", status: http.StatusOK, body: subscriptionResponseBody, token: "no-separator"},
+					{name: "GooglePlayAPIが返す応答のexpiryTimeMillisが0であるとき、検証結果は返らない", status: http.StatusOK, body: zeroExpiryResponseBody, token: "sub-1:opaque-token"},
+					{name: "GooglePlayAPIが返す応答にexpiryTimeMillisが無いとき、検証結果は返らない", status: http.StatusOK, body: missingExpiryResponseBody, token: "sub-1:opaque-token"},
+				}
+				for _, tc := range noResultTests {
+					t.Run(tc.name, func(t *testing.T) {
+						server := adaptertest.NewServer(t, adaptertest.RespondWith(tc.status, tc.body))
+
+						got, _ := verifySubscription(t, server, tc.token)
+
+						assert.Nil(t, got)
+					})
+				}
+
+				t.Run("GooglePlayAPIがステータスコード500を返すとき、エラーの内容にステータスコード500が含まれる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(500, "{}"))
+
+					_, err := verifySubscription(t, server, "sub-1:opaque-token")
+
+					assert.ErrorContains(t, err, "500")
+				})
+
+				t.Run("トークンに区切り文字の:が無いとき、エラーの内容にトークン形式不正が含まれる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
+
+					_, err := verifySubscription(t, server, "no-separator")
+
+					assert.ErrorContains(t, err, "invalid Google purchase token format")
+				})
+
+				missingExpiryTests := []struct {
+					name string
+					body string
+				}{
+					{name: "GooglePlayAPIが返す応答のexpiryTimeMillisが0であるとき、エラーの内容に有効期限の欠落が含まれる", body: zeroExpiryResponseBody},
+					{name: "GooglePlayAPIが返す応答のexpiryTimeMillisが無いとき、エラーの内容に有効期限の欠落が含まれる", body: missingExpiryResponseBody},
+				}
+				for _, tc := range missingExpiryTests {
+					t.Run(tc.name, func(t *testing.T) {
+						server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, tc.body))
+
+						_, err := verifySubscription(t, server, "sub-1:opaque-token")
+
+						assert.ErrorContains(t, err, "expiryTimeMillis")
+					})
+				}
+			})
+		})
 	})
 }
 
 func TestSubVerifier_GetSubscriptionExpiry(t *testing.T) {
-	t.Run("有効期限の取得", func(t *testing.T) {
-		cases := []struct {
-			name    string
-			token   string
-			status  int
-			body    string
-			want    time.Time
-			wantErr bool
-		}{
-			{
-				name:   "有効なサブスクのとき、有効期限を返す",
-				token:  "premium_monthly:opaque-token",
-				status: http.StatusOK,
-				body:   fmt.Sprintf(`{"expiryTimeMillis":"%d"}`, expiryTimeMillis),
-				want:   time.UnixMilli(expiryTimeMillis),
-			},
-			{
-				name:    "Google Play APIがエラー応答を返すとき、ゼロ値とエラーになる",
-				token:   "premium_monthly:opaque-token",
-				status:  http.StatusInternalServerError,
-				body:    `{}`,
-				want:    time.Time{},
-				wantErr: true,
-			},
-			{
-				name:    "区切り文字の無いトークンのとき、API呼び出し前にゼロ値とエラーになる",
-				token:   "no-separator",
-				status:  http.StatusOK,
-				body:    `{}`,
-				want:    time.Time{},
-				wantErr: true,
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				v := &SubVerifier{service: newStubService(t, tc.status, tc.body), packageName: testPackageName}
-				got, err := v.GetSubscriptionExpiry(context.Background(), tc.token)
-				assert.Equal(t, tc.wantErr, err != nil)
-				assert.Equal(t, tc.want, got)
+	t.Run("[GooglePlay購入検証]サブスクリプション有効期限の取得", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("GooglePlayAPIがexpiryTimeMillis=1800000000000を返すとき、有効期限は2027-01-15T08:00:00Zになる", func(t *testing.T) {
+				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
+
+				got, err := getSubscriptionExpiry(t, server, "sub-1:opaque-token")
+
+				require.NoError(t, err)
+				assert.Equal(t, "2027-01-15T08:00:00Z", got.UTC().Format(time.RFC3339))
 			})
-		}
+
+			t.Run("パッケージ名がcom.test.shop、トークンがsub-1:opaque-tokenのとき、GooglePlayAPIの/androidpublisher/v3/applications/com.test.shop/purchases/subscriptions/sub-1/tokens/opaque-tokenにGETで要求が届く", func(t *testing.T) {
+				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
+
+				_, err := getSubscriptionExpiry(t, server, "sub-1:opaque-token")
+
+				require.NoError(t, err)
+				requests := server.Requests()
+				require.Len(t, requests, 1)
+				assert.Equal(t, "GET", requests[0].Method)
+				assert.Equal(t, "/androidpublisher/v3/applications/com.test.shop/purchases/subscriptions/sub-1/tokens/opaque-token", requests[0].Path)
+			})
+		})
+
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("有効期限を取得すると", func(t *testing.T) {
+				unsetTimeTests := []struct {
+					name   string
+					status int
+					body   string
+					token  string
+				}{
+					{name: "GooglePlayAPIがステータスコード500を返すとき、有効期限は未設定の時刻になる", status: 500, body: "{}", token: "sub-1:opaque-token"},
+					{name: "トークンに区切り文字の:が無いとき、有効期限は未設定の時刻になる", status: http.StatusOK, body: subscriptionResponseBody, token: "no-separator"},
+					{name: "GooglePlayAPIが返す応答のexpiryTimeMillisが0であるとき、有効期限は未設定の時刻になる", status: http.StatusOK, body: zeroExpiryResponseBody, token: "sub-1:opaque-token"},
+					{name: "GooglePlayAPIが返す応答にexpiryTimeMillisが無いとき、有効期限は未設定の時刻になる", status: http.StatusOK, body: missingExpiryResponseBody, token: "sub-1:opaque-token"},
+				}
+				for _, tc := range unsetTimeTests {
+					t.Run(tc.name, func(t *testing.T) {
+						server := adaptertest.NewServer(t, adaptertest.RespondWith(tc.status, tc.body))
+
+						got, _ := getSubscriptionExpiry(t, server, tc.token)
+
+						assert.Equal(t, time.Time{}, got)
+					})
+				}
+
+				t.Run("GooglePlayAPIがステータスコード500を返すとき、エラーの内容にステータスコード500が含まれる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(500, "{}"))
+
+					_, err := getSubscriptionExpiry(t, server, "sub-1:opaque-token")
+
+					assert.ErrorContains(t, err, "500")
+				})
+
+				t.Run("トークンに区切り文字の:が無いとき、エラーの内容にトークン形式不正が含まれる", func(t *testing.T) {
+					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
+
+					_, err := getSubscriptionExpiry(t, server, "no-separator")
+
+					assert.ErrorContains(t, err, "invalid Google purchase token format")
+				})
+
+				missingExpiryTests := []struct {
+					name string
+					body string
+				}{
+					{name: "GooglePlayAPIが返す応答のexpiryTimeMillisが0であるとき、エラーの内容に有効期限の欠落が含まれる", body: zeroExpiryResponseBody},
+					{name: "GooglePlayAPIが返す応答のexpiryTimeMillisが無いとき、エラーの内容に有効期限の欠落が含まれる", body: missingExpiryResponseBody},
+				}
+				for _, tc := range missingExpiryTests {
+					t.Run(tc.name, func(t *testing.T) {
+						server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, tc.body))
+
+						_, err := getSubscriptionExpiry(t, server, "sub-1:opaque-token")
+
+						assert.ErrorContains(t, err, "expiryTimeMillis")
+					})
+				}
+			})
+		})
 	})
 }
