@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/logtest"
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription/subscriptiontest"
+	"github.com/kenyamaneko/overload-party-shop/internal/util/logtest"
 )
 
 const (

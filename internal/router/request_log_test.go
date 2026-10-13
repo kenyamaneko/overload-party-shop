@@ -12,8 +12,8 @@ import (
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/logtest"
 	"github.com/kenyamaneko/overload-party-shop/internal/router/routertest"
+	"github.com/kenyamaneko/overload-party-shop/internal/util/logtest"
 )
 
 func selectRequestLogs(logs *logtest.Logs) []logtest.Record {

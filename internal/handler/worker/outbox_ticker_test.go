@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/worker"
-	"github.com/kenyamaneko/overload-party-shop/internal/logtest"
+	"github.com/kenyamaneko/overload-party-shop/internal/util/logtest"
 )
 
 const (

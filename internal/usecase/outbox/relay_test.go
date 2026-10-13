@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/logtest"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/outbox"
+	"github.com/kenyamaneko/overload-party-shop/internal/util/logtest"
 )
 
 type failureLogCase struct {
