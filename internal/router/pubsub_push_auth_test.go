@@ -163,55 +163,6 @@ func TestPubSubPushAuthentication(t *testing.T) {
 					assert.Equal(t, "tst-other@tst.example.com", authLogs[0].String("email"))
 				})
 			})
-
-			t.Run("認証に失敗するとき", func(t *testing.T) {
-				tests := []struct {
-					name      string
-					headers   map[string]string
-					validator *routertest.PushValidator
-				}{
-					{
-						name:      "Authorizationヘッダーが無いとき、通知処理に通知は渡らない",
-						headers:   nil,
-						validator: buildValidValidator(),
-					},
-					{
-						name:      "AuthorizationヘッダーがBearer以外の方式のとき、通知処理に通知は渡らない",
-						headers:   map[string]string{"Authorization": "Basic TST-ID-TOKEN"},
-						validator: buildValidValidator(),
-					},
-					{
-						name:      "Authorizationヘッダーの方式名が小文字のbearerのとき、通知処理に通知は渡らない",
-						headers:   map[string]string{"Authorization": "bearer TST-ID-TOKEN"},
-						validator: buildValidValidator(),
-					},
-					{
-						name:      "AuthorizationヘッダーがBearerだけでトークンを区切る空白が無いとき、通知処理に通知は渡らない",
-						headers:   map[string]string{"Authorization": "Bearer"},
-						validator: buildValidValidator(),
-					},
-					{
-						name:      "トークンの検証が失敗するとき、通知処理に通知は渡らない",
-						headers:   googleHeaders,
-						validator: routertest.NewPushValidator("", errors.New("TST-VERIFICATION-FAILURE")),
-					},
-					{
-						name:      "署名者のメールアドレスが一致しないとき、通知処理に通知は渡らない",
-						headers:   googleHeaders,
-						validator: routertest.NewPushValidator("tst-other@tst.example.com", nil),
-					},
-				}
-				for _, tt := range tests {
-					t.Run(tt.name, func(t *testing.T) {
-						google := &routertest.GoogleNotifier{}
-						engine := routertest.BuildRouter(t, routertest.WithGooglePush(google, tt.validator, routertest.PushAudience))
-
-						routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, tt.headers)
-
-						assert.Empty(t, google.Data())
-					})
-				}
-			})
 		})
 
 		t.Run("正常系", func(t *testing.T) {

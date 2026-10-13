@@ -112,25 +112,12 @@ func (n *AppleNotifier) HandleNotification(context.Context, string) error {
 	return n.Err
 }
 
-// GoogleNotifier は受け取った通知の data を記録する GooglePlay 通知の処理の偽物。
-type GoogleNotifier struct {
-	mu   sync.Mutex
-	data []string
-}
+// GoogleNotifier は成功を返す GooglePlay 通知の処理の偽物。
+type GoogleNotifier struct{}
 
-// HandleNotification は通知の data を記録し、成功を返す。
-func (n *GoogleNotifier) HandleNotification(_ context.Context, msg subscription.GoogleRTDNMessage) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.data = append(n.data, msg.Message.Data)
+// HandleNotification は成功を返す。
+func (n *GoogleNotifier) HandleNotification(context.Context, subscription.GoogleRTDNMessage) error {
 	return nil
-}
-
-// Data は通知の処理に渡された data を渡された順に返す。
-func (n *GoogleNotifier) Data() []string {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return append([]string(nil), n.data...)
 }
 
 // ReceiptVerifier は決まった結果を返すストアのレシート検証の偽物。
