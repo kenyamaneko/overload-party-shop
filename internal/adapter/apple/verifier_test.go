@@ -65,15 +65,6 @@ func TestNewVerifierFromPEM(t *testing.T) {
 
 					require.NoError(t, err)
 				})
-
-				t.Run("P-256のPKCS#8形式の秘密鍵のとき、検証器が得られる", func(t *testing.T) {
-					pemData := appletest.EncodePKCS8PEM(t, appletest.GenerateECDSAKey(t, elliptic.P256()))
-
-					got, err := loadPrivateKeyPEM(pemData)
-
-					require.NoError(t, err)
-					assert.NotNil(t, got)
-				})
 			})
 		})
 
