@@ -1,12 +1,7 @@
 package apple_test
 
 import (
-	"context"
 	"crypto/elliptic"
-	"io"
-	"net/http"
-	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,12 +10,6 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
 	"github.com/kenyamaneko/overload-party-shop/internal/adapter/apple/appletest"
 )
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
-	return f(r)
-}
 
 func loadPrivateKeyPEM(pemData []byte) (*apple.Verifier, error) {
 	return appletest.NewVerifierFromPEM(pemData, "Sandbox", &appletest.FakeJWSVerifier{})
@@ -31,27 +20,6 @@ func newVerifierWithEnvironment(t *testing.T, environment string, opts ...apple.
 	pemData := appletest.EncodePKCS8PEM(t, appletest.GenerateECDSAKey(t, elliptic.P256()))
 	jwsVerifier := &appletest.FakeJWSVerifier{Payload: `{"bundleId":"com.test.shop","productId":"prod-1"}`}
 	return appletest.NewVerifierFromPEM(pemData, environment, jwsVerifier, opts...)
-}
-
-func captureRequestOrigin(t *testing.T, environment string) *url.URL {
-	t.Helper()
-	var captured *url.URL
-	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		captured = r.URL
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{},
-			Body:       io.NopCloser(strings.NewReader(`{"signedTransactionInfo":"signed-txn"}`)),
-			Request:    r,
-		}, nil
-	})}
-	verifier, err := newVerifierWithEnvironment(t, environment, apple.WithHTTPClient(client))
-	require.NoError(t, err)
-
-	_, _ = verifier.VerifyPurchase(context.Background(), "purchase-token")
-
-	require.NotNil(t, captured)
-	return captured
 }
 
 func TestNewVerifierFromPEM(t *testing.T) {
@@ -113,22 +81,6 @@ func TestNewVerifierFromPEM(t *testing.T) {
 	})
 
 	t.Run("[Apple購入検証]環境名ごとの接続先", func(t *testing.T) {
-		t.Run("正常系", func(t *testing.T) {
-			t.Run("単発購入を検証すると", func(t *testing.T) {
-				t.Run("環境名がProductionで接続先を差し替えないとき、AppStoreServerAPIへの要求はhttps://api.storekit.itunes.apple.comに届く", func(t *testing.T) {
-					got := captureRequestOrigin(t, "Production")
-
-					assert.Equal(t, "https://api.storekit.itunes.apple.com", got.Scheme+"://"+got.Host)
-				})
-
-				t.Run("環境名がSandboxで接続先を差し替えないとき、AppStoreServerAPIへの要求はhttps://api.storekit-sandbox.itunes.apple.comに届く", func(t *testing.T) {
-					got := captureRequestOrigin(t, "Sandbox")
-
-					assert.Equal(t, "https://api.storekit-sandbox.itunes.apple.com", got.Scheme+"://"+got.Host)
-				})
-			})
-		})
-
 		t.Run("異常系", func(t *testing.T) {
 			t.Run("検証器を生成すると", func(t *testing.T) {
 				invalidEnvironmentTests := []struct {

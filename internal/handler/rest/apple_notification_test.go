@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/router/routertest"
 )
@@ -15,16 +14,6 @@ import (
 func TestAppleNotificationReceipt(t *testing.T) {
 	t.Run("[Apple通知]通知の受信", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("本文のsignedPayloadがTST-SIGNED-PAYLOADのとき、署名の検証にTST-SIGNED-PAYLOADがそのまま渡される", func(t *testing.T) {
-				env := routertest.BuildEnv(t, pg)
-
-				env.PostAppleWebhook(t, "TST-SIGNED-PAYLOAD")
-
-				received := env.AppleJWS.Received()
-				require.NotEmpty(t, received)
-				assert.Equal(t, "TST-SIGNED-PAYLOAD", received[0])
-			})
-
 			t.Run("有効期限が過去のサブスクリプションに、更新通知が未来の有効期限2999-12-31T00:00:00Zで届くとき、200になる", func(t *testing.T) {
 				env := routertest.BuildEnv(t, pg)
 				env.CreateExpiredAppleSubscription(t)

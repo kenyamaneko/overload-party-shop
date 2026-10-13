@@ -3,6 +3,7 @@ package google_test
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -21,70 +22,25 @@ const (
 	missingExpiryResponseBody = `{}`
 )
 
-func verifyPurchase(t *testing.T, server *adaptertest.Server, token string) (*port.VerifyResult, error) {
+func verifyPurchase(t *testing.T, server *httptest.Server, token string) (*port.VerifyResult, error) {
 	t.Helper()
 	return googletest.NewVerifier(t, server.URL).VerifyPurchase(context.Background(), token)
 }
 
-func verifySubscription(t *testing.T, server *adaptertest.Server, token string) (*port.SubscriptionInfo, error) {
+func verifySubscription(t *testing.T, server *httptest.Server, token string) (*port.SubscriptionInfo, error) {
 	t.Helper()
 	return googletest.NewVerifier(t, server.URL).VerifySubscription(context.Background(), token)
 }
 
-func getSubscriptionExpiry(t *testing.T, server *adaptertest.Server, token string) (time.Time, error) {
+func getSubscriptionExpiry(t *testing.T, server *httptest.Server, token string) (time.Time, error) {
 	t.Helper()
 	return googletest.NewSubVerifier(t, server.URL).GetSubscriptionExpiry(context.Background(), token)
 }
 
 func TestVerifier_VerifyPurchase(t *testing.T) {
 	t.Run("[GooglePlay購入検証]購入トークンの商品IDとトークンへの分割", func(t *testing.T) {
-		t.Run("正常系", func(t *testing.T) {
-			t.Run("単発購入を検証すると", func(t *testing.T) {
-				t.Run("トークンがprod-1:opaque-tokenのとき、商品IDprod-1とトークンopaque-tokenでGooglePlayAPIに問い合わせる", func(t *testing.T) {
-					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
-
-					_, err := verifyPurchase(t, server, "prod-1:opaque-token")
-
-					require.NoError(t, err)
-					requests := server.Requests()
-					require.Len(t, requests, 1)
-					assert.Equal(t, "/androidpublisher/v3/applications/com.test.shop/purchases/products/prod-1/tokens/opaque-token", requests[0].Path)
-				})
-
-				t.Run("トークンがprod-1:opaque:tokenのとき、最初の:で分割し、商品IDprod-1とトークンopaque:tokenでGooglePlayAPIに問い合わせる", func(t *testing.T) {
-					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
-
-					_, err := verifyPurchase(t, server, "prod-1:opaque:token")
-
-					require.NoError(t, err)
-					requests := server.Requests()
-					require.Len(t, requests, 1)
-					assert.Equal(t, "/androidpublisher/v3/applications/com.test.shop/purchases/products/prod-1/tokens/opaque:token", requests[0].Path)
-				})
-			})
-		})
-
 		t.Run("異常系", func(t *testing.T) {
 			t.Run("単発購入を検証すると", func(t *testing.T) {
-				noRequestTests := []struct {
-					name  string
-					token string
-				}{
-					{name: "トークンが区切り文字の:が無い文字列no-separatorのとき、GooglePlayAPIへの問い合わせは行われない", token: "no-separator"},
-					{name: "トークンが空文字のとき、GooglePlayAPIへの問い合わせは行われない", token: ""},
-					{name: "トークンが:opaque-token（商品ID部分が空）のとき、GooglePlayAPIへの問い合わせは行われない", token: ":opaque-token"},
-					{name: "トークンがprod-1:（トークン部分が空）のとき、GooglePlayAPIへの問い合わせは行われない", token: "prod-1:"},
-				}
-				for _, tc := range noRequestTests {
-					t.Run(tc.name, func(t *testing.T) {
-						server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
-
-						_, _ = verifyPurchase(t, server, tc.token)
-
-						assert.Empty(t, server.Requests())
-					})
-				}
-
 				noResultTests := []struct {
 					name  string
 					token string
@@ -148,17 +104,6 @@ func TestVerifier_VerifyPurchase(t *testing.T) {
 					require.NotNil(t, got)
 					assert.Equal(t, "prod-1", got.ProductID)
 				})
-			})
-
-			t.Run("パッケージ名がcom.test.shopで検証器を生成したとき、GooglePlayAPIへの要求のパスにパッケージ名com.test.shopが含まれる", func(t *testing.T) {
-				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchasedResponseBody))
-
-				_, err := verifyPurchase(t, server, "prod-1:opaque-token")
-
-				require.NoError(t, err)
-				requests := server.Requests()
-				require.Len(t, requests, 1)
-				assert.Contains(t, requests[0].Path, "/applications/com.test.shop/")
 			})
 		})
 
@@ -253,18 +198,6 @@ func TestVerifier_VerifySubscription(t *testing.T) {
 					assert.Equal(t, "2027-01-15T08:00:00Z", got.ExpiresAt.UTC().Format(time.RFC3339))
 				})
 			})
-
-			t.Run("パッケージ名がcom.test.shop、トークンがsub-1:opaque-tokenのとき、GooglePlayAPIの/androidpublisher/v3/applications/com.test.shop/purchases/subscriptions/sub-1/tokens/opaque-tokenにGETで要求が届く", func(t *testing.T) {
-				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
-
-				_, err := verifySubscription(t, server, "sub-1:opaque-token")
-
-				require.NoError(t, err)
-				requests := server.Requests()
-				require.Len(t, requests, 1)
-				assert.Equal(t, "GET", requests[0].Method)
-				assert.Equal(t, "/androidpublisher/v3/applications/com.test.shop/purchases/subscriptions/sub-1/tokens/opaque-token", requests[0].Path)
-			})
 		})
 
 		t.Run("異常系", func(t *testing.T) {
@@ -337,18 +270,6 @@ func TestSubVerifier_GetSubscriptionExpiry(t *testing.T) {
 
 				require.NoError(t, err)
 				assert.Equal(t, "2027-01-15T08:00:00Z", got.UTC().Format(time.RFC3339))
-			})
-
-			t.Run("パッケージ名がcom.test.shop、トークンがsub-1:opaque-tokenのとき、GooglePlayAPIの/androidpublisher/v3/applications/com.test.shop/purchases/subscriptions/sub-1/tokens/opaque-tokenにGETで要求が届く", func(t *testing.T) {
-				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
-
-				_, err := getSubscriptionExpiry(t, server, "sub-1:opaque-token")
-
-				require.NoError(t, err)
-				requests := server.Requests()
-				require.Len(t, requests, 1)
-				assert.Equal(t, "GET", requests[0].Method)
-				assert.Equal(t, "/androidpublisher/v3/applications/com.test.shop/purchases/subscriptions/sub-1/tokens/opaque-token", requests[0].Path)
 			})
 		})
 

@@ -23,11 +23,9 @@ var ExpiredAt = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 var errUnregisteredSignature = errors.New("TST-UNREGISTERED-SIGNATURE")
 
-// AuthVerifier は受け取ったトークンを記録し、決まった結果を返す内部認証の検証器の偽物。
+// AuthVerifier は決まった結果を返す内部認証の検証器の偽物。
 type AuthVerifier struct {
-	mu       sync.Mutex
 	verifyFn func(token string) (string, error)
-	tokens   []string
 }
 
 // NewFixedAuthVerifier はどのトークンもプレイヤー ID playerID として検証する偽物を返す。
@@ -45,28 +43,15 @@ func NewFailingAuthVerifier(err error) *AuthVerifier {
 	return &AuthVerifier{verifyFn: func(string) (string, error) { return "", err }}
 }
 
-// Verify はトークンを記録し、設定された結果を返す。
+// Verify は設定された結果を返す。
 func (v *AuthVerifier) Verify(token string) (string, error) {
-	v.mu.Lock()
-	v.tokens = append(v.tokens, token)
-	v.mu.Unlock()
 	return v.verifyFn(token)
 }
 
-// Tokens は検証に渡されたトークンを渡された順に返す。
-func (v *AuthVerifier) Tokens() []string {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return append([]string(nil), v.tokens...)
-}
-
-// PushValidator は検証に渡された値を記録し、決まった結果を返すプッシュ認証の検証器の偽物。
+// PushValidator は決まった結果を返すプッシュ認証の検証器の偽物。
 type PushValidator struct {
-	mu        sync.Mutex
-	email     string
-	err       error
-	idTokens  []string
-	audiences []string
+	email string
+	err   error
 }
 
 // NewPushValidator は署名者のメールアドレス email を返し、err が nil でなければ検証に失敗する偽物を返す。
@@ -74,42 +59,13 @@ func NewPushValidator(email string, err error) *PushValidator {
 	return &PushValidator{email: email, err: err}
 }
 
-// Validate は渡された値を記録し、設定された結果を返す。
-func (v *PushValidator) Validate(_ context.Context, idToken, audience string) (string, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.idTokens = append(v.idTokens, idToken)
-	v.audiences = append(v.audiences, audience)
+// Validate は設定された結果を返す。
+func (v *PushValidator) Validate(context.Context, string, string) (string, error) {
 	return v.email, v.err
 }
 
-// IDTokens は検証に渡された ID トークンを渡された順に返す。
-func (v *PushValidator) IDTokens() []string {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return append([]string(nil), v.idTokens...)
-}
-
-// Audiences は検証に渡された audience を渡された順に返す。
-func (v *PushValidator) Audiences() []string {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return append([]string(nil), v.audiences...)
-}
-
-// ShopCall はショップのサービスへの 1 回の呼び出しの記録。
-type ShopCall struct {
-	Method        string
-	PlayerID      string
-	ProductID     string
-	Platform      string
-	PurchaseToken string
-}
-
-// ShopService は呼び出しを記録するショップのサービスの偽物。
+// ShopService はショップのサービスの偽物。
 type ShopService struct {
-	mu          sync.Mutex
-	calls       []ShopCall
 	getProducts func(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error)
 }
 
@@ -127,62 +83,33 @@ func NewPanickingShopService() *ShopService {
 	}}
 }
 
-// GetProducts は呼び出しを記録し、設定された結果を返す。
+// GetProducts は設定された結果を返す。
 func (s *ShopService) GetProducts(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error) {
-	s.record(ShopCall{Method: "GetProducts", PlayerID: playerID})
 	return s.getProducts(ctx, playerID)
 }
 
-// Purchase は呼び出しを記録し、成功を返す。
-func (s *ShopService) Purchase(_ context.Context, playerID, productID, platform, purchaseToken string) error {
-	s.record(ShopCall{Method: "Purchase", PlayerID: playerID, ProductID: productID, Platform: platform, PurchaseToken: purchaseToken})
+// Purchase は成功を返す。
+func (s *ShopService) Purchase(context.Context, string, string, string, string) error {
 	return nil
 }
 
-// Subscribe は呼び出しを記録し、有効期限のゼロ値で成功を返す。
-func (s *ShopService) Subscribe(_ context.Context, playerID, productID, platform, purchaseToken string) (time.Time, error) {
-	s.record(ShopCall{Method: "Subscribe", PlayerID: playerID, ProductID: productID, Platform: platform, PurchaseToken: purchaseToken})
+// Subscribe は有効期限のゼロ値で成功を返す。
+func (s *ShopService) Subscribe(context.Context, string, string, string, string) (time.Time, error) {
 	return time.Time{}, nil
 }
 
-// Calls は記録された呼び出しを呼ばれた順に返す。
-func (s *ShopService) Calls() []ShopCall {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]ShopCall(nil), s.calls...)
-}
-
-func (s *ShopService) record(call ShopCall) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.calls = append(s.calls, call)
-}
-
-// AppleNotifier は受け取った署名付きデータを記録する Apple 通知の処理の偽物。
+// AppleNotifier は決まった結果を返す Apple 通知の処理の偽物。
 type AppleNotifier struct {
-	mu       sync.Mutex
-	payloads []string
-
 	// Err が nil でないとき、通知の処理はこのエラーで失敗する。
 	Err error
 	// Delay は通知の処理が結果を返すまでに待つ時間。
 	Delay time.Duration
 }
 
-// HandleNotification は署名付きデータを記録し、設定された結果を返す。
-func (n *AppleNotifier) HandleNotification(_ context.Context, signedPayload string) error {
-	n.mu.Lock()
-	n.payloads = append(n.payloads, signedPayload)
-	n.mu.Unlock()
+// HandleNotification は設定された結果を返す。
+func (n *AppleNotifier) HandleNotification(context.Context, string) error {
 	time.Sleep(n.Delay)
 	return n.Err
-}
-
-// SignedPayloads は通知の処理に渡された署名付きデータを渡された順に返す。
-func (n *AppleNotifier) SignedPayloads() []string {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return append([]string(nil), n.payloads...)
 }
 
 // GoogleNotifier は受け取った通知の data を記録する GooglePlay 通知の処理の偽物。
@@ -206,7 +133,7 @@ func (n *GoogleNotifier) Data() []string {
 	return append([]string(nil), n.data...)
 }
 
-// ReceiptVerifier は渡された購入トークンを記録し、決まった結果を返すストアのレシート検証の偽物。
+// ReceiptVerifier は決まった結果を返すストアのレシート検証の偽物。
 type ReceiptVerifier struct {
 	mu                 sync.Mutex
 	mock               porttest.MockReceiptVerifier
@@ -215,8 +142,6 @@ type ReceiptVerifier struct {
 	subscriptionValid  bool
 	subscriptionErr    error
 	subscriptionExpiry time.Time
-	purchaseTokens     []string
-	subscriptionTokens []string
 }
 
 // NewReceiptVerifier は購入も購読も有効と判定する偽物を返す。
@@ -226,16 +151,14 @@ func NewReceiptVerifier() *ReceiptVerifier {
 		subscriptionValid:  true,
 		subscriptionExpiry: FarFutureExpiry,
 	}
-	v.mock.VerifyPurchaseFn = func(_ context.Context, purchaseToken string) (*port.VerifyResult, error) {
+	v.mock.VerifyPurchaseFn = func(context.Context, string) (*port.VerifyResult, error) {
 		v.mu.Lock()
 		defer v.mu.Unlock()
-		v.purchaseTokens = append(v.purchaseTokens, purchaseToken)
 		return &port.VerifyResult{IsValid: v.purchaseValid, ProductID: verifiedProductID}, v.purchaseErr
 	}
-	v.mock.VerifySubscriptionFn = func(_ context.Context, purchaseToken string) (*port.SubscriptionInfo, error) {
+	v.mock.VerifySubscriptionFn = func(context.Context, string) (*port.SubscriptionInfo, error) {
 		v.mu.Lock()
 		defer v.mu.Unlock()
-		v.subscriptionTokens = append(v.subscriptionTokens, purchaseToken)
 		return &port.SubscriptionInfo{IsValid: v.subscriptionValid, ProductID: verifiedProductID, ExpiresAt: v.subscriptionExpiry}, v.subscriptionErr
 	}
 	return v
@@ -286,26 +209,11 @@ func (v *ReceiptVerifier) RejectSubscription() {
 	v.subscriptionErr = nil
 }
 
-// PurchaseTokens は購入の検証に渡された購入トークンを渡された順に返す。
-func (v *ReceiptVerifier) PurchaseTokens() []string {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return append([]string(nil), v.purchaseTokens...)
-}
-
-// SubscriptionTokens は購読の検証に渡された購入トークンを渡された順に返す。
-func (v *ReceiptVerifier) SubscriptionTokens() []string {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return append([]string(nil), v.subscriptionTokens...)
-}
-
 // AppleJWSVerifier は登録された署名付きデータだけを検証に成功させる Apple の署名付きデータの検証の偽物。
 type AppleJWSVerifier struct {
 	mu       sync.Mutex
 	mock     porttest.MockAppleJWSVerifier
 	payloads map[string][]byte
-	received []string
 }
 
 // NewAppleJWSVerifier は何も登録されていない偽物を返す。登録されていない署名付きデータは検証に失敗する。
@@ -327,17 +235,9 @@ func (v *AppleJWSVerifier) Register(signed string, payload []byte) {
 	v.payloads[signed] = payload
 }
 
-// Received は検証に渡された署名付きデータを渡された順に返す。
-func (v *AppleJWSVerifier) Received() []string {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return append([]string(nil), v.received...)
-}
-
 func (v *AppleJWSVerifier) verify(signed string) ([]byte, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	v.received = append(v.received, signed)
 	payload, ok := v.payloads[signed]
 	if !ok {
 		return nil, errUnregisteredSignature
@@ -345,12 +245,11 @@ func (v *AppleJWSVerifier) verify(signed string) ([]byte, error) {
 	return payload, nil
 }
 
-// GoogleExpiryFetcher は渡された購入トークンを記録し、決まった有効期限を返す GooglePlay の有効期限取得の偽物。
+// GoogleExpiryFetcher は決まった有効期限を返す GooglePlay の有効期限取得の偽物。
 type GoogleExpiryFetcher struct {
 	mu     sync.Mutex
 	expiry time.Time
 	err    error
-	tokens []string
 }
 
 // NewGoogleExpiryFetcher は有効期限 expiry を返す偽物を返す。
@@ -365,17 +264,9 @@ func (f *GoogleExpiryFetcher) FailWith(err error) {
 	f.err = err
 }
 
-// GetSubscriptionExpiry は購入トークンを記録し、設定された結果を返す。
-func (f *GoogleExpiryFetcher) GetSubscriptionExpiry(_ context.Context, purchaseToken string) (time.Time, error) {
+// GetSubscriptionExpiry は設定された結果を返す。
+func (f *GoogleExpiryFetcher) GetSubscriptionExpiry(context.Context, string) (time.Time, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.tokens = append(f.tokens, purchaseToken)
 	return f.expiry, f.err
-}
-
-// Tokens は有効期限の取得に渡された購入トークンを渡された順に返す。
-func (f *GoogleExpiryFetcher) Tokens() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.tokens...)
 }

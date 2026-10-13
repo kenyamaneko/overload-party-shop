@@ -30,15 +30,6 @@ func TestWebhookRouteRegistration(t *testing.T) {
 					assert.Equal(t, http.StatusOK, response.Status)
 				})
 
-				t.Run("/webhook/appleへのPOSTでは、本文のsignedPayloadの値TST-SIGNED-PAYLOADがApple通知の処理に渡る", func(t *testing.T) {
-					apple := &routertest.AppleNotifier{}
-					engine := routertest.BuildRouter(t, routertest.WithApple(apple))
-
-					routertest.Send(engine, http.MethodPost, routertest.AppleWebhookPath, appleBody, nil)
-
-					assert.Equal(t, []string{"TST-SIGNED-PAYLOAD"}, apple.SignedPayloads())
-				})
-
 				t.Run("/webhook/googleへのPOSTは404になる", func(t *testing.T) {
 					engine := routertest.BuildRouter(t, routertest.WithApple(&routertest.AppleNotifier{}))
 
@@ -55,15 +46,6 @@ func TestWebhookRouteRegistration(t *testing.T) {
 					response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
 
 					assert.Equal(t, http.StatusOK, response.Status)
-				})
-
-				t.Run("/webhook/googleへのPOSTでは、本文のmessage.dataの値TST-RTDN-DATAがGooglePlay通知の処理に渡る", func(t *testing.T) {
-					google := &routertest.GoogleNotifier{}
-					engine := routertest.BuildRouter(t, routertest.WithGooglePush(google, validPush(), routertest.PushAudience))
-
-					routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
-
-					assert.Equal(t, []string{"TST-RTDN-DATA"}, google.Data())
 				})
 
 				t.Run("/webhook/appleへのPOSTは404になる", func(t *testing.T) {

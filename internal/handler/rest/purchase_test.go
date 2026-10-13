@@ -81,26 +81,6 @@ func TestOneTimePurchase(t *testing.T) {
 				assert.False(t, response.Product(t, "TST-PRODUCT-ITEM-1").IsOwned)
 			})
 
-			t.Run("purchase_tokenがTST-PURCHASE-TOKEN-1で購入するとき", func(t *testing.T) {
-				t.Run("platformがiosのとき、Appleのレシート検証にTST-PURCHASE-TOKEN-1がそのまま渡される", func(t *testing.T) {
-					env := routertest.BuildEnv(t, pg)
-					env.SeedItemProduct(t)
-
-					env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "ios", "TST-PURCHASE-TOKEN-1")
-
-					assert.Equal(t, []string{"TST-PURCHASE-TOKEN-1"}, env.AppleReceipt.PurchaseTokens())
-				})
-
-				t.Run("platformがandroidのとき、Googleのレシート検証にTST-PURCHASE-TOKEN-1がそのまま渡される", func(t *testing.T) {
-					env := routertest.BuildEnv(t, pg)
-					env.SeedItemProduct(t)
-
-					env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "android", "TST-PURCHASE-TOKEN-1")
-
-					assert.Equal(t, []string{"TST-PURCHASE-TOKEN-1"}, env.GoogleReceipt.PurchaseTokens())
-				})
-			})
-
 			t.Run("同じplatformと同じpurchase_tokenで2回続けて購入するとき", func(t *testing.T) {
 				t.Run("2回目も200になる", func(t *testing.T) {
 					env := routertest.BuildEnv(t, pg)

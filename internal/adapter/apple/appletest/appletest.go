@@ -50,16 +50,14 @@ func EncodeSEC1PEM(t *testing.T, key *ecdsa.PrivateKey) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 }
 
-// FakeJWSVerifier は署名を検証せず、受け取った JWS を記録して決まった結果を返す port.AppleJWSVerifier の偽物。
+// FakeJWSVerifier は署名を検証せず、決まった結果を返す port.AppleJWSVerifier の偽物。
 type FakeJWSVerifier struct {
-	Payload  string
-	Err      error
-	Received []string
+	Payload string
+	Err     error
 }
 
-// Verify は JWS を記録し、Err があれば Err を、無ければ Payload を返す。
-func (f *FakeJWSVerifier) Verify(jws string) ([]byte, error) {
-	f.Received = append(f.Received, jws)
+// Verify は Err があれば Err を、無ければ Payload を返す。
+func (f *FakeJWSVerifier) Verify(_ string) ([]byte, error) {
 	return []byte(f.Payload), f.Err
 }
 

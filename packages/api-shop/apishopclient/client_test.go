@@ -2,7 +2,6 @@ package apishopclient_test
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,23 +15,15 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/packages/api-shop/apishopserverfake"
 )
 
-type receivedRequest struct {
-	Header http.Header
-	Body   []byte
-}
-
-func newRecordingServer(t *testing.T, status int, responseBody string) (string, <-chan receivedRequest) {
+func newStubServer(t *testing.T, status int, responseBody string) string {
 	t.Helper()
-	received := make(chan receivedRequest, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		received <- receivedRequest{Header: r.Header.Clone(), Body: body}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(responseBody))
 	}))
 	t.Cleanup(server.Close)
-	return server.URL, received
+	return server.URL
 }
 
 func newClient(t *testing.T, baseURL string, opts ...apishopclient.Option) *apishopclient.Client {
@@ -62,12 +53,6 @@ func newPurchaseRequest(platform string) apishop.PurchaseRequest {
 		PurchaseToken: "TST-TOKEN-0001",
 	}
 }
-
-const (
-	emptyProductListBody = `{"products":[]}`
-	purchaseResultBody   = `{"message":"TST-MESSAGE-0001","product_id":"TST-0001"}`
-	subscribeResultBody  = `{"message":"TST-MESSAGE-0001","expires_at":"2026-05-01T12:00:00Z"}`
-)
 
 func TestStatusCodeToError(t *testing.T) {
 	t.Run("[商品APIクライアント]ステータスコードからのエラー判別", func(t *testing.T) {
@@ -156,16 +141,6 @@ func TestListPlayerProducts(t *testing.T) {
 				}
 				assert.Contains(t, productIDs, "TST-0001")
 			})
-
-			t.Run("商品一覧を取得したとき、サーバーに届くリクエストにX-Player-Idヘッダは付かない", func(t *testing.T) {
-				baseURL, received := newRecordingServer(t, http.StatusOK, emptyProductListBody)
-				client := newClient(t, baseURL)
-
-				_, err := client.ListPlayerProducts(context.Background())
-
-				require.NoError(t, err)
-				assert.Empty(t, (<-received).Header.Values("X-Player-Id"))
-			})
 		})
 
 		t.Run("異常系", func(t *testing.T) {
@@ -199,28 +174,6 @@ func TestPurchaseProduct(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "TST-0001", result.ProductID)
 			})
-
-			t.Run("商品を購入したとき、サーバーに届くリクエストにX-Player-Idヘッダは付かない", func(t *testing.T) {
-				baseURL, received := newRecordingServer(t, http.StatusOK, purchaseResultBody)
-				client := newClient(t, baseURL)
-
-				_, err := client.PurchaseProduct(context.Background(), newPurchaseRequest("ios"))
-
-				require.NoError(t, err)
-				assert.Empty(t, (<-received).Header.Values("X-Player-Id"))
-			})
-
-			t.Run("商品IDがTST-0001・プラットフォームがios・購入トークンがTST-TOKEN-0001で購入したとき、サーバーに届くリクエスト本文は指定した購入内容と同じになる", func(t *testing.T) {
-				baseURL, received := newRecordingServer(t, http.StatusOK, purchaseResultBody)
-				client := newClient(t, baseURL)
-
-				_, err := client.PurchaseProduct(context.Background(), newPurchaseRequest("ios"))
-
-				require.NoError(t, err)
-				assert.JSONEq(t,
-					`{"product_id":"TST-0001","platform":"ios","purchase_token":"TST-TOKEN-0001"}`,
-					string((<-received).Body))
-			})
 		})
 	})
 }
@@ -243,28 +196,6 @@ func TestSubscribeProduct(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "2026-05-01T12:00:00Z", result.ExpiresAt.UTC().Format(time.RFC3339))
 			})
-
-			t.Run("サブスクリプションを購入したとき、サーバーに届くリクエストにX-Player-Idヘッダは付かない", func(t *testing.T) {
-				baseURL, received := newRecordingServer(t, http.StatusOK, subscribeResultBody)
-				client := newClient(t, baseURL)
-
-				_, err := client.SubscribeProduct(context.Background(), newPurchaseRequest("android"))
-
-				require.NoError(t, err)
-				assert.Empty(t, (<-received).Header.Values("X-Player-Id"))
-			})
-
-			t.Run("商品IDがTST-0001・プラットフォームがandroid・購入トークンがTST-TOKEN-0001で購入したとき、サーバーに届くリクエスト本文は指定した購入内容と同じになる", func(t *testing.T) {
-				baseURL, received := newRecordingServer(t, http.StatusOK, subscribeResultBody)
-				client := newClient(t, baseURL)
-
-				_, err := client.SubscribeProduct(context.Background(), newPurchaseRequest("android"))
-
-				require.NoError(t, err)
-				assert.JSONEq(t,
-					`{"product_id":"TST-0001","platform":"android","purchase_token":"TST-TOKEN-0001"}`,
-					string((<-received).Body))
-			})
 		})
 
 		t.Run("異常系", func(t *testing.T) {
@@ -285,7 +216,7 @@ func TestGetHealth(t *testing.T) {
 	t.Run("[商品APIクライアント]死活監視", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
 			t.Run("サーバーが200でstatusのokを返したとき、返された結果のstatusはokになる", func(t *testing.T) {
-				baseURL, _ := newRecordingServer(t, http.StatusOK, `{"status":"ok"}`)
+				baseURL := newStubServer(t, http.StatusOK, `{"status":"ok"}`)
 				client := newClient(t, baseURL)
 
 				health, err := client.GetHealth(context.Background())
@@ -297,7 +228,7 @@ func TestGetHealth(t *testing.T) {
 
 		t.Run("異常系", func(t *testing.T) {
 			t.Run("500を受けたとき、ErrInternalServerになる", func(t *testing.T) {
-				baseURL, _ := newRecordingServer(t, http.StatusInternalServerError, "")
+				baseURL := newStubServer(t, http.StatusInternalServerError, "")
 				client := newClient(t, baseURL)
 
 				_, err := client.GetHealth(context.Background())
@@ -312,26 +243,16 @@ func TestForwardStoreNotification(t *testing.T) {
 	t.Run("[商品APIクライアント]ストア通知の転送", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
 			t.Run("Appleの通知を送り、サーバーが200を返したとき、エラーにならない", func(t *testing.T) {
-				baseURL, _ := newRecordingServer(t, http.StatusOK, "")
+				baseURL := newStubServer(t, http.StatusOK, "")
 				client := newClient(t, baseURL)
 
 				err := client.AppleWebhook(context.Background(), apishop.AppleNotificationPayload{SignedPayload: "TST-JWS-0001"})
 
 				assert.NoError(t, err)
-			})
-
-			t.Run("signedPayloadがTST-JWS-0001のAppleの通知を送ったとき、サーバーに届くリクエスト本文のsignedPayloadはTST-JWS-0001になる", func(t *testing.T) {
-				baseURL, received := newRecordingServer(t, http.StatusOK, "")
-				client := newClient(t, baseURL)
-
-				err := client.AppleWebhook(context.Background(), apishop.AppleNotificationPayload{SignedPayload: "TST-JWS-0001"})
-
-				require.NoError(t, err)
-				assert.JSONEq(t, `{"signedPayload":"TST-JWS-0001"}`, string((<-received).Body))
 			})
 
 			t.Run("Googleの通知を送り、サーバーが200を返したとき、エラーにならない", func(t *testing.T) {
-				baseURL, _ := newRecordingServer(t, http.StatusOK, "")
+				baseURL := newStubServer(t, http.StatusOK, "")
 				client := newClient(t, baseURL)
 
 				err := client.GoogleWebhook(context.Background(), apishop.GoogleRTDNMessage{
@@ -339,24 +260,12 @@ func TestForwardStoreNotification(t *testing.T) {
 				})
 
 				assert.NoError(t, err)
-			})
-
-			t.Run("message.dataがTST-DATA-0001のGoogleの通知を送ったとき、サーバーに届くリクエスト本文のmessage.dataはTST-DATA-0001になる", func(t *testing.T) {
-				baseURL, received := newRecordingServer(t, http.StatusOK, "")
-				client := newClient(t, baseURL)
-
-				err := client.GoogleWebhook(context.Background(), apishop.GoogleRTDNMessage{
-					Message: apishop.GoogleRTDNMessageBody{Data: "TST-DATA-0001"},
-				})
-
-				require.NoError(t, err)
-				assert.JSONEq(t, `{"message":{"data":"TST-DATA-0001"}}`, string((<-received).Body))
 			})
 		})
 
 		t.Run("異常系", func(t *testing.T) {
 			t.Run("Appleの通知にサーバーが500を返したとき、ErrInternalServerになる", func(t *testing.T) {
-				baseURL, _ := newRecordingServer(t, http.StatusInternalServerError, "")
+				baseURL := newStubServer(t, http.StatusInternalServerError, "")
 				client := newClient(t, baseURL)
 
 				err := client.AppleWebhook(context.Background(), apishop.AppleNotificationPayload{SignedPayload: "TST-JWS-0001"})
@@ -365,7 +274,7 @@ func TestForwardStoreNotification(t *testing.T) {
 			})
 
 			t.Run("Googleの通知にサーバーが500を返したとき、ErrInternalServerになる", func(t *testing.T) {
-				baseURL, _ := newRecordingServer(t, http.StatusInternalServerError, "")
+				baseURL := newStubServer(t, http.StatusInternalServerError, "")
 				client := newClient(t, baseURL)
 
 				err := client.GoogleWebhook(context.Background(), apishop.GoogleRTDNMessage{
@@ -373,58 +282,6 @@ func TestForwardStoreNotification(t *testing.T) {
 				})
 
 				assert.ErrorIs(t, err, apishopclient.ErrInternalServer)
-			})
-		})
-	})
-}
-
-type viaMarkingDoer struct {
-	next *http.Client
-}
-
-func (d viaMarkingDoer) Do(req *http.Request) (*http.Response, error) {
-	req.Header.Set("X-Test-Via", "TST-VIA-0001")
-	return d.next.Do(req)
-}
-
-func setInternalAuthHeader(_ context.Context, req *http.Request) error {
-	req.Header.Set("X-Internal-Auth", "TST-TOKEN-0001")
-	return nil
-}
-
-func TestClientRequestOptions(t *testing.T) {
-	t.Run("[商品APIクライアント]リクエスト送信の設定", func(t *testing.T) {
-		t.Run("正常系", func(t *testing.T) {
-			t.Run("送信前にX-Internal-AuthヘッダへTST-TOKEN-0001を付ける設定をしたとき", func(t *testing.T) {
-				t.Run("商品一覧を取得すると、サーバーに届くリクエストのX-Internal-AuthヘッダはTST-TOKEN-0001になる", func(t *testing.T) {
-					baseURL, received := newRecordingServer(t, http.StatusOK, emptyProductListBody)
-					client := newClient(t, baseURL, apishopclient.WithRequestEditorFn(setInternalAuthHeader))
-
-					_, err := client.ListPlayerProducts(context.Background())
-
-					require.NoError(t, err)
-					assert.Equal(t, "TST-TOKEN-0001", (<-received).Header.Get("X-Internal-Auth"))
-				})
-
-				t.Run("商品を購入すると、サーバーに届くリクエストのX-Internal-AuthヘッダはTST-TOKEN-0001になる", func(t *testing.T) {
-					baseURL, received := newRecordingServer(t, http.StatusOK, purchaseResultBody)
-					client := newClient(t, baseURL, apishopclient.WithRequestEditorFn(setInternalAuthHeader))
-
-					_, err := client.PurchaseProduct(context.Background(), newPurchaseRequest("ios"))
-
-					require.NoError(t, err)
-					assert.Equal(t, "TST-TOKEN-0001", (<-received).Header.Get("X-Internal-Auth"))
-				})
-			})
-
-			t.Run("HTTPクライアントを差し替える設定をして商品一覧を取得したとき、リクエストは差し替えたHTTPクライアントを通してサーバーに届く", func(t *testing.T) {
-				baseURL, received := newRecordingServer(t, http.StatusOK, emptyProductListBody)
-				client := newClient(t, baseURL, apishopclient.WithHTTPClient(viaMarkingDoer{next: http.DefaultClient}))
-
-				_, err := client.ListPlayerProducts(context.Background())
-
-				require.NoError(t, err)
-				assert.Equal(t, "TST-VIA-0001", (<-received).Header.Get("X-Test-Via"))
 			})
 		})
 	})

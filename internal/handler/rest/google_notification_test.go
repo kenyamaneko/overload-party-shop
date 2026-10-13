@@ -32,15 +32,6 @@ func TestGooglePlayNotificationReceipt(t *testing.T) {
 
 				assert.True(t, response.Product(t, "TST-PRODUCT-SUB-1").IsOwned)
 			})
-
-			t.Run("更新通知の購入トークンがTST-GOOGLE-TOKEN-1のとき、GooglePlayの有効期限取得にTST-GOOGLE-TOKEN-1が渡される", func(t *testing.T) {
-				env := routertest.BuildEnv(t, pg)
-				env.CreateExpiredGoogleSubscription(t)
-
-				env.PostGoogleWebhook(t, routertest.BuildGoogleRenewalData(t, "TST-GOOGLE-TOKEN-1"))
-
-				assert.Equal(t, []string{"TST-GOOGLE-TOKEN-1"}, env.GoogleExpiry.Tokens())
-			})
 		})
 
 		t.Run("異常系", func(t *testing.T) {

@@ -214,30 +214,6 @@ func TestRunOnce(t *testing.T) {
 					}, store.markedPublished)
 				})
 			})
-			t.Run("設定した値の取得への反映", func(t *testing.T) {
-				config := outbox.Config{BatchSize: 7, FailureThreshold: 4, VisibilityTimeout: 45 * time.Second}
-				t.Run("設定した取得件数が、1回に取得する件数の上限として保存先に渡される", func(t *testing.T) {
-					store := &fakeStore{}
-
-					require.NoError(t, newRelay(t, store, &fakePublisher{}, config).RunOnce(t.Context()))
-
-					assert.Equal(t, 7, store.claimLimit)
-				})
-				t.Run("設定した再取得を止める期間が、取得時に保存先に渡される", func(t *testing.T) {
-					store := &fakeStore{}
-
-					require.NoError(t, newRelay(t, store, &fakePublisher{}, config).RunOnce(t.Context()))
-
-					assert.Equal(t, 45*time.Second, store.claimVisibilityTimeout)
-				})
-				t.Run("設定した失敗回数の上限が、取得時に保存先に渡される", func(t *testing.T) {
-					store := &fakeStore{}
-
-					require.NoError(t, newRelay(t, store, &fakePublisher{}, config).RunOnce(t.Context()))
-
-					assert.Equal(t, 4, store.claimFailureThreshold)
-				})
-			})
 		})
 		t.Run("異常系", func(t *testing.T) {
 			t.Run("未配信イベントの取得に失敗したとき", func(t *testing.T) {

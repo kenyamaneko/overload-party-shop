@@ -4,50 +4,15 @@ package adaptertest
 import (
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 )
 
-// RecordedRequest はサーバが受け取った要求の記録。
-type RecordedRequest struct {
-	Method      string
-	Path        string
-	EscapedPath string
-	Header      http.Header
-}
-
-// Server は受け取った要求を記録する HTTP サーバ。
-type Server struct {
-	*httptest.Server
-
-	mu       sync.Mutex
-	requests []RecordedRequest
-}
-
-// NewServer は handler で応答し、受け取った要求を記録するサーバを立てる。テスト終了時に停止する。
-func NewServer(t *testing.T, handler http.HandlerFunc) *Server {
+// NewServer は handler で応答するサーバを立てる。テスト終了時に停止する。
+func NewServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
-	s := &Server{}
-	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.mu.Lock()
-		s.requests = append(s.requests, RecordedRequest{
-			Method:      r.Method,
-			Path:        r.URL.Path,
-			EscapedPath: r.URL.EscapedPath(),
-			Header:      r.Header.Clone(),
-		})
-		s.mu.Unlock()
-		handler(w, r)
-	}))
+	s := httptest.NewServer(handler)
 	t.Cleanup(s.Close)
 	return s
-}
-
-// Requests はサーバが受け取った要求を受け取った順に返す。
-func (s *Server) Requests() []RecordedRequest {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]RecordedRequest(nil), s.requests...)
 }
 
 // RespondWith は指定したステータスコードと本文を返す handler を返す。

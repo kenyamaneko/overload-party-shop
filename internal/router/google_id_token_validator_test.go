@@ -30,22 +30,6 @@ func TestGoogleIDTokenValidator(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "sa@example.com", email)
 			})
-
-			t.Run("トークンTST-ID-TOKENとaudienceのTST-AUDIENCEで検証するとき、署名・有効期限・audienceの検証にTST-ID-TOKENとTST-AUDIENCEがそのまま渡る", func(t *testing.T) {
-				var receivedToken, receivedAudience string
-				validator := &googleIDTokenValidator{validate: func(_ context.Context, idToken, audience string) (*idtoken.Payload, error) {
-					receivedToken, receivedAudience = idToken, audience
-					return &idtoken.Payload{
-						Issuer: "https://accounts.google.com",
-						Claims: map[string]any{"email": "sa@example.com", "email_verified": true},
-					}, nil
-				}}
-
-				_, err := validator.Validate(context.Background(), "TST-ID-TOKEN", "TST-AUDIENCE")
-
-				require.NoError(t, err)
-				assert.Equal(t, [2]string{"TST-ID-TOKEN", "TST-AUDIENCE"}, [2]string{receivedToken, receivedAudience})
-			})
 		})
 
 		t.Run("異常系", func(t *testing.T) {

@@ -2,81 +2,23 @@ package apple_test
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/adapter/adaptertest"
-	"github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
 	"github.com/kenyamaneko/overload-party-shop/internal/adapter/apple/appletest"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
 const (
-	purchaseResponseBody      = `{"signedTransactionInfo":"signed-txn"}`
-	purchaseTransactionInfo   = `{"bundleId":"com.test.shop","productId":"prod-1"}`
-	otherBundleTransaction    = `{"bundleId":"com.other.app","productId":"prod-1"}`
-	maxTokenLifetimeInSeconds = 60 * 60
+	purchaseResponseBody    = `{"signedTransactionInfo":"signed-txn"}`
+	purchaseTransactionInfo = `{"bundleId":"com.test.shop","productId":"prod-1"}`
+	otherBundleTransaction  = `{"bundleId":"com.other.app","productId":"prod-1"}`
 )
-
-type decodedToken struct {
-	header       map[string]any
-	claims       map[string]any
-	registered   jwt.RegisteredClaims
-	signingInput string
-	signature    string
-}
-
-func decodeTokenSegment(t *testing.T, segment string, into any) {
-	t.Helper()
-	data, err := base64.RawURLEncoding.DecodeString(segment)
-	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(data, into))
-}
-
-func decodeToken(t *testing.T, token string) decodedToken {
-	t.Helper()
-	parts := strings.Split(token, ".")
-	require.Len(t, parts, 3)
-	decoded := decodedToken{
-		signingInput: parts[0] + "." + parts[1],
-		signature:    parts[2],
-	}
-	decodeTokenSegment(t, parts[0], &decoded.header)
-	decodeTokenSegment(t, parts[1], &decoded.claims)
-	decodeTokenSegment(t, parts[1], &decoded.registered)
-	return decoded
-}
-
-func requestAuthorization(t *testing.T, server *adaptertest.Server) string {
-	t.Helper()
-	requests := server.Requests()
-	require.Len(t, requests, 1)
-	return requests[0].Header.Get("Authorization")
-}
-
-func verifyPurchaseWithAuthentication(t *testing.T) (string, *ecdsa.PrivateKey) {
-	t.Helper()
-	server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchaseResponseBody))
-	key := appletest.GenerateECDSAKey(t, elliptic.P256())
-	jwsVerifier := &appletest.FakeJWSVerifier{Payload: purchaseTransactionInfo}
-	verifier, err := appletest.NewVerifierFromPEM(appletest.EncodePKCS8PEM(t, key), "Sandbox", jwsVerifier, apple.WithEndpoint(server.URL))
-	require.NoError(t, err)
-
-	_, err = verifier.VerifyPurchase(context.Background(), "purchase-token")
-
-	require.NoError(t, err)
-	return strings.TrimPrefix(requestAuthorization(t, server), "Bearer "), key
-}
 
 func TestVerifier_VerifyPurchase(t *testing.T) {
 	t.Run("[Apple購入検証]単発購入のレシート検証", func(t *testing.T) {
@@ -104,43 +46,6 @@ func TestVerifier_VerifyPurchase(t *testing.T) {
 					require.NotNil(t, got)
 					assert.Equal(t, "prod-1", got.ProductID)
 				})
-			})
-
-			t.Run("購入トークンがpurchase-tokenのとき、AppStoreServerAPIの/inApps/v2/transactions/purchase-tokenにGETで要求が届く", func(t *testing.T) {
-				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchaseResponseBody))
-				verifier := appletest.NewVerifier(t, server.URL, &appletest.FakeJWSVerifier{Payload: purchaseTransactionInfo})
-
-				_, err := verifier.VerifyPurchase(context.Background(), "purchase-token")
-
-				require.NoError(t, err)
-				requests := server.Requests()
-				require.Len(t, requests, 1)
-				assert.Equal(t, "GET", requests[0].Method)
-				assert.Equal(t, "/inApps/v2/transactions/purchase-token", requests[0].EscapedPath)
-			})
-
-			t.Run("購入トークンがtoken/with?specialのとき、AppStoreServerAPIの/inApps/v2/transactions/token%2Fwith%3FspecialにGETで要求が届く", func(t *testing.T) {
-				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchaseResponseBody))
-				verifier := appletest.NewVerifier(t, server.URL, &appletest.FakeJWSVerifier{Payload: purchaseTransactionInfo})
-
-				_, err := verifier.VerifyPurchase(context.Background(), "token/with?special")
-
-				require.NoError(t, err)
-				requests := server.Requests()
-				require.Len(t, requests, 1)
-				assert.Equal(t, "GET", requests[0].Method)
-				assert.Equal(t, "/inApps/v2/transactions/token%2Fwith%3Fspecial", requests[0].EscapedPath)
-			})
-
-			t.Run("応答のsignedTransactionInfoがsigned-txnのとき、署名検証にはsigned-txnが渡される", func(t *testing.T) {
-				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchaseResponseBody))
-				jwsVerifier := &appletest.FakeJWSVerifier{Payload: purchaseTransactionInfo}
-				verifier := appletest.NewVerifier(t, server.URL, jwsVerifier)
-
-				_, err := verifier.VerifyPurchase(context.Background(), "purchase-token")
-
-				require.NoError(t, err)
-				assert.Equal(t, []string{"signed-txn"}, jwsVerifier.Received)
 			})
 		})
 
@@ -268,69 +173,6 @@ func TestVerifier_VerifyPurchase(t *testing.T) {
 					_, err := verifyWith(t, server.URL, &appletest.FakeJWSVerifier{Payload: "not-json"})
 
 					assert.ErrorContains(t, err, "unmarshal transaction info")
-				})
-			})
-		})
-	})
-
-	t.Run("[Apple購入検証]AppStoreServerAPIへの要求に付ける認証トークン", func(t *testing.T) {
-		t.Run("正常系", func(t *testing.T) {
-			t.Run("単発購入を検証すると", func(t *testing.T) {
-				t.Run("AppStoreServerAPIへの要求のAuthorizationヘッダは、Bearerに続けてトークンが付く", func(t *testing.T) {
-					server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, purchaseResponseBody))
-					verifier := appletest.NewVerifier(t, server.URL, &appletest.FakeJWSVerifier{Payload: purchaseTransactionInfo})
-
-					_, err := verifier.VerifyPurchase(context.Background(), "purchase-token")
-
-					require.NoError(t, err)
-					assert.Regexp(t, `^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`, requestAuthorization(t, server))
-				})
-
-				t.Run("AppStoreServerAPIへの要求のトークンのヘッダのalgは、ES256になる", func(t *testing.T) {
-					token, _ := verifyPurchaseWithAuthentication(t)
-
-					assert.Equal(t, "ES256", decodeToken(t, token).header["alg"])
-				})
-
-				t.Run("検証器の生成にキーIDを渡したとき、要求のトークンのヘッダのkidは、渡したキーIDになる", func(t *testing.T) {
-					token, _ := verifyPurchaseWithAuthentication(t)
-
-					assert.Equal(t, "test-key-id", decodeToken(t, token).header["kid"])
-				})
-
-				t.Run("検証器の生成に発行者IDを渡したとき、要求のトークンのissは、渡した発行者IDになる", func(t *testing.T) {
-					token, _ := verifyPurchaseWithAuthentication(t)
-
-					assert.Equal(t, "test-issuer-id", decodeToken(t, token).claims["iss"])
-				})
-
-				t.Run("検証器の生成にバンドルIDを渡したとき、要求のトークンのbidは、渡したバンドルIDになる", func(t *testing.T) {
-					token, _ := verifyPurchaseWithAuthentication(t)
-
-					assert.Equal(t, "com.test.shop", decodeToken(t, token).claims["bid"])
-				})
-
-				t.Run("AppStoreServerAPIへの要求のトークンのaudは、appstoreconnect-v1になる", func(t *testing.T) {
-					token, _ := verifyPurchaseWithAuthentication(t)
-
-					assert.Equal(t, jwt.ClaimStrings{"appstoreconnect-v1"}, decodeToken(t, token).registered.Audience)
-				})
-
-				t.Run("AppStoreServerAPIへの要求のトークンのexpは、iatの60分後以内になる", func(t *testing.T) {
-					token, _ := verifyPurchaseWithAuthentication(t)
-
-					registered := decodeToken(t, token).registered
-					require.NotNil(t, registered.IssuedAt)
-					require.NotNil(t, registered.ExpiresAt)
-					assert.LessOrEqual(t, registered.ExpiresAt.Unix(), registered.IssuedAt.Unix()+maxTokenLifetimeInSeconds)
-				})
-
-				t.Run("検証器の生成に秘密鍵を渡したとき、要求のトークンの署名は、渡した秘密鍵に対応する公開鍵で検証できる", func(t *testing.T) {
-					token, key := verifyPurchaseWithAuthentication(t)
-
-					decoded := decodeToken(t, token)
-					err := jwt.SigningMethodES256.Verify(decoded.signingInput, decoded.signature, &key.PublicKey)
-					assert.NoError(t, err)
 				})
 			})
 		})

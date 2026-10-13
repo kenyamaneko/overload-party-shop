@@ -48,25 +48,15 @@ type ShopRoute struct {
 	Body   []byte
 }
 
-// ShopRoutes はショップ API の 3 ルート。
-type ShopRoutes struct {
-	ProductList ShopRoute
-	Purchase    ShopRoute
-	Subscribe   ShopRoute
-	All         []ShopRoute
-}
-
 // BuildShopRoutes はショップ API の 3 ルートへの要求を組み立てる。
-func BuildShopRoutes(t *testing.T) ShopRoutes {
+func BuildShopRoutes(t *testing.T) []ShopRoute {
 	t.Helper()
 	body := BuildPurchaseRequestBody(t, "TST-PRODUCT-1", "ios", "TST-PURCHASE-TOKEN-1")
-	routes := ShopRoutes{
-		ProductList: ShopRoute{Name: "商品一覧の取得", Method: http.MethodGet, Path: ProductsPath},
-		Purchase:    ShopRoute{Name: "商品の購入", Method: http.MethodPost, Path: PurchasePath, Body: body},
-		Subscribe:   ShopRoute{Name: "サブスクリプションの購入", Method: http.MethodPost, Path: SubscribePath, Body: body},
+	return []ShopRoute{
+		{Name: "商品一覧の取得", Method: http.MethodGet, Path: ProductsPath},
+		{Name: "商品の購入", Method: http.MethodPost, Path: PurchasePath, Body: body},
+		{Name: "サブスクリプションの購入", Method: http.MethodPost, Path: SubscribePath, Body: body},
 	}
-	routes.All = []ShopRoute{routes.ProductList, routes.Purchase, routes.Subscribe}
-	return routes
 }
 
 type routerConfig struct {

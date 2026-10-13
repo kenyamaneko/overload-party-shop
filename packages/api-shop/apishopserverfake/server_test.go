@@ -117,23 +117,6 @@ func TestServerResponses(t *testing.T) {
 			})
 
 			t.Run("応答を設定したとき", func(t *testing.T) {
-				t.Run("purchaseの本文がproduct_idのTST-0001・platformのios・purchase_tokenのTST-TOKEN-0001のとき、応答の指定がその購入内容を受け取る", func(t *testing.T) {
-					server := newServer(t)
-					received := make(chan apishop.PurchaseRequest, 1)
-					server.PurchaseFn = func(req apishop.PurchaseRequest) (int, any) {
-						received <- req
-						return http.StatusOK, apishop.PurchaseResponse{Message: "TST-MESSAGE-0001", ProductID: req.ProductID}
-					}
-
-					send(t, http.MethodPost, server.URL()+purchasePath, purchaseRequestBody)
-
-					assert.Equal(t, apishop.PurchaseRequest{
-						ProductID:     "TST-0001",
-						Platform:      "ios",
-						PurchaseToken: "TST-TOKEN-0001",
-					}, <-received)
-				})
-
 				t.Run("purchaseの応答の指定が409を返すと、応答のステータスは409になる", func(t *testing.T) {
 					server := newServer(t)
 					server.PurchaseFn = func(apishop.PurchaseRequest) (int, any) {

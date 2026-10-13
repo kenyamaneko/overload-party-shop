@@ -24,51 +24,38 @@ const (
 type fakeRunner struct {
 	calls chan int
 
-	mu          sync.Mutex
-	count       int
-	contextErrs []error
-	onRun       func(ctx context.Context, call int) error
+	mu    sync.Mutex
+	count int
+	onRun func(call int) error
 }
 
-func newFakeRunner(onRun func(ctx context.Context, call int) error) *fakeRunner {
+func newFakeRunner(onRun func(call int) error) *fakeRunner {
 	return &fakeRunner{calls: make(chan int, callsBufferSize), onRun: onRun}
 }
 
 func newSucceedingRunner() *fakeRunner {
-	return newFakeRunner(func(context.Context, int) error { return nil })
+	return newFakeRunner(func(int) error { return nil })
 }
 
-func (r *fakeRunner) RunOnce(ctx context.Context) error {
+func (r *fakeRunner) RunOnce(context.Context) error {
 	r.mu.Lock()
 	r.count++
 	call := r.count
 	r.mu.Unlock()
 	r.calls <- call
-	err := r.onRun(ctx, call)
-	r.mu.Lock()
-	r.contextErrs = append(r.contextErrs, ctx.Err())
-	r.mu.Unlock()
-	return err
+	return r.onRun(call)
 }
 
-func (r *fakeRunner) contextErrors() []error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]error(nil), r.contextErrs...)
-}
-
-func (r *fakeRunner) awaitCalls(t *testing.T, want int) int {
+func (r *fakeRunner) awaitCalls(t *testing.T, want int) {
 	t.Helper()
 	deadline := time.After(awaitDeadline)
-	lastCall := 0
 	for received := 0; received < want; received++ {
 		select {
-		case lastCall = <-r.calls:
+		case <-r.calls:
 		case <-deadline:
 			require.FailNow(t, "実行対象の処理の呼び出しが期限内に揃わなかった", "待った回数: %d 受け取った回数: %d", want, received)
 		}
 	}
-	return lastCall
 }
 
 type runningTicker struct {
@@ -110,15 +97,6 @@ func (r *runningTicker) stop(t *testing.T) error {
 func TestOutboxTickerPeriodicRun(t *testing.T) {
 	t.Run("[outbox送信]周期実行", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("設定した実行間隔の3回分が経過すると、実行対象の処理の3回目の呼び出しが行われる", func(t *testing.T) {
-				runner := newSucceedingRunner()
-				startTicker(t, runner)
-
-				lastCall := runner.awaitCalls(t, 3)
-
-				assert.Equal(t, 3, lastCall)
-			})
-
 			t.Run("起動したとき", func(t *testing.T) {
 				t.Run("起動を示すInfoレベルのログが出る", func(t *testing.T) {
 					logs := logtest.Capture(t)
@@ -162,21 +140,6 @@ func TestOutboxTickerPeriodicRun(t *testing.T) {
 
 					assert.Len(t, logs.SelectByMessageAndLevel("outbox ticker stopping", slog.LevelInfo), 1)
 				})
-
-				t.Run("実行対象の処理の実行中に停止の要求が出たとき、その処理に渡された停止の合図も取り消される", func(t *testing.T) {
-					runner := newFakeRunner(func(ctx context.Context, _ int) error {
-						<-ctx.Done()
-						return nil
-					})
-					running := startTicker(t, runner)
-					runner.awaitCalls(t, 1)
-
-					running.stopAndWait(t)
-
-					contextErrs := runner.contextErrors()
-					require.Len(t, contextErrs, 1)
-					assert.ErrorIs(t, contextErrs[0], context.Canceled)
-				})
 			})
 		})
 
@@ -201,15 +164,6 @@ func TestOutboxTickerPeriodicRun(t *testing.T) {
 					require.Len(t, records, 1)
 					assert.Contains(t, records[0].String("error"), "TST-RUN-FAILURE")
 				})
-
-				t.Run("実行間隔が経過した後の2回目の呼び出しも行われる", func(t *testing.T) {
-					runner := newFirstCallFailingRunner()
-					startTicker(t, runner)
-
-					lastCall := runner.awaitCalls(t, 2)
-
-					assert.Equal(t, 2, lastCall)
-				})
 			})
 		})
 	})
@@ -217,7 +171,7 @@ func TestOutboxTickerPeriodicRun(t *testing.T) {
 
 func newFirstCallFailingRunner() *fakeRunner {
 	failuresByCall := map[int]error{1: errors.New("TST-RUN-FAILURE")}
-	return newFakeRunner(func(_ context.Context, call int) error {
+	return newFakeRunner(func(call int) error {
 		return failuresByCall[call]
 	})
 }

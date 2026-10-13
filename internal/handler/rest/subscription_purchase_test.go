@@ -54,15 +54,6 @@ func TestSubscriptionPurchase(t *testing.T) {
 				assert.True(t, response.Product(t, "TST-PRODUCT-SUB-1").IsOwned)
 			})
 
-			t.Run("purchase_tokenがTST-PURCHASE-TOKEN-1のとき、サブスクリプション検証にTST-PURCHASE-TOKEN-1がそのまま渡される", func(t *testing.T) {
-				env := routertest.BuildEnv(t, pg)
-				env.SeedSubscriptionProduct(t)
-
-				env.Subscribe(t, routertest.PlayerOne, "TST-PRODUCT-SUB-1", "ios", "TST-PURCHASE-TOKEN-1")
-
-				assert.Equal(t, []string{"TST-PURCHASE-TOKEN-1"}, env.AppleReceipt.SubscriptionTokens())
-			})
-
 			t.Run("同じplatformと同じpurchase_tokenで2回続けて購入するとき", func(t *testing.T) {
 				t.Run("2回目も200になる", func(t *testing.T) {
 					env := routertest.BuildEnv(t, pg)

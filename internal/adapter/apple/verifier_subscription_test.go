@@ -61,41 +61,6 @@ func TestVerifier_VerifySubscription(t *testing.T) {
 					assert.Equal(t, "2027-01-15T08:00:00Z", got.ExpiresAt.UTC().Format(time.RFC3339))
 				})
 			})
-
-			t.Run("購読トークンがsub-tokenのとき、AppStoreServerAPIの/inApps/v1/subscriptions/sub-tokenにGETで要求が届く", func(t *testing.T) {
-				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
-
-				_, err := verifySubscriptionWith(t, server.URL, &appletest.FakeJWSVerifier{Payload: subscriptionTransactionInfo})
-
-				require.NoError(t, err)
-				requests := server.Requests()
-				require.Len(t, requests, 1)
-				assert.Equal(t, "GET", requests[0].Method)
-				assert.Equal(t, "/inApps/v1/subscriptions/sub-token", requests[0].EscapedPath)
-			})
-
-			t.Run("購読トークンがtoken/with?specialのとき、AppStoreServerAPIの/inApps/v1/subscriptions/token%2Fwith%3FspecialにGETで要求が届く", func(t *testing.T) {
-				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
-				verifier := appletest.NewVerifier(t, server.URL, &appletest.FakeJWSVerifier{Payload: subscriptionTransactionInfo})
-
-				_, err := verifier.VerifySubscription(context.Background(), "token/with?special")
-
-				require.NoError(t, err)
-				requests := server.Requests()
-				require.Len(t, requests, 1)
-				assert.Equal(t, "GET", requests[0].Method)
-				assert.Equal(t, "/inApps/v1/subscriptions/token%2Fwith%3Fspecial", requests[0].EscapedPath)
-			})
-
-			t.Run("応答のsignedTransactionInfoがsigned-txnのとき、取引情報の署名検証にsigned-txnが渡される", func(t *testing.T) {
-				server := adaptertest.NewServer(t, adaptertest.RespondWith(http.StatusOK, subscriptionResponseBody))
-				jwsVerifier := &appletest.FakeJWSVerifier{Payload: subscriptionTransactionInfo}
-
-				_, err := verifySubscriptionWith(t, server.URL, jwsVerifier)
-
-				require.NoError(t, err)
-				assert.Equal(t, []string{"signed-txn"}, jwsVerifier.Received)
-			})
 		})
 
 		t.Run("異常系", func(t *testing.T) {

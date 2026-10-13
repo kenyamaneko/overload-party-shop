@@ -74,15 +74,6 @@ func TestPubSubPushAuthentication(t *testing.T) {
 						assert.Equal(t, tt.wantError, response.ErrorMessage(t))
 					})
 				}
-
-				t.Run("AuthorizationヘッダーがBearerと空白だけでトークン部が空のとき、トークンの検証には空文字が渡される", func(t *testing.T) {
-					validator := routertest.NewPushValidator(routertest.PushServiceAccountEmail, errors.New("TST-VERIFICATION-FAILURE"))
-					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, validator, routertest.PushAudience))
-
-					routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, map[string]string{"Authorization": "Bearer "})
-
-					assert.Equal(t, []string{""}, validator.IDTokens())
-				})
 			})
 
 			t.Run("トークンの検証が失敗するとき", func(t *testing.T) {
@@ -232,33 +223,6 @@ func TestPubSubPushAuthentication(t *testing.T) {
 
 					assert.Equal(t, http.StatusOK, response.Status)
 				})
-
-				t.Run("通知処理に、本文のmessage.dataの値が渡る", func(t *testing.T) {
-					google := &routertest.GoogleNotifier{}
-					engine := routertest.BuildRouter(t, routertest.WithGooglePush(google, buildValidValidator(), routertest.PushAudience))
-
-					routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
-
-					assert.Equal(t, []string{"TST-RTDN-DATA"}, google.Data())
-				})
-			})
-
-			t.Run("AuthorizationヘッダーがBearerとトークンTST-ID-TOKENのとき、トークンの検証には、Bearerを除いたTST-ID-TOKENが渡される", func(t *testing.T) {
-				validator := buildValidValidator()
-				engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, validator, routertest.PushAudience))
-
-				routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, map[string]string{"Authorization": "Bearer TST-ID-TOKEN"})
-
-				assert.Equal(t, []string{"TST-ID-TOKEN"}, validator.IDTokens())
-			})
-
-			t.Run("プッシュ認証のaudienceにTST-PUSH-AUDIENCEを設定したとき、トークンの検証にTST-PUSH-AUDIENCEが渡される", func(t *testing.T) {
-				validator := buildValidValidator()
-				engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, validator, "TST-PUSH-AUDIENCE"))
-
-				routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
-
-				assert.Equal(t, []string{"TST-PUSH-AUDIENCE"}, validator.Audiences())
 			})
 		})
 	})

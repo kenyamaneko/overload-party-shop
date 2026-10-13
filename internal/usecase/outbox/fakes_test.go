@@ -50,17 +50,11 @@ type fakeStore struct {
 	markErrors          map[uuid.UUID]error
 	recordFailureErrors map[uuid.UUID]error
 
-	claimLimit             int
-	claimVisibilityTimeout time.Duration
-	claimFailureThreshold  int
-	markedPublished        []uuid.UUID
-	failures               []recordedFailure
+	markedPublished []uuid.UUID
+	failures        []recordedFailure
 }
 
-func (s *fakeStore) ClaimUnpublished(_ context.Context, limit int, visibilityTimeout time.Duration, failureThreshold int) ([]port.ClaimedOutboxEvent, error) {
-	s.claimLimit = limit
-	s.claimVisibilityTimeout = visibilityTimeout
-	s.claimFailureThreshold = failureThreshold
+func (s *fakeStore) ClaimUnpublished(_ context.Context, _ int, _ time.Duration, _ int) ([]port.ClaimedOutboxEvent, error) {
 	return s.claimed, s.claimErr
 }
 
