@@ -50,13 +50,6 @@ type Verifier struct {
 // VerifierOption は Verifier の構築時の設定を差し替える。
 type VerifierOption func(*Verifier)
 
-// WithHTTPClient は App Store Server API への要求に使う HTTP クライアントを差し替える。
-func WithHTTPClient(client *http.Client) VerifierOption {
-	return func(v *Verifier) {
-		v.httpClient = client
-	}
-}
-
 // WithEndpoint は App Store Server API の接続先 URL を環境名から決まる既定の接続先から差し替える。
 func WithEndpoint(baseURL string) VerifierOption {
 	return func(v *Verifier) {
