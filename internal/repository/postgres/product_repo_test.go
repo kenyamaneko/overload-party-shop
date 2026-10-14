@@ -312,11 +312,20 @@ func TestProductRepositoryGetActiveProducts(t *testing.T) {
 					})
 				}
 
-				t.Run("種別がfaction_setで陣営が欠けた商品が販売中のとき、エラーの内容に、欠けた項目として陣営が示される", func(t *testing.T) {
-					err := listWithMissingFaction(t)
+				t.Run("種別がfaction_setで陣営が欠けた商品が販売中のとき", func(t *testing.T) {
+					t.Run("エラーの内容に、欠けた項目として陣営が示される", func(t *testing.T) {
+						err := listWithMissingFaction(t)
 
-					require.Error(t, err)
-					assert.ErrorContains(t, err, "faction")
+						require.Error(t, err)
+						assert.ErrorContains(t, err, "faction")
+					})
+
+					t.Run("失敗したあと、続けて欠けた陣営を保存すると、その商品が一覧に返る", func(t *testing.T) {
+						require.Error(t, listWithMissingFaction(t))
+						pg.InsertProductFaction(t, "TST-PRODUCT-BROKEN", "Tenki")
+
+						assert.Equal(t, []string{"TST-PRODUCT-BROKEN"}, listActiveProductIDs(t))
+					})
 				})
 
 				t.Run("種別が未知の値の商品が販売中のとき、エラーの内容に、未知の種別であることが示される", func(t *testing.T) {
@@ -325,37 +334,14 @@ func TestProductRepositoryGetActiveProducts(t *testing.T) {
 					require.Error(t, err)
 					assert.ErrorContains(t, err, "unknown type")
 				})
-
-				t.Run("種別がfaction_setで陣営が欠けた商品が販売中で失敗したあと、続けて欠けた陣営を保存すると、一覧取得はエラーにならない", func(t *testing.T) {
-					require.Error(t, listWithMissingFaction(t))
-					pg.InsertProductFaction(t, "TST-PRODUCT-BROKEN", "Tenki")
-
-					_, err := pg.ProductRepository().GetActiveProducts(ctx)
-
-					assert.NoError(t, err)
-				})
 			})
 
-			t.Run("種別がfaction_setで陣営が欠けた商品が販売停止で、ほかに販売中の商品もあるとき、一覧を取得する", func(t *testing.T) {
-				prepare := func(t *testing.T) {
-					pg.Truncate(t)
-					insertFactionSetProductWithoutFaction(t, inactiveProductSeed("TST-PRODUCT-BROKEN"))
-					pg.InsertCardPackProduct(t, activeProductSeed("TST-PRODUCT-ACTIVE"), "TST-PACK-Y")
-				}
+			t.Run("種別がfaction_setで陣営が欠けた商品が販売停止で、ほかに販売中の商品もあるとき、一覧を取得すると、ほかの販売中の商品が返る", func(t *testing.T) {
+				pg.Truncate(t)
+				insertFactionSetProductWithoutFaction(t, inactiveProductSeed("TST-PRODUCT-BROKEN"))
+				pg.InsertCardPackProduct(t, activeProductSeed("TST-PRODUCT-ACTIVE"), "TST-PACK-Y")
 
-				t.Run("エラーにならない", func(t *testing.T) {
-					prepare(t)
-
-					_, err := pg.ProductRepository().GetActiveProducts(ctx)
-
-					assert.NoError(t, err)
-				})
-
-				t.Run("ほかの販売中の商品が返る", func(t *testing.T) {
-					prepare(t)
-
-					assert.Equal(t, []string{"TST-PRODUCT-ACTIVE"}, listActiveProductIDs(t))
-				})
+				assert.Equal(t, []string{"TST-PRODUCT-ACTIVE"}, listActiveProductIDs(t))
 			})
 		})
 	})
@@ -435,16 +421,15 @@ func TestProductRepositoryGetProductByID(t *testing.T) {
 					_, err := pg.ProductRepository().GetProductByID(ctx, "TST-PRODUCT-BROKEN")
 					return err
 				}
-				cases := []struct {
+				notFoundKindCases := []struct {
 					name string
 					get  func(t *testing.T) error
 				}{
-					{name: "種別がfaction_setで陣営が欠けた商品", get: getWithMissingFaction},
-					{name: "種別が未知の値の商品", get: getWithUnknownType},
+					{name: "種別がfaction_setで陣営が欠けた商品のとき、エラーの種類は、商品が見つからないエラーではない", get: getWithMissingFaction},
+					{name: "種別が未知の値の商品のとき、エラーの種類は、商品が見つからないエラーではない", get: getWithUnknownType},
 				}
-
-				for _, tc := range cases {
-					t.Run(tc.name+"のとき、エラーの種類は、商品が見つからないエラーではない", func(t *testing.T) {
+				for _, tc := range notFoundKindCases {
+					t.Run(tc.name, func(t *testing.T) {
 						err := tc.get(t)
 
 						require.Error(t, err)
@@ -452,8 +437,15 @@ func TestProductRepositoryGetProductByID(t *testing.T) {
 					})
 				}
 
-				for _, tc := range cases {
-					t.Run(tc.name+"のとき、エラーの内容に、該当商品の商品IDが示される", func(t *testing.T) {
+				productIDCases := []struct {
+					name string
+					get  func(t *testing.T) error
+				}{
+					{name: "種別がfaction_setで陣営が欠けた商品のとき、エラーの内容に、該当商品の商品IDが示される", get: getWithMissingFaction},
+					{name: "種別が未知の値の商品のとき、エラーの内容に、該当商品の商品IDが示される", get: getWithUnknownType},
+				}
+				for _, tc := range productIDCases {
+					t.Run(tc.name, func(t *testing.T) {
 						err := tc.get(t)
 
 						require.Error(t, err)
@@ -473,16 +465,6 @@ func TestProductRepositoryGetProductByID(t *testing.T) {
 
 					require.Error(t, err)
 					assert.ErrorContains(t, err, "unknown type")
-				})
-
-				t.Run("種別がfaction_setで陣営が欠けた商品で失敗したあと、続けて欠けた陣営を保存すると、その商品が返る", func(t *testing.T) {
-					require.Error(t, getWithMissingFaction(t))
-					pg.InsertProductFaction(t, "TST-PRODUCT-BROKEN", "Tenki")
-
-					got, err := pg.ProductRepository().GetProductByID(ctx, "TST-PRODUCT-BROKEN")
-
-					require.NoError(t, err)
-					assert.Equal(t, "TST-PRODUCT-BROKEN", got.Common().ProductID)
 				})
 			})
 		})

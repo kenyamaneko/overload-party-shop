@@ -23,45 +23,7 @@ func TestItemPurchaseCreatePurchase(t *testing.T) {
 
 	t.Run("[アイテム購入]購入の作成", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("購入を作成する", func(t *testing.T) {
-				cases := []struct {
-					name   string
-					prior  func(t *testing.T)
-					create func() error
-				}{
-					{
-						name:   "プレイヤーAが新規の購入トークンでアイテム(playmat、番号1)を購入するとき、エラーにならない",
-						prior:  func(t *testing.T) {},
-						create: func() error { return pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne) },
-					},
-					{
-						name: "プレイヤーAがアイテム(playmat、番号1)を購入済みで、別の購入トークンでアイテム(sleeve、番号2)を購入するとき、エラーにならない",
-						prior: func(t *testing.T) {
-							require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
-						},
-						create: func() error { return pg.CreateItemPurchase(playerA, "sleeve", 2, "ios", tokenTwo) },
-					},
-					{
-						name: "プレイヤーAがアイテム(playmat、番号1)を購入済みで、プレイヤーBが別の購入トークンで同じアイテムを購入するとき、エラーにならない",
-						prior: func(t *testing.T) {
-							require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
-						},
-						create: func() error { return pg.CreateItemPurchase(playerB, "playmat", 1, "ios", tokenTwo) },
-					},
-				}
-				for _, tc := range cases {
-					t.Run(tc.name, func(t *testing.T) {
-						pg.Truncate(t)
-						tc.prior(t)
-
-						err := tc.create()
-
-						assert.NoError(t, err)
-					})
-				}
-			})
-
-			t.Run("プレイヤーAが新規の購入トークンでアイテム(playmat、番号1)を購入する", func(t *testing.T) {
+			t.Run("プレイヤーAが新規の購入トークンでアイテムを購入する", func(t *testing.T) {
 				t.Run("プレイヤーAがそのアイテムを所有している状態になる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
@@ -84,7 +46,7 @@ func TestItemPurchaseCreatePurchase(t *testing.T) {
 				})
 			})
 
-			t.Run("プレイヤーAがアイテム(playmat、番号1)を購入済みのとき、別の購入トークンでアイテム(sleeve、番号2)を購入する", func(t *testing.T) {
+			t.Run("プレイヤーAがアイテムを購入済みのとき、別の購入トークンで別のアイテムを購入する", func(t *testing.T) {
 				t.Run("プレイヤーAの所有アイテム一覧に2件とも含まれる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
@@ -101,7 +63,7 @@ func TestItemPurchaseCreatePurchase(t *testing.T) {
 				})
 			})
 
-			t.Run("プレイヤーAがアイテム(playmat、番号1)を購入済みのとき、プレイヤーBが別の購入トークンで同じアイテムを購入する", func(t *testing.T) {
+			t.Run("プレイヤーAがアイテムを購入済みのとき、プレイヤーBが別の購入トークンで同じアイテムを購入する", func(t *testing.T) {
 				t.Run("プレイヤーAとプレイヤーBの両方がそのアイテムを所有している状態になる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
@@ -117,7 +79,7 @@ func TestItemPurchaseCreatePurchase(t *testing.T) {
 				})
 			})
 
-			t.Run("プレイヤーAが同じ購入トークンでアイテム(playmat、番号1)の購入を2回続けて行う", func(t *testing.T) {
+			t.Run("プレイヤーAが同じ購入トークンでアイテムの購入を2回続けて行う", func(t *testing.T) {
 				t.Run("プレイヤーAの所有アイテム一覧は1件のままになる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
@@ -130,20 +92,15 @@ func TestItemPurchaseCreatePurchase(t *testing.T) {
 				})
 			})
 
-			t.Run("プレイヤーAが同じ購入トークンでアイテム(playmat、番号1)の購入を同時に2回行う", func(t *testing.T) {
-				purchaseConcurrently := func(t *testing.T) []error {
+			t.Run("プレイヤーAが同じ購入トークンでアイテムの購入を同時に2回行う", func(t *testing.T) {
+				purchaseConcurrently := func(t *testing.T) {
 					pg.Truncate(t)
-					return postgrestest.RunConcurrently(2, func() error {
+					errs := postgrestest.RunConcurrently(2, func() error {
 						return pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne)
 					})
+					require.NoError(t, errs[0])
+					require.NoError(t, errs[1])
 				}
-
-				t.Run("2回ともエラーにならない", func(t *testing.T) {
-					errs := purchaseConcurrently(t)
-
-					assert.NoError(t, errs[0])
-					assert.NoError(t, errs[1])
-				})
 
 				t.Run("プレイヤーAの所有アイテム一覧は1件になる", func(t *testing.T) {
 					purchaseConcurrently(t)
@@ -157,8 +114,8 @@ func TestItemPurchaseCreatePurchase(t *testing.T) {
 		})
 
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("購入トークンが257文字で、アイテム(playmat、番号1)を購入するとき", func(t *testing.T) {
-				t.Run("プレイヤーAはアイテム(playmat、番号1)を所有していない状態のままになる", func(t *testing.T) {
+			t.Run("購入トークンが257文字で、アイテムを購入するとき", func(t *testing.T) {
+				t.Run("プレイヤーAはそのアイテムを所有していない状態のままになる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.Error(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", postgrestest.TokenOfLength(257)))
 
@@ -169,7 +126,7 @@ func TestItemPurchaseCreatePurchase(t *testing.T) {
 				})
 			})
 
-			t.Run("プレイヤーAがアイテム(playmat、番号1)を所有しているとき、別の購入トークンで同じアイテムを購入する", func(t *testing.T) {
+			t.Run("プレイヤーAがアイテムを所有しているとき、別の購入トークンで同じアイテムを購入する", func(t *testing.T) {
 				purchaseOwnedItemAgain := func(t *testing.T) error {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
@@ -200,7 +157,7 @@ func TestItemPurchaseCreatePurchase(t *testing.T) {
 					assert.Len(t, items, 1)
 				})
 
-				t.Run("続けて、失敗した購入トークンでアイテム(sleeve、番号2)を購入すると、プレイヤーAがアイテム(sleeve、番号2)を所有している状態になる", func(t *testing.T) {
+				t.Run("続けて、失敗した購入トークンで別のアイテムを購入すると、プレイヤーAがそのアイテムを所有している状態になる", func(t *testing.T) {
 					require.Error(t, purchaseOwnedItemAgain(t))
 					require.NoError(t, pg.CreateItemPurchase(playerA, "sleeve", 2, "ios", tokenFailed))
 

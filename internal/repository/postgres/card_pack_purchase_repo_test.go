@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,44 +18,6 @@ func TestCardPackPurchaseCreatePurchase(t *testing.T) {
 
 	t.Run("[カードパック購入]購入の作成", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("購入を作成する", func(t *testing.T) {
-				cases := []struct {
-					name   string
-					prior  func(t *testing.T)
-					create func() error
-				}{
-					{
-						name:   "プレイヤーAが新規の購入トークンでカードパックXを購入するとき、エラーにならない",
-						prior:  func(t *testing.T) {},
-						create: func() error { return pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne) },
-					},
-					{
-						name: "プレイヤーAがカードパックXを購入済みで、プレイヤーBが別の購入トークンでカードパックXを購入するとき、エラーにならない",
-						prior: func(t *testing.T) {
-							require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
-						},
-						create: func() error { return pg.CreateCardPackPurchase(playerB, cardPackX, tokenTwo) },
-					},
-					{
-						name: "プレイヤーAがカードパックXを購入済みで、別の購入トークンでカードパックYを購入するとき、エラーにならない",
-						prior: func(t *testing.T) {
-							require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
-						},
-						create: func() error { return pg.CreateCardPackPurchase(playerA, cardPackY, tokenTwo) },
-					},
-				}
-				for _, tc := range cases {
-					t.Run(tc.name, func(t *testing.T) {
-						pg.Truncate(t)
-						tc.prior(t)
-
-						err := tc.create()
-
-						assert.NoError(t, err)
-					})
-				}
-			})
-
 			t.Run("プレイヤーAが新規の購入トークンでカードパックXを購入する", func(t *testing.T) {
 				t.Run("プレイヤーAがカードパックXを所有している状態になる", func(t *testing.T) {
 					pg.Truncate(t)
@@ -77,19 +40,24 @@ func TestCardPackPurchaseCreatePurchase(t *testing.T) {
 					assert.Equal(t, playerA, got.PlayerID)
 				})
 
-				t.Run("イベントが1件保存される", func(t *testing.T) {
+				t.Run("取得したイベントは、購入時に渡したイベントIDの1件だけになる", func(t *testing.T) {
 					pg.Truncate(t)
-					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
+					event := postgrestest.NewOutboxEvent()
+					require.NoError(t, pg.CreateCardPackPurchaseWithEvent(playerA, cardPackX, tokenOne, event))
 
-					assert.Len(t, pg.ClaimAll(t), 1)
+					claimed := pg.ClaimAll(t)
+
+					assert.Equal(t, []uuid.UUID{event.EventID}, postgrestest.ClaimedEventIDs(claimed))
 				})
 			})
 
 			t.Run("プレイヤーAがカードパックXを購入済みのとき、プレイヤーBが別の購入トークンでカードパックXを購入する", func(t *testing.T) {
+				eventOfA := postgrestest.NewOutboxEvent()
+				eventOfB := postgrestest.NewOutboxEvent()
 				purchaseAsBoth := func(t *testing.T) {
 					pg.Truncate(t)
-					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
-					require.NoError(t, pg.CreateCardPackPurchase(playerB, cardPackX, tokenTwo))
+					require.NoError(t, pg.CreateCardPackPurchaseWithEvent(playerA, cardPackX, tokenOne, eventOfA))
+					require.NoError(t, pg.CreateCardPackPurchaseWithEvent(playerB, cardPackX, tokenTwo, eventOfB))
 				}
 
 				t.Run("プレイヤーAとプレイヤーBの両方がカードパックXを所有している状態になる", func(t *testing.T) {
@@ -104,10 +72,12 @@ func TestCardPackPurchaseCreatePurchase(t *testing.T) {
 					assert.True(t, ownedByB)
 				})
 
-				t.Run("イベントは2件になる", func(t *testing.T) {
+				t.Run("取得したイベントは、プレイヤーAの購入とプレイヤーBの購入でそれぞれ渡したイベントIDの2件になる", func(t *testing.T) {
 					purchaseAsBoth(t)
 
-					assert.Len(t, pg.ClaimAll(t), 2)
+					claimed := pg.ClaimAll(t)
+
+					assert.ElementsMatch(t, []uuid.UUID{eventOfA.EventID, eventOfB.EventID}, postgrestest.ClaimedEventIDs(claimed))
 				})
 			})
 
@@ -148,19 +118,14 @@ func TestCardPackPurchaseCreatePurchase(t *testing.T) {
 			})
 
 			t.Run("プレイヤーAが同じ購入トークンでカードパックXの購入を同時に2回行う", func(t *testing.T) {
-				purchaseConcurrently := func(t *testing.T) []error {
+				purchaseConcurrently := func(t *testing.T) {
 					pg.Truncate(t)
-					return postgrestest.RunConcurrently(2, func() error {
+					errs := postgrestest.RunConcurrently(2, func() error {
 						return pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne)
 					})
+					require.NoError(t, errs[0])
+					require.NoError(t, errs[1])
 				}
-
-				t.Run("2回ともエラーにならない", func(t *testing.T) {
-					errs := purchaseConcurrently(t)
-
-					assert.NoError(t, errs[0])
-					assert.NoError(t, errs[1])
-				})
 
 				t.Run("カードパックXの所有は1件になる", func(t *testing.T) {
 					purchaseConcurrently(t)
@@ -224,7 +189,7 @@ func TestCardPackPurchaseCreatePurchase(t *testing.T) {
 					assert.Equal(t, 1, pg.CountRows(t, "shop.player_owned_card_packs"))
 				})
 
-				t.Run("イベントは増えず1件のままになる", func(t *testing.T) {
+				t.Run("イベントは1件のままになる", func(t *testing.T) {
 					purchaseOwnedPackAgain(t)
 
 					assert.Len(t, pg.ClaimAll(t), 1)
@@ -249,16 +214,6 @@ func TestCardPackPurchaseHasPlayerCardPack(t *testing.T) {
 
 	t.Run("[カードパック購入]カードパックの所有判定", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("プレイヤーAがカードパックXを購入済みのとき、プレイヤーAについてカードパックXの所有ありになる", func(t *testing.T) {
-				pg.Truncate(t)
-				require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
-
-				owned, err := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackX)
-
-				require.NoError(t, err)
-				assert.True(t, owned)
-			})
-
 			t.Run("プレイヤーAについてカードパックXの所有を判定する", func(t *testing.T) {
 				cases := []struct {
 					name  string

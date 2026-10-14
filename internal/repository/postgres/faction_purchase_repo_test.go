@@ -47,44 +47,6 @@ func TestFactionPurchaseCreatePurchase(t *testing.T) {
 
 	t.Run("[陣営購入]購入の作成", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("購入を作成する", func(t *testing.T) {
-				cases := []struct {
-					name   string
-					prior  func(t *testing.T)
-					create func() error
-				}{
-					{
-						name:   "プレイヤーAが新規の購入トークンで陣営Tenkiのセットを購入するとき、エラーにならない",
-						prior:  func(t *testing.T) {},
-						create: func() error { return pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne) },
-					},
-					{
-						name: "プレイヤーAが陣営Tenkiを購入済みで、別の購入トークンで陣営Sugarのセットを購入するとき、エラーにならない",
-						prior: func(t *testing.T) {
-							require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
-						},
-						create: func() error { return pg.CreateFactionPurchase(playerA, "Sugar", cardPackSugar, tokenTwo) },
-					},
-					{
-						name: "プレイヤーAが陣営Tenkiを購入済みで、プレイヤーBが別の購入トークンで陣営Tenkiのセットを購入するとき、エラーにならない",
-						prior: func(t *testing.T) {
-							require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
-						},
-						create: func() error { return pg.CreateFactionPurchase(playerB, "Tenki", cardPackTenki, tokenTwo) },
-					},
-				}
-				for _, tc := range cases {
-					t.Run(tc.name, func(t *testing.T) {
-						pg.Truncate(t)
-						tc.prior(t)
-
-						err := tc.create()
-
-						assert.NoError(t, err)
-					})
-				}
-			})
-
 			t.Run("プレイヤーAが新規の購入トークンで陣営Tenkiのセットを購入する", func(t *testing.T) {
 				t.Run("プレイヤーAの所有陣営一覧にTenkiが含まれる", func(t *testing.T) {
 					pg.Truncate(t)
@@ -117,11 +79,14 @@ func TestFactionPurchaseCreatePurchase(t *testing.T) {
 					assert.Equal(t, playerA, got.PlayerID)
 				})
 
-				t.Run("イベントが2件保存される", func(t *testing.T) {
+				t.Run("取得したイベントは、購入時に渡した2件のイベントのイベントIDになる", func(t *testing.T) {
 					pg.Truncate(t)
-					require.NoError(t, pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne))
+					events := []port.OutboxEvent{postgrestest.NewOutboxEvent(), postgrestest.NewOutboxEvent()}
+					require.NoError(t, pg.CreateFactionPurchaseWithEvents(playerA, "Tenki", cardPackTenki, tokenOne, events))
 
-					assert.Len(t, pg.ClaimAll(t), 2)
+					claimed := pg.ClaimAll(t)
+
+					assert.ElementsMatch(t, []uuid.UUID{events[0].EventID, events[1].EventID}, postgrestest.ClaimedEventIDs(claimed))
 				})
 			})
 
@@ -184,19 +149,14 @@ func TestFactionPurchaseCreatePurchase(t *testing.T) {
 			})
 
 			t.Run("プレイヤーAが同じ購入トークンで陣営Tenkiのセットの購入を同時に2回行う", func(t *testing.T) {
-				purchaseConcurrently := func(t *testing.T) []error {
+				purchaseConcurrently := func(t *testing.T) {
 					pg.Truncate(t)
-					return postgrestest.RunConcurrently(2, func() error {
+					errs := postgrestest.RunConcurrently(2, func() error {
 						return pg.CreateFactionPurchase(playerA, "Tenki", cardPackTenki, tokenOne)
 					})
+					require.NoError(t, errs[0])
+					require.NoError(t, errs[1])
 				}
-
-				t.Run("2回ともエラーにならない", func(t *testing.T) {
-					errs := purchaseConcurrently(t)
-
-					assert.NoError(t, errs[0])
-					assert.NoError(t, errs[1])
-				})
 
 				t.Run("所有陣営は1件になる", func(t *testing.T) {
 					purchaseConcurrently(t)
@@ -232,6 +192,15 @@ func TestFactionPurchaseCreatePurchase(t *testing.T) {
 					assert.False(t, owned)
 				})
 
+				t.Run("プレイヤーAの所有陣営一覧は空のままになる", func(t *testing.T) {
+					require.Error(t, failPurchaseWithTooLongToken(t))
+
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.Empty(t, factions)
+				})
+
 				t.Run("イベントは保存されない", func(t *testing.T) {
 					require.Error(t, failPurchaseWithTooLongToken(t))
 
@@ -244,6 +213,15 @@ func TestFactionPurchaseCreatePurchase(t *testing.T) {
 					err := failPurchaseOfOwnedFaction(t)
 
 					postgrestest.RequireDuplicateKeyError(t, err, "player_owned_factions_pkey")
+				})
+
+				t.Run("失敗した購入トークンで検索しても、購入は見つからない", func(t *testing.T) {
+					require.Error(t, failPurchaseOfOwnedFaction(t))
+
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenFailed)
+
+					assert.NoError(t, err)
+					assert.Nil(t, got)
 				})
 
 				t.Run("カードパックの所有は1件のままになる", func(t *testing.T) {
@@ -276,6 +254,24 @@ func TestFactionPurchaseCreatePurchase(t *testing.T) {
 					postgrestest.RequireDuplicateKeyError(t, err, "player_owned_card_packs_pkey")
 				})
 
+				t.Run("プレイヤーAの所有陣営一覧は空のままになる", func(t *testing.T) {
+					require.Error(t, failPurchaseWithOnlyCardPackOwned(t))
+
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.Empty(t, factions)
+				})
+
+				t.Run("失敗した購入トークンで検索しても、購入は見つからない", func(t *testing.T) {
+					require.Error(t, failPurchaseWithOnlyCardPackOwned(t))
+
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenFailed)
+
+					assert.NoError(t, err)
+					assert.Nil(t, got)
+				})
+
 				t.Run("続けて、失敗した購入トークンで陣営Sugarのセットを購入すると、プレイヤーAの所有陣営一覧にSugarが含まれる", func(t *testing.T) {
 					require.Error(t, failPurchaseWithOnlyCardPackOwned(t))
 					require.NoError(t, pg.CreateFactionPurchase(playerA, "Sugar", cardPackSugar, tokenFailed))
@@ -299,48 +295,24 @@ func TestFactionPurchaseCreatePurchase(t *testing.T) {
 
 					assert.Empty(t, pg.ClaimAll(t))
 				})
-			})
 
-			t.Run("プレイヤーAの所有陣営一覧を取得する", func(t *testing.T) {
-				cases := []struct {
-					name string
-					fail func(t *testing.T) error
-				}{
-					{name: "購入トークンが257文字で購入に失敗したとき、空のままになる", fail: failPurchaseWithTooLongToken},
-					{name: "プレイヤーAが陣営Tenkiのセットのカードパックだけを所有していて、陣営Tenkiのセットの購入に失敗したとき、空のままになる", fail: failPurchaseWithOnlyCardPackOwned},
-					{name: "2件目のイベントのイベントIDが1件目と同じで購入に失敗したとき、空のままになる", fail: failPurchaseWithDuplicateEventID},
-				}
-				for _, tc := range cases {
-					t.Run(tc.name, func(t *testing.T) {
-						require.Error(t, tc.fail(t))
+				t.Run("プレイヤーAの所有陣営一覧は空のままになる", func(t *testing.T) {
+					require.Error(t, failPurchaseWithDuplicateEventID(t))
 
-						factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
+					factions, err := pg.FactionPurchaseRepository().ListOwnedFactions(ctx, playerA)
 
-						require.NoError(t, err)
-						assert.Empty(t, factions)
-					})
-				}
-			})
+					require.NoError(t, err)
+					assert.Empty(t, factions)
+				})
 
-			t.Run("失敗した購入トークンで検索する", func(t *testing.T) {
-				cases := []struct {
-					name string
-					fail func(t *testing.T) error
-				}{
-					{name: "プレイヤーAが陣営Tenkiを所有していて、別の購入トークンでの陣営Tenkiのセットの購入に失敗したとき、購入は見つからない", fail: failPurchaseOfOwnedFaction},
-					{name: "プレイヤーAが陣営Tenkiのセットのカードパックだけを所有していて、陣営Tenkiのセットの購入に失敗したとき、購入は見つからない", fail: failPurchaseWithOnlyCardPackOwned},
-					{name: "2件目のイベントのイベントIDが1件目と同じで購入に失敗したとき、購入は見つからない", fail: failPurchaseWithDuplicateEventID},
-				}
-				for _, tc := range cases {
-					t.Run(tc.name, func(t *testing.T) {
-						require.Error(t, tc.fail(t))
+				t.Run("失敗した購入トークンで検索しても、購入は見つからない", func(t *testing.T) {
+					require.Error(t, failPurchaseWithDuplicateEventID(t))
 
-						got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenFailed)
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenFailed)
 
-						assert.NoError(t, err)
-						assert.Nil(t, got)
-					})
-				}
+					assert.NoError(t, err)
+					assert.Nil(t, got)
+				})
 			})
 		})
 	})

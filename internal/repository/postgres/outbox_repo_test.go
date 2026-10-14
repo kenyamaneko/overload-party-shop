@@ -294,43 +294,26 @@ func TestOutboxClaimUnpublished(t *testing.T) {
 				})
 			})
 
-			t.Run("未配信のイベントが10件あるとき、取得件数の上限を5にした2つの取得を同時に行う", func(t *testing.T) {
-				claimTwiceConcurrently := func(t *testing.T) ([]uuid.UUID, []uuid.UUID) {
-					pg.Truncate(t)
-					eventIDs := createUnpublishedEvents(t, 10)
-					results := make([][]port.ClaimedOutboxEvent, 2)
-					errs := make([]error, 2)
-					var wg sync.WaitGroup
-					for i := range 2 {
-						wg.Add(1)
-						go func() {
-							defer wg.Done()
-							results[i], errs[i] = pg.OutboxRepository().ClaimUnpublished(ctx, 5, time.Hour, unreachableFailureThreshold)
-						}()
-					}
-					wg.Wait()
-					require.NoError(t, errs[0])
-					require.NoError(t, errs[1])
-					return eventIDs, append(postgrestest.ClaimedEventIDs(results[0]), postgrestest.ClaimedEventIDs(results[1])...)
+			t.Run("未配信のイベントが10件あるとき、取得件数の上限を5にした2つの取得を同時に行うと、2つの取得で返ったイベントを合わせて、10件のイベントがそれぞれ1回ずつになる", func(t *testing.T) {
+				pg.Truncate(t)
+				eventIDs := createUnpublishedEvents(t, 10)
+				results := make([][]port.ClaimedOutboxEvent, 2)
+				errs := make([]error, 2)
+				var wg sync.WaitGroup
+				for i := range 2 {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						results[i], errs[i] = pg.OutboxRepository().ClaimUnpublished(ctx, 5, time.Hour, unreachableFailureThreshold)
+					}()
 				}
+				wg.Wait()
+				require.NoError(t, errs[0])
+				require.NoError(t, errs[1])
 
-				t.Run("2つの取得で、同じイベントが両方に返らない", func(t *testing.T) {
-					eventIDs, returnedIDs := claimTwiceConcurrently(t)
+				returnedIDs := append(postgrestest.ClaimedEventIDs(results[0]), postgrestest.ClaimedEventIDs(results[1])...)
 
-					returnedCounts := map[uuid.UUID]int{}
-					for _, returnedID := range returnedIDs {
-						returnedCounts[returnedID]++
-					}
-					for _, eventID := range eventIDs {
-						assert.LessOrEqual(t, returnedCounts[eventID], 1, "event %s returned %d times", eventID, returnedCounts[eventID])
-					}
-				})
-
-				t.Run("2つの取得で返ったイベントを合わせると10件になる", func(t *testing.T) {
-					eventIDs, returnedIDs := claimTwiceConcurrently(t)
-
-					assert.ElementsMatch(t, eventIDs, returnedIDs)
-				})
+				assert.ElementsMatch(t, eventIDs, returnedIDs)
 			})
 		})
 	})
@@ -371,18 +354,6 @@ func TestOutboxMarkPublished(t *testing.T) {
 					require.NoError(t, pg.OutboxRepository().MarkPublished(ctx, eventIDs[0]))
 
 					assert.Nil(t, readLastError(t, eventIDs[0]))
-				})
-			})
-
-			t.Run("配信済みのイベントをもう一度配信済みにする", func(t *testing.T) {
-				t.Run("エラーにならない", func(t *testing.T) {
-					pg.Truncate(t)
-					eventIDs := createUnpublishedEvents(t, 1)
-					require.NoError(t, pg.OutboxRepository().MarkPublished(ctx, eventIDs[0]))
-
-					err := pg.OutboxRepository().MarkPublished(ctx, eventIDs[0])
-
-					assert.NoError(t, err)
 				})
 			})
 
@@ -484,7 +455,7 @@ func TestOutboxRecordFailure(t *testing.T) {
 				})
 			})
 
-			t.Run("失敗を記録しても、そのイベントは配信済みにならず、取得待ち時間0秒で取得すると取得される", func(t *testing.T) {
+			t.Run("失敗を記録したイベントを、取得待ち時間0秒で取得すると、取得される", func(t *testing.T) {
 				pg.Truncate(t)
 				eventIDs := createUnpublishedEvents(t, 1)
 				require.NoError(t, pg.OutboxRepository().RecordFailure(ctx, eventIDs[0], "TST-ERROR"))

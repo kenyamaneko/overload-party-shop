@@ -74,19 +74,11 @@ func TestSubscriptionPlatform(t *testing.T) {
 			})
 
 			t.Run("プレイヤーAがiosで、プレイヤーBがandroidで、同じ文字列の購入トークンを使ってサブスクリプションを作成する", func(t *testing.T) {
-				createBoth := func(t *testing.T) (error, error) {
+				createBoth := func(t *testing.T) {
 					pg.Truncate(t)
-					errA := pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, postgrestest.NewOutboxEvent())
-					errB := pg.CreateSubscription(postgrestest.NewSubscription(playerB), "android", tokenOne, postgrestest.NewOutboxEvent())
-					return errA, errB
+					require.NoError(t, pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, postgrestest.NewOutboxEvent()))
+					require.NoError(t, pg.CreateSubscription(postgrestest.NewSubscription(playerB), "android", tokenOne, postgrestest.NewOutboxEvent()))
 				}
-
-				t.Run("どちらの作成もエラーにならない", func(t *testing.T) {
-					errA, errB := createBoth(t)
-
-					assert.NoError(t, errA)
-					assert.NoError(t, errB)
-				})
 
 				t.Run("iosで検索すると、プレイヤーAのサブスクリプションが見つかる", func(t *testing.T) {
 					createBoth(t)
@@ -129,7 +121,7 @@ func TestSubscriptionPlatform(t *testing.T) {
 					})
 				}
 
-				t.Run("プラットフォームがwindowsで失敗したあと、続けてプラットフォームがiosで同じサブスクリプションを作成すると、購入トークンで検索してサブスクリプションが見つかる", func(t *testing.T) {
+				t.Run("プラットフォームがwindowsで失敗したあと、続けてプラットフォームがiosで同じサブスクリプションを作成すると、購入トークンで検索してプレイヤーAのサブスクリプションが見つかる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.Error(t, pg.CreateSubscription(postgrestest.NewSubscription(playerA), "windows", tokenOne, postgrestest.NewOutboxEvent()))
 					require.NoError(t, pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, postgrestest.NewOutboxEvent()))
@@ -137,7 +129,8 @@ func TestSubscriptionPlatform(t *testing.T) {
 					got, err := pg.SubscriptionRepository().FindSubscriptionByToken(ctx, "ios", tokenOne)
 
 					require.NoError(t, err)
-					assert.NotNil(t, got)
+					require.NotNil(t, got)
+					assert.Equal(t, playerA, got.PlayerID)
 				})
 			})
 
@@ -159,7 +152,7 @@ func TestSubscriptionPlatform(t *testing.T) {
 					})
 				}
 
-				t.Run("プラットフォームがwindowsで失敗したあと、続けて保存済みのサブスクリプションをiosで検索すると、サブスクリプションが見つかる", func(t *testing.T) {
+				t.Run("プラットフォームがwindowsで失敗したあと、続けてプレイヤーAの保存済みのサブスクリプションをiosで検索すると、プレイヤーAのサブスクリプションが見つかる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, postgrestest.NewOutboxEvent()))
 					_, failedErr := pg.SubscriptionRepository().FindSubscriptionByToken(ctx, "windows", tokenOne)
@@ -168,7 +161,8 @@ func TestSubscriptionPlatform(t *testing.T) {
 					got, err := pg.SubscriptionRepository().FindSubscriptionByToken(ctx, "ios", tokenOne)
 
 					require.NoError(t, err)
-					assert.NotNil(t, got)
+					require.NotNil(t, got)
+					assert.Equal(t, playerA, got.PlayerID)
 				})
 			})
 		})
@@ -181,33 +175,28 @@ func TestSubscriptionCreateSubscription(t *testing.T) {
 	t.Run("[サブスクリプション]サブスクリプションの作成", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
 			t.Run("プレイヤーAがサブスクリプションを作成する", func(t *testing.T) {
-				t.Run("作成したサブスクリプションにサブスクリプションIDが付与される", func(t *testing.T) {
+				t.Run("購入トークンで検索したサブスクリプションのサブスクリプションIDは、作成したサブスクリプションに付与されたサブスクリプションIDになる", func(t *testing.T) {
 					pg.Truncate(t)
 					subscription := postgrestest.NewSubscription(playerA)
-
 					require.NoError(t, pg.CreateSubscription(subscription, "ios", tokenOne, postgrestest.NewOutboxEvent()))
 
-					assert.NotZero(t, subscription.SubscriptionID)
+					found := pg.FindSubscription(t, "ios", tokenOne)
+
+					assert.Equal(t, subscription.SubscriptionID, found.SubscriptionID)
 				})
 
-				t.Run("イベントが1件保存される", func(t *testing.T) {
+				t.Run("取得したイベントは、作成時に渡したイベントIDの1件だけになる", func(t *testing.T) {
 					pg.Truncate(t)
-					require.NoError(t, pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, postgrestest.NewOutboxEvent()))
+					event := postgrestest.NewOutboxEvent()
+					require.NoError(t, pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, event))
 
-					assert.Len(t, pg.ClaimAll(t), 1)
+					claimed := pg.ClaimAll(t)
+
+					assert.Equal(t, []uuid.UUID{event.EventID}, postgrestest.ClaimedEventIDs(claimed))
 				})
 			})
 
 			t.Run("プレイヤーAが同じ購入トークンでサブスクリプションを2回続けて作成する", func(t *testing.T) {
-				t.Run("2回目はエラーにならない", func(t *testing.T) {
-					pg.Truncate(t)
-					require.NoError(t, pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, postgrestest.NewOutboxEvent()))
-
-					err := pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, postgrestest.NewOutboxEvent())
-
-					assert.NoError(t, err)
-				})
-
 				t.Run("サブスクリプションの保存件数は1件のままになる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, postgrestest.NewOutboxEvent()))
@@ -226,19 +215,14 @@ func TestSubscriptionCreateSubscription(t *testing.T) {
 			})
 
 			t.Run("プレイヤーAが同じ購入トークンでサブスクリプションを同時に2回作成する", func(t *testing.T) {
-				createConcurrently := func(t *testing.T) []error {
+				createConcurrently := func(t *testing.T) {
 					pg.Truncate(t)
-					return postgrestest.RunConcurrently(2, func() error {
+					errs := postgrestest.RunConcurrently(2, func() error {
 						return pg.CreateSubscription(postgrestest.NewSubscription(playerA), "ios", tokenOne, postgrestest.NewOutboxEvent())
 					})
+					require.NoError(t, errs[0])
+					require.NoError(t, errs[1])
 				}
-
-				t.Run("2回ともエラーにならない", func(t *testing.T) {
-					errs := createConcurrently(t)
-
-					assert.NoError(t, errs[0])
-					assert.NoError(t, errs[1])
-				})
 
 				t.Run("サブスクリプションの保存件数は1件になる", func(t *testing.T) {
 					createConcurrently(t)
@@ -657,7 +641,7 @@ func TestSubscriptionUpdateSubscriptionWithEvent(t *testing.T) {
 					assert.ErrorIs(t, err, port.ErrNotFound)
 				})
 
-				t.Run("イベントは増えず、プレイヤーBのサブスクリプションの作成時の1件のままになる", func(t *testing.T) {
+				t.Run("イベントは、プレイヤーBのサブスクリプションの作成時の1件のままになる", func(t *testing.T) {
 					require.Error(t, updateMissing(t))
 
 					assert.Len(t, pg.ClaimAll(t), 1)

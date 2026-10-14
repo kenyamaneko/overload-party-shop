@@ -63,19 +63,11 @@ func TestPurchaseTokenPlatform(t *testing.T) {
 			})
 
 			t.Run("プレイヤーAがiosで、プレイヤーBがandroidで、同じ文字列の購入トークンを使って購入を作成する", func(t *testing.T) {
-				createBoth := func(t *testing.T) (error, error) {
+				createBoth := func(t *testing.T) {
 					pg.Truncate(t)
-					errA := pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne)
-					errB := pg.CreateItemPurchase(playerB, "playmat", 1, "android", tokenOne)
-					return errA, errB
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+					require.NoError(t, pg.CreateItemPurchase(playerB, "playmat", 1, "android", tokenOne))
 				}
-
-				t.Run("どちらの作成もエラーにならない", func(t *testing.T) {
-					errA, errB := createBoth(t)
-
-					assert.NoError(t, errA)
-					assert.NoError(t, errB)
-				})
 
 				t.Run("iosで検索すると、プレイヤーAの購入が見つかる", func(t *testing.T) {
 					createBoth(t)
@@ -118,7 +110,7 @@ func TestPurchaseTokenPlatform(t *testing.T) {
 					})
 				}
 
-				t.Run("プラットフォームがwindowsで失敗したあと、続けてプラットフォームがiosで同じ購入を作成すると、購入トークンで検索して購入が見つかる", func(t *testing.T) {
+				t.Run("プラットフォームがwindowsで失敗したあと、続けてプラットフォームがiosで同じ購入を作成すると、購入トークンで検索してプレイヤーAの購入が見つかる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.Error(t, pg.CreateItemPurchase(playerA, "playmat", 1, "windows", tokenOne))
 					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
@@ -126,7 +118,8 @@ func TestPurchaseTokenPlatform(t *testing.T) {
 					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenOne)
 
 					require.NoError(t, err)
-					assert.NotNil(t, got)
+					require.NotNil(t, got)
+					assert.Equal(t, playerA, got.PlayerID)
 				})
 			})
 
@@ -148,7 +141,7 @@ func TestPurchaseTokenPlatform(t *testing.T) {
 					})
 				}
 
-				t.Run("プラットフォームがwindowsで失敗したあと、続けて保存済みの購入をiosで検索すると、購入が見つかる", func(t *testing.T) {
+				t.Run("プラットフォームがwindowsで失敗したあと、続けてプレイヤーAの保存済みの購入をiosで検索すると、プレイヤーAの購入が見つかる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
 					_, failedErr := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "windows", tokenOne)
@@ -157,7 +150,8 @@ func TestPurchaseTokenPlatform(t *testing.T) {
 					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenOne)
 
 					require.NoError(t, err)
-					assert.NotNil(t, got)
+					require.NotNil(t, got)
+					assert.Equal(t, playerA, got.PlayerID)
 				})
 			})
 		})
@@ -169,36 +163,18 @@ func TestPurchaseTokenDuplicateAndLength(t *testing.T) {
 
 	t.Run("[購入]購入トークンの重複判定と長さ", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("購入トークンが256文字のとき、購入を作成する", func(t *testing.T) {
-				t.Run("エラーにならない", func(t *testing.T) {
-					pg.Truncate(t)
+			t.Run("購入トークンが256文字のとき、プレイヤーAが購入を作成して購入トークンで検索すると、プレイヤーAの購入が見つかる", func(t *testing.T) {
+				pg.Truncate(t)
+				require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", postgrestest.TokenOfLength(256)))
 
-					err := pg.CreateItemPurchase(playerA, "playmat", 1, "ios", postgrestest.TokenOfLength(256))
+				got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", postgrestest.TokenOfLength(256))
 
-					assert.NoError(t, err)
-				})
-
-				t.Run("購入トークンで検索すると、購入が見つかる", func(t *testing.T) {
-					pg.Truncate(t)
-					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", postgrestest.TokenOfLength(256)))
-
-					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", postgrestest.TokenOfLength(256))
-
-					require.NoError(t, err)
-					assert.NotNil(t, got)
-				})
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				assert.Equal(t, playerA, got.PlayerID)
 			})
 
 			t.Run("プレイヤーAが同じ購入トークンで同じ購入を2回続けて作成する", func(t *testing.T) {
-				t.Run("2回目はエラーにならない", func(t *testing.T) {
-					pg.Truncate(t)
-					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
-
-					err := pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne)
-
-					assert.NoError(t, err)
-				})
-
 				t.Run("購入の保存件数は1件のままになる", func(t *testing.T) {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
@@ -209,19 +185,14 @@ func TestPurchaseTokenDuplicateAndLength(t *testing.T) {
 			})
 
 			t.Run("プレイヤーAが同じ購入トークンで同じ購入を同時に2回作成する", func(t *testing.T) {
-				createConcurrently := func(t *testing.T) []error {
+				createConcurrently := func(t *testing.T) {
 					pg.Truncate(t)
-					return postgrestest.RunConcurrently(2, func() error {
+					errs := postgrestest.RunConcurrently(2, func() error {
 						return pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne)
 					})
+					require.NoError(t, errs[0])
+					require.NoError(t, errs[1])
 				}
-
-				t.Run("2回ともエラーにならない", func(t *testing.T) {
-					errs := createConcurrently(t)
-
-					assert.NoError(t, errs[0])
-					assert.NoError(t, errs[1])
-				})
 
 				t.Run("購入の保存件数は1件になる", func(t *testing.T) {
 					createConcurrently(t)
@@ -233,17 +204,11 @@ func TestPurchaseTokenDuplicateAndLength(t *testing.T) {
 
 		t.Run("異常系", func(t *testing.T) {
 			t.Run("プレイヤーBが、プレイヤーAの保存済みの購入トークンと同じ購入トークンで購入を作成する", func(t *testing.T) {
-				createDuplicateOfPlayerA := func(t *testing.T) error {
+				createDuplicateOfPlayerA := func(t *testing.T) {
 					pg.Truncate(t)
 					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
-					return pg.CreateItemPurchase(playerB, "playmat", 1, "ios", tokenOne)
+					require.NoError(t, pg.CreateItemPurchase(playerB, "playmat", 1, "ios", tokenOne))
 				}
-
-				t.Run("エラーにならない", func(t *testing.T) {
-					err := createDuplicateOfPlayerA(t)
-
-					assert.NoError(t, err)
-				})
 
 				t.Run("購入トークンで検索すると、プレイヤーAの購入が見つかる", func(t *testing.T) {
 					createDuplicateOfPlayerA(t)
@@ -289,14 +254,6 @@ func TestPurchaseTokenDuplicateAndLength(t *testing.T) {
 					createWithTooLongToken(t)
 
 					assert.Equal(t, 0, pg.CountRows(t, "shop.one_time_purchases"))
-				})
-
-				t.Run("続けて256文字の購入トークンで同じ購入を作成すると、エラーにならない", func(t *testing.T) {
-					createWithTooLongToken(t)
-
-					err := pg.CreateItemPurchase(playerA, "playmat", 1, "ios", postgrestest.TokenOfLength(256))
-
-					assert.NoError(t, err)
 				})
 
 				t.Run("続けて256文字の購入トークンで同じ購入を作成すると、購入の保存件数は1件になる", func(t *testing.T) {
