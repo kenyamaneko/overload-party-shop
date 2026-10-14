@@ -19,7 +19,7 @@ var (
 	errRecord  = errors.New("TST-record-failed")
 )
 
-var relayConfig = outbox.Config{BatchSize: 10, FailureThreshold: 3, VisibilityTimeout: 30 * time.Second}
+var relayConfig = outbox.Config{BatchSize: 10, FailureThreshold: 3, VisibilityTimeout: time.Nanosecond}
 
 var (
 	firstEvent = port.ClaimedOutboxEvent{
@@ -39,19 +39,11 @@ type publishedEvent struct {
 	Payload   string
 }
 
-type recordedFailure struct {
-	EventID uuid.UUID
-	Message string
-}
-
 type fakeStore struct {
 	claimed             []port.ClaimedOutboxEvent
 	claimErr            error
 	markErrors          map[uuid.UUID]error
 	recordFailureErrors map[uuid.UUID]error
-
-	markedPublished []uuid.UUID
-	failures        []recordedFailure
 }
 
 func (s *fakeStore) ClaimUnpublished(_ context.Context, _ int, _ time.Duration, _ int) ([]port.ClaimedOutboxEvent, error) {
@@ -59,23 +51,21 @@ func (s *fakeStore) ClaimUnpublished(_ context.Context, _ int, _ time.Duration, 
 }
 
 func (s *fakeStore) MarkPublished(_ context.Context, eventID uuid.UUID) error {
-	s.markedPublished = append(s.markedPublished, eventID)
 	return s.markErrors[eventID]
 }
 
-func (s *fakeStore) RecordFailure(_ context.Context, eventID uuid.UUID, message string) error {
-	s.failures = append(s.failures, recordedFailure{EventID: eventID, Message: message})
+func (s *fakeStore) RecordFailure(_ context.Context, eventID uuid.UUID, _ string) error {
 	return s.recordFailureErrors[eventID]
 }
 
 type fakePublisher struct {
-	errorsByPayload map[string]error
-	published       []publishedEvent
+	errorsByEventType map[string]error
+	published         []publishedEvent
 }
 
 func (p *fakePublisher) Publish(_ context.Context, eventType string, payload []byte) error {
 	p.published = append(p.published, publishedEvent{EventType: eventType, Payload: string(payload)})
-	return p.errorsByPayload[string(payload)]
+	return p.errorsByEventType[eventType]
 }
 
 func newRelay(t *testing.T, store port.OutboxStore, publisher port.RawEventPublisher, config outbox.Config) *outbox.Relay {
@@ -85,11 +75,6 @@ func newRelay(t *testing.T, store port.OutboxStore, publisher port.RawEventPubli
 	return relay
 }
 
-func buildEventWithFailureCount(event port.ClaimedOutboxEvent, failureCount int) port.ClaimedOutboxEvent {
-	event.FailureCount = failureCount
-	return event
-}
-
-func buildPublishErrorsFor(event port.ClaimedOutboxEvent) map[string]error {
-	return map[string]error{string(event.Payload): errPublish}
+func buildPublishErrorsFor(eventType string) map[string]error {
+	return map[string]error{eventType: errPublish}
 }

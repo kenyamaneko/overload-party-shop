@@ -149,7 +149,7 @@ func (s *Service) purchaseFactionSet(ctx context.Context, playerID string, produ
 		return ErrAlreadyOwned
 	}
 
-	if err := verifyPurchase(ctx, verifier, purchaseToken); err != nil {
+	if err := verifyPurchase(ctx, verifier, product.Product.ProductID, purchaseToken); err != nil {
 		return err
 	}
 
@@ -182,7 +182,7 @@ func (s *Service) purchaseCardPack(ctx context.Context, playerID string, product
 		return ErrAlreadyOwned
 	}
 
-	if err := verifyPurchase(ctx, verifier, purchaseToken); err != nil {
+	if err := verifyPurchase(ctx, verifier, product.Product.ProductID, purchaseToken); err != nil {
 		return err
 	}
 
@@ -210,7 +210,7 @@ func (s *Service) purchaseCosmetic(ctx context.Context, playerID string, product
 		return ErrAlreadyOwned
 	}
 
-	if err := verifyPurchase(ctx, verifier, purchaseToken); err != nil {
+	if err := verifyPurchase(ctx, verifier, product.Product.ProductID, purchaseToken); err != nil {
 		return err
 	}
 
@@ -231,8 +231,8 @@ func (s *Service) purchaseCosmetic(ctx context.Context, playerID string, product
 	return nil
 }
 
-func verifyPurchase(ctx context.Context, verifier port.ReceiptVerifier, purchaseToken string) error {
-	result, err := verifier.VerifyPurchase(ctx, purchaseToken)
+func verifyPurchase(ctx context.Context, verifier port.ReceiptVerifier, productID, purchaseToken string) error {
+	result, err := verifier.VerifyPurchase(ctx, productID, purchaseToken)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrVerifyReceipt, err)
 	}

@@ -1,44 +1,14 @@
 package subscriptiontest
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/subscription"
 )
-
-// GoogleExpiryFetcher は Play Developer API が返すサブスクリプションの有効期限の偽物。
-type GoogleExpiryFetcher struct {
-	expiresAt time.Time
-	err       error
-}
-
-// NewGoogleExpiryFetcher は、有効期限の取得に失敗する状態の GoogleExpiryFetcher を返す。
-func NewGoogleExpiryFetcher() *GoogleExpiryFetcher {
-	return &GoogleExpiryFetcher{err: errors.New("有効期限が設定されていない")}
-}
-
-// ReturnExpiry は以降の取得が、有効期限 expiresAt で成功するよう設定する。
-func (f *GoogleExpiryFetcher) ReturnExpiry(expiresAt time.Time) {
-	f.expiresAt = expiresAt
-	f.err = nil
-}
-
-// FailWith は以降の取得が、エラー err で失敗するよう設定する。
-func (f *GoogleExpiryFetcher) FailWith(err error) {
-	f.err = err
-}
-
-// GetSubscriptionExpiry は設定された有効期限、または設定されたエラーを返す。
-func (f *GoogleExpiryFetcher) GetSubscriptionExpiry(_ context.Context, _ string) (time.Time, error) {
-	return f.expiresAt, f.err
-}
 
 // BuildSubscriptionNotificationMessage は、通知種別 notificationType・購入トークン purchaseToken の subscriptionNotification を持つ RTDN を返す。
 func BuildSubscriptionNotificationMessage(t *testing.T, notificationType int, purchaseToken string) subscription.GoogleRTDNMessage {

@@ -190,27 +190,27 @@ func TestAppleNotifier(t *testing.T) {
 
 					assert.WithinDuration(t, time.Date(2027, 1, 15, 8, 0, 0, 0, time.UTC), o.findContract(t).CurrentPeriodEnd, 0)
 				})
-				t.Run("アウトボックスにpremium-updatedが1件加わる", func(t *testing.T) {
+				t.Run("アウトボックスにpremium_updatedが1件加わる", func(t *testing.T) {
 					o := renewExpiredContract(t)
 
 					assert.Len(t, o.listNewPremiumEvents(t), 1)
 				})
-				t.Run("アウトボックスに加わったpremium-updatedのplayer_idが契約の持ち主になる", func(t *testing.T) {
+				t.Run("アウトボックスに加わったpremium_updatedのplayer_idが契約の持ち主になる", func(t *testing.T) {
 					o := renewExpiredContract(t)
 
 					assert.Equal(t, playerID, o.findSinglePremiumEvent(t).Payload["player_id"])
 				})
-				t.Run("アウトボックスに加わったpremium-updatedのis_premiumがtrueになる", func(t *testing.T) {
+				t.Run("アウトボックスに加わったpremium_updatedのis_premiumがtrueになる", func(t *testing.T) {
 					o := renewExpiredContract(t)
 
 					assert.Equal(t, true, o.findSinglePremiumEvent(t).Payload["is_premium"])
 				})
-				t.Run("アウトボックスに加わったpremium-updatedのpremium_expires_atが2027-01-15T08:00:00Zになる", func(t *testing.T) {
+				t.Run("アウトボックスに加わったpremium_updatedのpremium_expires_atが2027-01-15T08:00:00Zになる", func(t *testing.T) {
 					o := renewExpiredContract(t)
 
 					assert.WithinDuration(t, time.Date(2027, 1, 15, 8, 0, 0, 0, time.UTC), o.findSinglePremiumEvent(t).TimeField(t, "premium_expires_at"), 0)
 				})
-				t.Run("アウトボックスに加わったpremium-updatedの、記録のevent_idがイベントのevent_idと一致する", func(t *testing.T) {
+				t.Run("アウトボックスに加わったpremium_updatedの、記録のevent_idがイベントのevent_idと一致する", func(t *testing.T) {
 					o := renewExpiredContract(t)
 
 					event := o.findSinglePremiumEvent(t)
@@ -234,85 +234,84 @@ func TestAppleNotifier(t *testing.T) {
 					assert.Equal(t, "revoked", o.findContract(t).Status)
 				})
 				for _, notificationType := range allTypes {
-					t.Run("通知種別が"+notificationType+"のとき、アウトボックスにpremium-updatedが1件加わる", func(t *testing.T) {
+					t.Run("通知種別が"+notificationType+"のとき、アウトボックスにpremium_updatedが1件加わる", func(t *testing.T) {
 						o := receiveOnActiveContract(t, notificationType)
 
 						assert.Len(t, o.listNewPremiumEvents(t), 1)
 					})
 				}
 				for _, notificationType := range allTypes {
-					t.Run("通知種別が"+notificationType+"のとき、アウトボックスに加わったpremium-updatedのis_premiumがfalseになる", func(t *testing.T) {
+					t.Run("通知種別が"+notificationType+"のとき、アウトボックスに加わったpremium_updatedのis_premiumがfalseになる", func(t *testing.T) {
 						o := receiveOnActiveContract(t, notificationType)
 
 						assert.Equal(t, false, o.findSinglePremiumEvent(t).Payload["is_premium"])
 					})
 				}
 				for _, notificationType := range allTypes {
-					t.Run("通知種別が"+notificationType+"のとき、アウトボックスに加わったpremium-updatedにpremium_expires_atが含まれない", func(t *testing.T) {
+					t.Run("通知種別が"+notificationType+"のとき、アウトボックスに加わったpremium_updatedにpremium_expires_atが含まれない", func(t *testing.T) {
 						o := receiveOnActiveContract(t, notificationType)
 
 						assert.NotContains(t, o.findSinglePremiumEvent(t).Payload, "premium_expires_at")
 					})
 				}
 			})
-			t.Run("契約状態がactiveの契約に、通知種別DID_CHANGE_RENEWAL_STATUSでsubtypeがAUTO_RENEW_DISABLEDの通知を受け取ったとき", func(t *testing.T) {
-				t.Run("契約状態がcancelledになる", func(t *testing.T) {
-					o := receiveRenewalStatusChange(t, "AUTO_RENEW_DISABLED")
+			t.Run("契約状態がactiveの契約に、通知種別DID_CHANGE_RENEWAL_STATUSの通知を受け取ったとき", func(t *testing.T) {
+				t.Run("subtypeがAUTO_RENEW_DISABLEDのとき", func(t *testing.T) {
+					t.Run("契約状態がcancelledになる", func(t *testing.T) {
+						o := receiveRenewalStatusChange(t, "AUTO_RENEW_DISABLED")
 
-					assert.Equal(t, "cancelled", o.findContract(t).Status)
+						assert.Equal(t, "cancelled", o.findContract(t).Status)
+					})
+					t.Run("課金期間の終了日時が通知の前と同じになる", func(t *testing.T) {
+						o := receiveRenewalStatusChange(t, "AUTO_RENEW_DISABLED")
+
+						assert.WithinDuration(t, o.before.CurrentPeriodEnd, o.findContract(t).CurrentPeriodEnd, 0)
+					})
 				})
-				t.Run("課金期間の終了日時が通知の前と同じになる", func(t *testing.T) {
-					o := receiveRenewalStatusChange(t, "AUTO_RENEW_DISABLED")
+				t.Run("subtypeがAUTO_RENEW_ENABLEDのとき", func(t *testing.T) {
+					t.Run("契約状態が通知の前と同じになる", func(t *testing.T) {
+						o := receiveRenewalStatusChange(t, "AUTO_RENEW_ENABLED")
 
-					assert.WithinDuration(t, o.before.CurrentPeriodEnd, o.findContract(t).CurrentPeriodEnd, 0)
+						assert.Equal(t, o.before.Status, o.findContract(t).Status)
+					})
+					t.Run("実行はエラーを返さない", func(t *testing.T) {
+						o := newActiveAppleContract(t).receive(t, buildAppleRenewalStatusChange("AUTO_RENEW_ENABLED"))
+
+						assert.NoError(t, o.err)
+					})
+					t.Run("Warnのログが1件出力される", func(t *testing.T) {
+						logs := logtest.Capture(t)
+
+						receiveRenewalStatusChange(t, "AUTO_RENEW_ENABLED")
+
+						assert.Len(t, logs.SelectByMessageAndLevel(unhandledSubtypeMessage, slog.LevelWarn), 1)
+					})
+					t.Run("ログに通知のsubtypeが含まれる", func(t *testing.T) {
+						logs := logtest.Capture(t)
+
+						receiveRenewalStatusChange(t, "AUTO_RENEW_ENABLED")
+
+						records := logs.SelectByMessageAndLevel(unhandledSubtypeMessage, slog.LevelWarn)
+						require.Len(t, records, 1)
+						assert.Equal(t, "AUTO_RENEW_ENABLED", records[0].String("subtype"))
+					})
+					t.Run("ログに取引識別子が含まれる", func(t *testing.T) {
+						logs := logtest.Capture(t)
+
+						receiveRenewalStatusChange(t, "AUTO_RENEW_ENABLED")
+
+						records := logs.SelectByMessageAndLevel(unhandledSubtypeMessage, slog.LevelWarn)
+						require.Len(t, records, 1)
+						assert.Equal(t, appleToken, records[0].String("original_transaction_id"))
+					})
 				})
-				t.Run("アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
-					o := receiveRenewalStatusChange(t, "AUTO_RENEW_DISABLED")
+				for _, subtype := range []string{"AUTO_RENEW_DISABLED", "AUTO_RENEW_ENABLED"} {
+					t.Run("subtypeが"+subtype+"のとき、アウトボックスのpremium_updatedが通知の前から増えない", func(t *testing.T) {
+						o := receiveRenewalStatusChange(t, subtype)
 
-					assert.Empty(t, o.listNewPremiumEvents(t))
-				})
-			})
-			t.Run("契約状態がactiveの契約に、通知種別DID_CHANGE_RENEWAL_STATUSでsubtypeがAUTO_RENEW_ENABLEDの通知を受け取ったとき", func(t *testing.T) {
-				t.Run("契約状態が通知の前と同じになる", func(t *testing.T) {
-					o := receiveRenewalStatusChange(t, "AUTO_RENEW_ENABLED")
-
-					assert.Equal(t, o.before.Status, o.findContract(t).Status)
-				})
-				t.Run("アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
-					o := receiveRenewalStatusChange(t, "AUTO_RENEW_ENABLED")
-
-					assert.Empty(t, o.listNewPremiumEvents(t))
-				})
-				t.Run("実行はエラーを返さない", func(t *testing.T) {
-					o := newActiveAppleContract(t).receive(t, buildAppleRenewalStatusChange("AUTO_RENEW_ENABLED"))
-
-					assert.NoError(t, o.err)
-				})
-				t.Run("Warnのログが1件出力される", func(t *testing.T) {
-					logs := logtest.Capture(t)
-
-					receiveRenewalStatusChange(t, "AUTO_RENEW_ENABLED")
-
-					assert.Len(t, logs.SelectByMessageAndLevel(unhandledSubtypeMessage, slog.LevelWarn), 1)
-				})
-				t.Run("ログに通知のsubtypeが含まれる", func(t *testing.T) {
-					logs := logtest.Capture(t)
-
-					receiveRenewalStatusChange(t, "AUTO_RENEW_ENABLED")
-
-					records := logs.SelectByMessageAndLevel(unhandledSubtypeMessage, slog.LevelWarn)
-					require.Len(t, records, 1)
-					assert.Equal(t, "AUTO_RENEW_ENABLED", records[0].String("subtype"))
-				})
-				t.Run("ログに取引識別子が含まれる", func(t *testing.T) {
-					logs := logtest.Capture(t)
-
-					receiveRenewalStatusChange(t, "AUTO_RENEW_ENABLED")
-
-					records := logs.SelectByMessageAndLevel(unhandledSubtypeMessage, slog.LevelWarn)
-					require.Len(t, records, 1)
-					assert.Equal(t, appleToken, records[0].String("original_transaction_id"))
-				})
+						assert.Empty(t, o.listNewPremiumEvents(t))
+					})
+				}
 			})
 		})
 		t.Run("異常系", func(t *testing.T) {
@@ -325,7 +324,7 @@ func TestAppleNotifier(t *testing.T) {
 					})
 				}
 				for _, tt := range unhandledCases {
-					t.Run(tt.name+"、アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+					t.Run(tt.name+"、アウトボックスのpremium_updatedが通知の前から増えない", func(t *testing.T) {
 						run := receiveUnhandled(t, tt)
 
 						assert.Empty(t, run.outcome.listNewPremiumEvents(t))
@@ -396,7 +395,7 @@ func TestAppleNotifier(t *testing.T) {
 					assert.ErrorContains(t, o.err, "unmarshal JWS payload")
 				})
 				for _, tt := range unreadableNotifications {
-					t.Run(tt.name+"、アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+					t.Run(tt.name+"、アウトボックスのpremium_updatedが通知の前から増えない", func(t *testing.T) {
 						env := newActiveAppleContract(t)
 
 						o := env.receiveSigned(t, tt.signedResult(env.signer))
@@ -430,7 +429,7 @@ func TestAppleNotifier(t *testing.T) {
 					assert.ErrorContains(t, o.err, "unmarshal JWS payload")
 				})
 				for _, tt := range unreadableTransactionInfos {
-					t.Run(tt.name+"、アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+					t.Run(tt.name+"、アウトボックスのpremium_updatedが通知の前から増えない", func(t *testing.T) {
 						env := newActiveAppleContract(t)
 
 						o := env.receiveSigned(t, tt.signedResult(env.signer))
@@ -441,7 +440,7 @@ func TestAppleNotifier(t *testing.T) {
 			})
 			t.Run("契約状態がexpiredの契約に、通知種別DID_RENEWで通知の有効期限が読み取れない通知を受け取ったとき", func(t *testing.T) {
 				for _, tt := range unreadableExpiries {
-					t.Run(tt.name+"、取引情報の復号に失敗するエラーで失敗する", func(t *testing.T) {
+					t.Run(tt.name+"、有効期限が読み取れないことを示すエラーで失敗する", func(t *testing.T) {
 						o := newExpiredAppleContract(t).receive(t, buildAppleRenewal(tt.expiresAtMillis))
 
 						assert.ErrorIs(t, o.err, subscription.ErrDecodeTransactionInfo)
@@ -469,7 +468,7 @@ func TestAppleNotifier(t *testing.T) {
 					})
 				}
 				for _, tt := range unreadableExpiries {
-					t.Run(tt.name+"、アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+					t.Run(tt.name+"、アウトボックスのpremium_updatedが通知の前から増えない", func(t *testing.T) {
 						o := newExpiredAppleContract(t).receive(t, buildAppleRenewal(tt.expiresAtMillis))
 
 						assert.Empty(t, o.listNewPremiumEvents(t))
@@ -479,7 +478,7 @@ func TestAppleNotifier(t *testing.T) {
 			t.Run("契約状態がactiveの契約に、通知種別EXPIREDでbundleIdが設定したbundleIDと異なる通知を受け取ったとき", func(t *testing.T) {
 				otherBundleNotification := buildAppleNotification("EXPIRED")
 				otherBundleNotification.BundleID = appleOtherBundleID
-				t.Run("通知の復号に失敗するエラーで失敗する", func(t *testing.T) {
+				t.Run("通知のbundleIdが設定した値と異なることを示すエラーで失敗する", func(t *testing.T) {
 					o := newActiveAppleContract(t).receive(t, otherBundleNotification)
 
 					assert.ErrorIs(t, o.err, subscription.ErrDecodeNotification)
@@ -494,7 +493,7 @@ func TestAppleNotifier(t *testing.T) {
 
 					assert.Equal(t, o.before.Status, o.findContract(t).Status)
 				})
-				t.Run("アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+				t.Run("アウトボックスのpremium_updatedが通知の前から増えない", func(t *testing.T) {
 					o := newActiveAppleContract(t).receive(t, otherBundleNotification)
 
 					assert.Empty(t, o.listNewPremiumEvents(t))
@@ -518,13 +517,13 @@ func TestAppleNotifier(t *testing.T) {
 
 					assert.ErrorContains(t, o.err, appleToken)
 				})
-				t.Run("アウトボックスのpremium-updatedが通知の前から増えない", func(t *testing.T) {
+				t.Run("アウトボックスのpremium_updatedが通知の前から増えない", func(t *testing.T) {
 					o := receiveWithoutContract(t)
 
 					assert.Empty(t, o.listNewPremiumEvents(t))
 				})
 			})
-			t.Run("通知本体が読み取れない失敗、取引情報が読み取れない失敗、通知の有効期限が読み取れない失敗、bundleIdが一致しない失敗、契約が見つからない失敗のあとの回復", func(t *testing.T) {
+			t.Run("通知本体が読み取れない失敗のあとの回復", func(t *testing.T) {
 				t.Run("読み取れない通知で失敗したあとに、同じ契約への有効な通知を受け取ると、その通知の内容どおりに契約状態が変わる", func(t *testing.T) {
 					env := newActiveAppleContract(t)
 					failed := env.receiveSigned(t, env.signer.SignInvalid(errVerify))

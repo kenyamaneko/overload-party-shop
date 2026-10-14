@@ -87,38 +87,28 @@ func TestSubscribe(t *testing.T) {
 						assert.Equal(t, purchasetest.SubscriptionProductID, singleSubscription(t).ProductID)
 					})
 				})
-				t.Run("契約をiosのトークンで引ける", func(t *testing.T) {
-					subscribeWithValidReceipt(t, purchasetest.PlatformIOS)
-
-					assert.Len(t, purchasetest.FindSubscriptionsByToken(t, pg.Pool, purchasetest.PlatformIOS, purchasetest.PurchaseToken), 1)
-				})
-				t.Run("アウトボックスにpremium-updatedが1件記録される", func(t *testing.T) {
-					result := subscribeWithValidReceipt(t, purchasetest.PlatformIOS)
-
-					assert.Len(t, result.snapshot.NewEvents(t, purchasetest.EventTypePremiumUpdated), 1)
-				})
-				t.Run("アウトボックスに記録されたpremium-updatedのplayer_idが登録したプレイヤーになる", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたpremium_updatedのplayer_idが登録したプレイヤーになる", func(t *testing.T) {
 					result := subscribeWithValidReceipt(t, purchasetest.PlatformIOS)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypePremiumUpdated))
 
 					assert.Equal(t, purchasetest.PlayerID, event.Payload["player_id"])
 				})
-				t.Run("アウトボックスに記録されたpremium-updatedのis_premiumがtrueになる", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたpremium_updatedのis_premiumがtrueになる", func(t *testing.T) {
 					result := subscribeWithValidReceipt(t, purchasetest.PlatformIOS)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypePremiumUpdated))
 
 					assert.Equal(t, true, event.Payload["is_premium"])
 				})
-				t.Run("アウトボックスに記録されたpremium-updatedのpremium_expires_atがストア検証の有効期限になる", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたpremium_updatedのpremium_expires_atがストア検証の有効期限になる", func(t *testing.T) {
 					result := subscribeWithValidReceipt(t, purchasetest.PlatformIOS)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypePremiumUpdated))
 
 					assert.WithinDuration(t, purchasetest.StoreExpiresAt, event.TimeField(t, "premium_expires_at"), 0)
 				})
-				t.Run("アウトボックスに記録されたpremium-updatedの、記録のevent_idがイベントのevent_idと一致する", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたpremium_updatedの、記録のevent_idがイベントのevent_idと一致する", func(t *testing.T) {
 					result := subscribeWithValidReceipt(t, purchasetest.PlatformIOS)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypePremiumUpdated))
@@ -126,26 +116,33 @@ func TestSubscribe(t *testing.T) {
 					assert.Equal(t, event.EventID, event.Payload["event_id"])
 				})
 			})
-			t.Run("platformがandroidで、有効なレシートのsubscription商品を登録したとき", func(t *testing.T) {
-				t.Run("契約をandroidのトークンで引ける", func(t *testing.T) {
-					subscribeWithValidReceipt(t, purchasetest.PlatformAndroid)
+			platformRows := []struct {
+				name     string
+				platform string
+			}{
+				{"platformがiosで、有効なレシートのsubscription商品を登録したとき", purchasetest.PlatformIOS},
+				{"platformがandroidで、有効なレシートのsubscription商品を登録したとき", purchasetest.PlatformAndroid},
+			}
+			for _, tt := range platformRows {
+				t.Run(tt.name+"、登録に使ったトークンで契約を引くと、登録したプレイヤーの契約が1件返る", func(t *testing.T) {
+					subscribeWithValidReceipt(t, tt.platform)
 
-					assert.Len(t, purchasetest.FindSubscriptionsByToken(t, pg.Pool, purchasetest.PlatformAndroid, purchasetest.PurchaseToken), 1)
+					var owners []string
+					for _, subscription := range purchasetest.FindSubscriptionsByToken(t, pg.Pool, tt.platform, purchasetest.PurchaseToken) {
+						owners = append(owners, subscription.PlayerID)
+					}
+
+					assert.Equal(t, []string{purchasetest.PlayerID}, owners)
 				})
-				t.Run("アウトボックスにpremium-updatedが1件記録される", func(t *testing.T) {
-					result := subscribeWithValidReceipt(t, purchasetest.PlatformAndroid)
+			}
+			for _, tt := range platformRows {
+				t.Run(tt.name+"、アウトボックスにpremium_updatedが1件記録される", func(t *testing.T) {
+					result := subscribeWithValidReceipt(t, tt.platform)
 
 					assert.Len(t, result.snapshot.NewEvents(t, purchasetest.EventTypePremiumUpdated), 1)
 				})
-			})
+			}
 			t.Run("同じトークンで同じsubscription商品を2回続けて登録したとき", func(t *testing.T) {
-				t.Run("2回目の登録はエラーにならない", func(t *testing.T) {
-					first := subscribeWithValidReceipt(t, purchasetest.PlatformIOS)
-
-					_, err := first.env.Service.Subscribe(t.Context(), purchasetest.PlayerID, purchasetest.SubscriptionProductID, purchasetest.PlatformIOS, purchasetest.PurchaseToken)
-
-					assert.NoError(t, err)
-				})
 				t.Run("2回目の登録の結果の有効期限が、1回目の登録の結果の有効期限と同じになる", func(t *testing.T) {
 					first := subscribeWithValidReceipt(t, purchasetest.PlatformIOS)
 
@@ -161,7 +158,7 @@ func TestSubscribe(t *testing.T) {
 
 					assert.Len(t, purchasetest.ListSubscriptions(t, pg.Pool, purchasetest.PlayerID), 1)
 				})
-				t.Run("アウトボックスにpremium-updatedが1件だけ記録される", func(t *testing.T) {
+				t.Run("アウトボックスにpremium_updatedが1件だけ記録される", func(t *testing.T) {
 					first := subscribeWithValidReceipt(t, purchasetest.PlatformIOS)
 					_, err := first.env.Service.Subscribe(t.Context(), purchasetest.PlayerID, purchasetest.SubscriptionProductID, purchasetest.PlatformIOS, purchasetest.PurchaseToken)
 					require.NoError(t, err)
@@ -229,7 +226,7 @@ func TestSubscribe(t *testing.T) {
 					})
 				}
 				for _, tt := range failedSubscriptions {
-					t.Run(tt.Name+"、アウトボックスのpremium-updatedが登録の前から増えない", func(t *testing.T) {
+					t.Run(tt.Name+"、アウトボックスのpremium_updatedが登録の前から増えない", func(t *testing.T) {
 						e := purchasetest.NewPurchaseEnv(t, pg)
 						tt.ArrangeReceipt(e.Apple)
 						snapshot := purchasetest.TakeOutboxSnapshot(t, pg.Pool)

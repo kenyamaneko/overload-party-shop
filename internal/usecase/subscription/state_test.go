@@ -20,7 +20,7 @@ func buildSubscription(status string, periodEnd time.Time) *domain.Subscription 
 func TestIsEntitled(t *testing.T) {
 	t.Run("[プレミアム特典]特典有効判定", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("サブスクリプションが無いとき、特典は無効になる", func(t *testing.T) {
+			t.Run("契約が無いとき、特典は無効になる", func(t *testing.T) {
 				isEntitled, err := subscription.IsEntitled(nil, judgedAt)
 
 				require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestIsEntitled(t *testing.T) {
 			})
 		})
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("契約状態が定義された五つ以外の値のとき、その値を含むエラーが返る", func(t *testing.T) {
+			t.Run("契約状態が定義された五つ以外の値のとき、未知の契約状態を示すエラーで失敗する", func(t *testing.T) {
 				_, err := subscription.IsEntitled(buildSubscription("TST-UNDEFINED-STATUS", judgedAt.Add(time.Hour)), judgedAt)
 
 				assert.ErrorContains(t, err, "TST-UNDEFINED-STATUS")

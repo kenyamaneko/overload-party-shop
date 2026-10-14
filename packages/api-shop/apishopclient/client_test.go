@@ -63,13 +63,13 @@ func TestStatusCodeToError(t *testing.T) {
 					status int
 					want   error
 				}{
-					{name: "400を受けたとき、ErrBadRequestになる", status: 400, want: apishopclient.ErrBadRequest},
-					{name: "401を受けたとき、ErrUnauthorizedになる", status: 401, want: apishopclient.ErrUnauthorized},
-					{name: "402を受けたとき、ErrPaymentRequiredになる", status: 402, want: apishopclient.ErrPaymentRequired},
-					{name: "404を受けたとき、ErrNotFoundになる", status: 404, want: apishopclient.ErrNotFound},
-					{name: "409を受けたとき、ErrConflictになる", status: 409, want: apishopclient.ErrConflict},
-					{name: "500を受けたとき、ErrInternalServerになる", status: 500, want: apishopclient.ErrInternalServer},
-					{name: "503を受けたとき、ErrInternalServerになる", status: 503, want: apishopclient.ErrInternalServer},
+					{name: "400を受けたとき、不正なリクエストを示すエラーになる", status: 400, want: apishopclient.ErrBadRequest},
+					{name: "401を受けたとき、認証の失敗を示すエラーになる", status: 401, want: apishopclient.ErrUnauthorized},
+					{name: "402を受けたとき、購入の検証の失敗を示すエラーになる", status: 402, want: apishopclient.ErrPaymentRequired},
+					{name: "404を受けたとき、商品が見つからないことを示すエラーになる", status: 404, want: apishopclient.ErrNotFound},
+					{name: "409を受けたとき、商品を既に所有していることを示すエラーになる", status: 409, want: apishopclient.ErrConflict},
+					{name: "500を受けたとき、サーバー内部の障害を示すエラーになる", status: 500, want: apishopclient.ErrInternalServer},
+					{name: "503を受けたとき、サーバー内部の障害を示すエラーになる", status: 503, want: apishopclient.ErrInternalServer},
 				}
 				for _, tc := range cases {
 					t.Run(tc.name, func(t *testing.T) {
@@ -85,13 +85,20 @@ func TestStatusCodeToError(t *testing.T) {
 			})
 
 			t.Run("商品購入が定義済みでないステータスを受けたとき", func(t *testing.T) {
-				cases := []struct {
+				detailCases := []struct {
 					name       string
 					status     int
 					wantDetail string
 				}{
-					{name: "499を受けたとき、想定外ステータスのエラーになる", status: 499, wantDetail: "unexpected status 499"},
-					{name: "403を受けたとき、想定外ステータスのエラーになる", status: 403, wantDetail: "unexpected status 403"},
+					{name: "499を受けたとき、エラーの内容にステータスコード499が含まれる", status: 499, wantDetail: "unexpected status 499"},
+					{name: "403を受けたとき、エラーの内容にステータスコード403が含まれる", status: 403, wantDetail: "unexpected status 403"},
+				}
+				unmatchedCases := []struct {
+					name   string
+					status int
+				}{
+					{name: "499を受けたとき、エラーは400・401・402・404・409・500・503を受けたときに返るどのエラーにも一致しない", status: 499},
+					{name: "403を受けたとき、エラーは400・401・402・404・409・500・503を受けたときに返るどのエラーにも一致しない", status: 403},
 				}
 				definedErrors := []error{
 					apishopclient.ErrBadRequest,
@@ -101,7 +108,7 @@ func TestStatusCodeToError(t *testing.T) {
 					apishopclient.ErrConflict,
 					apishopclient.ErrInternalServer,
 				}
-				for _, tc := range cases {
+				for _, tc := range detailCases {
 					t.Run(tc.name, func(t *testing.T) {
 						server := newFakeServer(t)
 						server.PurchaseFn = respondWithStatusOnly(tc.status)
@@ -110,6 +117,16 @@ func TestStatusCodeToError(t *testing.T) {
 						_, err := client.PurchaseProduct(context.Background(), newPurchaseRequest("ios"))
 
 						assert.ErrorContains(t, err, tc.wantDetail)
+					})
+				}
+				for _, tc := range unmatchedCases {
+					t.Run(tc.name, func(t *testing.T) {
+						server := newFakeServer(t)
+						server.PurchaseFn = respondWithStatusOnly(tc.status)
+						client := newClient(t, server.URL())
+
+						_, err := client.PurchaseProduct(context.Background(), newPurchaseRequest("ios"))
+
 						for _, defined := range definedErrors {
 							assert.NotErrorIs(t, err, defined)
 						}
@@ -144,7 +161,7 @@ func TestListPlayerProducts(t *testing.T) {
 		})
 
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("401を受けたとき、ErrUnauthorizedになる", func(t *testing.T) {
+			t.Run("401を受けたとき、認証の失敗を示すエラーになる", func(t *testing.T) {
 				server := newFakeServer(t)
 				server.GetProductsFn = func() (int, any) {
 					return http.StatusUnauthorized, nil
@@ -162,7 +179,7 @@ func TestListPlayerProducts(t *testing.T) {
 func TestPurchaseProduct(t *testing.T) {
 	t.Run("[商品APIクライアント]商品の購入", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("サーバーが200でmessageとproduct_idのTST-0001を返したとき、返された購入結果のproduct_idはTST-0001になる", func(t *testing.T) {
+			t.Run("サーバーが200でproduct_idのTST-0001を返したとき、返された購入結果のproduct_idはTST-0001になる", func(t *testing.T) {
 				server := newFakeServer(t)
 				server.PurchaseFn = func(apishop.PurchaseRequest) (int, any) {
 					return http.StatusOK, apishop.PurchaseResponse{Message: "TST-MESSAGE-0001", ProductID: "TST-0001"}
@@ -181,7 +198,7 @@ func TestPurchaseProduct(t *testing.T) {
 func TestSubscribeProduct(t *testing.T) {
 	t.Run("[商品APIクライアント]サブスクリプションの購入", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("サーバーが200でmessageとexpires_atの2026-05-01T12:00:00Zを返したとき、返された結果のexpires_atは2026-05-01T12:00:00Zになる", func(t *testing.T) {
+			t.Run("サーバーが200でexpires_atの2026-05-01T12:00:00Zを返したとき、返された結果のexpires_atは2026-05-01T12:00:00Zになる", func(t *testing.T) {
 				server := newFakeServer(t)
 				server.SubscribeFn = func(apishop.PurchaseRequest) (int, any) {
 					return http.StatusOK, apishop.SubscribeResponse{
@@ -199,7 +216,7 @@ func TestSubscribeProduct(t *testing.T) {
 		})
 
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("402を受けたとき、ErrPaymentRequiredになる", func(t *testing.T) {
+			t.Run("402を受けたとき、購入の検証の失敗を示すエラーになる", func(t *testing.T) {
 				server := newFakeServer(t)
 				server.SubscribeFn = respondWithStatusOnly(http.StatusPaymentRequired)
 				client := newClient(t, server.URL())
@@ -227,7 +244,7 @@ func TestGetHealth(t *testing.T) {
 		})
 
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("500を受けたとき、ErrInternalServerになる", func(t *testing.T) {
+			t.Run("500を受けたとき、サーバー内部の障害を示すエラーになる", func(t *testing.T) {
 				baseURL := newStubServer(t, http.StatusInternalServerError, "")
 				client := newClient(t, baseURL)
 
@@ -264,7 +281,7 @@ func TestForwardStoreNotification(t *testing.T) {
 		})
 
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("Appleの通知にサーバーが500を返したとき、ErrInternalServerになる", func(t *testing.T) {
+			t.Run("Appleの通知にサーバーが500を返したとき、サーバー内部の障害を示すエラーになる", func(t *testing.T) {
 				baseURL := newStubServer(t, http.StatusInternalServerError, "")
 				client := newClient(t, baseURL)
 
@@ -273,7 +290,7 @@ func TestForwardStoreNotification(t *testing.T) {
 				assert.ErrorIs(t, err, apishopclient.ErrInternalServer)
 			})
 
-			t.Run("Googleの通知にサーバーが500を返したとき、ErrInternalServerになる", func(t *testing.T) {
+			t.Run("Googleの通知にサーバーが500を返したとき、サーバー内部の障害を示すエラーになる", func(t *testing.T) {
 				baseURL := newStubServer(t, http.StatusInternalServerError, "")
 				client := newClient(t, baseURL)
 

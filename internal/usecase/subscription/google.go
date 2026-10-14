@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/domain"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
@@ -31,24 +33,25 @@ const (
 	googleSubscriptionRecovered = 1
 	googleSubscriptionRenewed   = 2
 	googleSubscriptionCanceled  = 3
+	googleSubscriptionPurchased = 4
 	googleSubscriptionRevoked   = 12
 	googleSubscriptionExpired   = 13
 )
 
 // GoogleNotifier は Google Play RTDN webhook を処理する。
-// RTDN payload には expiry が含まれないため expiryFetcher (Play Developer API) で取得する。
 type GoogleNotifier struct {
 	subscriptionRepo port.SubscriptionRepo
-	expiryFetcher    port.GoogleSubVerifier
+	subVerifier      port.GoogleSubVerifier
 }
 
+// NewGoogleNotifier は GoogleNotifier を構築する。
 func NewGoogleNotifier(
 	subscriptionRepo port.SubscriptionRepo,
-	expiryFetcher port.GoogleSubVerifier,
+	subVerifier port.GoogleSubVerifier,
 ) *GoogleNotifier {
 	return &GoogleNotifier{
 		subscriptionRepo: subscriptionRepo,
-		expiryFetcher:    expiryFetcher,
+		subVerifier:      subVerifier,
 	}
 }
 
@@ -79,43 +82,77 @@ func (n *GoogleNotifier) HandleNotification(ctx context.Context, msg GoogleRTDNM
 	}
 
 	switch notif.NotificationType {
-	case googleSubscriptionRenewed, googleSubscriptionRecovered:
-		if n.expiryFetcher == nil {
-			return fmt.Errorf("google subscription verifier not configured")
-		}
-		newExpiry, err := n.expiryFetcher.GetSubscriptionExpiry(ctx, notif.PurchaseToken)
-		if err != nil {
-			return fmt.Errorf("get subscription expiry from Google: %w", err)
-		}
-		subscription.Status = domain.SubscriptionStatusActive
-		subscription.CurrentPeriodEnd = newExpiry
-		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, true, &newExpiry); err != nil {
-			return err
-		}
-
-	case googleSubscriptionExpired:
-		subscription.Status = domain.SubscriptionStatusExpired
-		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
-			return err
-		}
-
-	case googleSubscriptionRevoked:
-		subscription.Status = domain.SubscriptionStatusRevoked
-		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
-			return err
-		}
-
-	case googleSubscriptionCanceled:
-		subscription.Status = domain.SubscriptionStatusCancelled
-		// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
-		if err := writeNoEvent(ctx, n.subscriptionRepo, subscription); err != nil {
-			return err
-		}
-
+	case googleSubscriptionRecovered,
+		googleSubscriptionRenewed,
+		googleSubscriptionCanceled,
+		googleSubscriptionPurchased,
+		googleSubscriptionRevoked,
+		googleSubscriptionExpired:
+		return n.updateSubscriptionFromGoogle(ctx, subscription, notif.NotificationType, notif.PurchaseToken)
 	default:
 		slog.Warn("google RTDN unhandled notification type",
 			"notification_type", notif.NotificationType, "purchase_token", notif.PurchaseToken)
+		return nil
+	}
+}
+
+// updateSubscriptionFromGoogle は Google Play が返す購読情報に合わせて契約の状態と有効期限を更新する。
+func (n *GoogleNotifier) updateSubscriptionFromGoogle(ctx context.Context, subscription *domain.Subscription, notificationType int, purchaseToken string) error {
+	// 契約状態は通知種別ではなく Google が返す購読の状態から決めるため、どの通知種別でも購読情報を問い合わせる。
+	googleSubscription, err := n.subVerifier.GetSubscription(ctx, purchaseToken)
+	if err != nil {
+		return fmt.Errorf("get subscription expiry from Google: %w", err)
+	}
+	if googleSubscription.ProductID != subscription.ProductID {
+		return fmt.Errorf("google subscription product mismatch: subscription=%q google=%q",
+			subscription.ProductID, googleSubscription.ProductID)
 	}
 
-	return nil
+	transition, err := resolveGoogleTransition(googleSubscription.State, notificationType)
+	if err != nil {
+		return err
+	}
+	if googleSubscription.ExpiresAt == nil {
+		return errors.New("google subscription expiry is missing")
+	}
+
+	subscription.Status = transition.status
+	subscription.CurrentPeriodEnd = *googleSubscription.ExpiresAt
+	if !transition.shouldSendEvent {
+		return writeNoEvent(ctx, n.subscriptionRepo, subscription)
+	}
+	var premiumExpiresAt *time.Time
+	if transition.isPremium {
+		premiumExpiresAt = googleSubscription.ExpiresAt
+	}
+	return writeWithEvent(ctx, n.subscriptionRepo, subscription, transition.isPremium, premiumExpiresAt)
+}
+
+type googleTransition struct {
+	status          string
+	shouldSendEvent bool
+	isPremium       bool
+}
+
+// resolveGoogleTransition は Google が返す購読の状態に対応する契約状態とプレミアム更新イベントの扱いを返す。
+func resolveGoogleTransition(state port.GoogleSubscriptionState, notificationType int) (googleTransition, error) {
+	switch state {
+	case port.GoogleSubscriptionStateActive:
+		return googleTransition{status: domain.SubscriptionStatusActive, shouldSendEvent: true, isPremium: true}, nil
+	case port.GoogleSubscriptionStateCanceled:
+		// 解約後も有効期限まで特典が有効なため、プレミアム更新イベントを送らない。
+		return googleTransition{status: domain.SubscriptionStatusCancelled}, nil
+	case port.GoogleSubscriptionStateInGracePeriod:
+		return googleTransition{status: domain.SubscriptionStatusGracePeriod, shouldSendEvent: true, isPremium: true}, nil
+	case port.GoogleSubscriptionStateOnHold, port.GoogleSubscriptionStatePaused:
+		return googleTransition{status: domain.SubscriptionStatusExpired, shouldSendEvent: true}, nil
+	case port.GoogleSubscriptionStateExpired:
+		// 購読の状態だけでは期限切れと取り消しを区別できないため、通知種別が REVOKED のときは revoked にする。
+		if notificationType == googleSubscriptionRevoked {
+			return googleTransition{status: domain.SubscriptionStatusRevoked, shouldSendEvent: true}, nil
+		}
+		return googleTransition{status: domain.SubscriptionStatusExpired, shouldSendEvent: true}, nil
+	default:
+		return googleTransition{}, fmt.Errorf("google subscription state %q is not supported", state)
+	}
 }

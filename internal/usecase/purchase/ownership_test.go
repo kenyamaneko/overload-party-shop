@@ -131,7 +131,7 @@ func TestGetProductsOwnership(t *testing.T) {
 					name    string
 					arrange func(*testing.T, purchasetest.Env)
 				}{
-					{"サブスクリプションが無いプレイヤーでは、subscription商品のis_ownedがfalseになる", func(*testing.T, purchasetest.Env) {}},
+					{"契約が無いプレイヤーでは、subscription商品のis_ownedがfalseになる", func(*testing.T, purchasetest.Env) {}},
 					{"特典が無効な契約(期限が過去の契約)があるプレイヤーでは、subscription商品のis_ownedがfalseになる", func(t *testing.T, e purchasetest.Env) {
 						subscribeWithExpiry(t, e, pastExpiresAt)
 					}},

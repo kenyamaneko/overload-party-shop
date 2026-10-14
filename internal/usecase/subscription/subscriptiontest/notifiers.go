@@ -13,7 +13,7 @@ func NewAppleNotifier(pool *pgxpool.Pool, verifier port.AppleJWSVerifier, bundle
 	return subscription.NewAppleNotifier(postgres.NewSubscriptionRepository(pool), verifier, bundleID)
 }
 
-// NewGoogleNotifier は実 PostgreSQL のリポジトリに結線した Google 通知の処理を、有効期限の取得の偽物を指定して返す。
-func NewGoogleNotifier(pool *pgxpool.Pool, expiryFetcher port.GoogleSubVerifier) *subscription.GoogleNotifier {
-	return subscription.NewGoogleNotifier(postgres.NewSubscriptionRepository(pool), expiryFetcher)
+// NewGoogleNotifier は実 PostgreSQL のリポジトリに結線した GooglePlay 通知の処理を、購読情報の取得の偽物を指定して返す。
+func NewGoogleNotifier(pool *pgxpool.Pool, subVerifier port.GoogleSubVerifier) *subscription.GoogleNotifier {
+	return subscription.NewGoogleNotifier(postgres.NewSubscriptionRepository(pool), subVerifier)
 }

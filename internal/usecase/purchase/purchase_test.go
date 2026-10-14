@@ -84,62 +84,52 @@ func TestPurchase(t *testing.T) {
 						assert.WithinRange(t, records[0].PurchasedAt, result.startedAt, result.finishedAt)
 					})
 				})
-				t.Run("商品一覧で、その商品のis_ownedがtrueになる", func(t *testing.T) {
-					result := purchaseValidProduct(t, purchasetest.FactionSetProductID)
-
-					assert.True(t, purchasetest.IsOwned(t, result.env.Service, purchasetest.PlayerID, purchasetest.FactionSetProductID))
-				})
 				t.Run("所有陣営に、商品の陣営が加わる", func(t *testing.T) {
 					purchaseValidProduct(t, purchasetest.FactionSetProductID)
 
 					assert.Contains(t, purchasetest.ListOwnedFactions(t, pg.Pool, purchasetest.PlayerID), purchasetest.FactionSetFaction)
 				})
-				t.Run("アウトボックスにcard-pack-purchasedが1件記録される", func(t *testing.T) {
-					result := purchaseValidProduct(t, purchasetest.FactionSetProductID)
-
-					assert.Len(t, result.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased), 1)
-				})
-				t.Run("アウトボックスに記録されたcard-pack-purchasedのplayer_idが購入したプレイヤーになる", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたcard_pack_purchasedのplayer_idが購入したプレイヤーになる", func(t *testing.T) {
 					result := purchaseValidProduct(t, purchasetest.FactionSetProductID)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased))
 
 					assert.Equal(t, purchasetest.PlayerID, event.Payload["player_id"])
 				})
-				t.Run("アウトボックスに記録されたcard-pack-purchasedのcard_pack_idが商品に紐づくカードパックになる", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたcard_pack_purchasedのcard_pack_idが商品に紐づくカードパックになる", func(t *testing.T) {
 					result := purchaseValidProduct(t, purchasetest.FactionSetProductID)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased))
 
 					assert.Equal(t, purchasetest.FactionSetCardPackID, event.Payload["card_pack_id"])
 				})
-				t.Run("アウトボックスに記録されたcard-pack-purchasedの、記録のevent_idがイベントのevent_idと一致する", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたcard_pack_purchasedの、記録のevent_idがイベントのevent_idと一致する", func(t *testing.T) {
 					result := purchaseValidProduct(t, purchasetest.FactionSetProductID)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased))
 
 					assert.Equal(t, event.EventID, event.Payload["event_id"])
 				})
-				t.Run("アウトボックスにfaction-acquiredが1件記録される", func(t *testing.T) {
+				t.Run("アウトボックスにfaction_acquiredが1件記録される", func(t *testing.T) {
 					result := purchaseValidProduct(t, purchasetest.FactionSetProductID)
 
 					assert.Len(t, result.snapshot.NewEvents(t, purchasetest.EventTypeFactionAcquired), 1)
 				})
-				t.Run("アウトボックスに記録されたfaction-acquiredのplayer_idが購入したプレイヤーになる", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたfaction_acquiredのplayer_idが購入したプレイヤーになる", func(t *testing.T) {
 					result := purchaseValidProduct(t, purchasetest.FactionSetProductID)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypeFactionAcquired))
 
 					assert.Equal(t, purchasetest.PlayerID, event.Payload["player_id"])
 				})
-				t.Run("アウトボックスに記録されたfaction-acquiredのfactionが商品の陣営になる", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたfaction_acquiredのfactionが商品の陣営になる", func(t *testing.T) {
 					result := purchaseValidProduct(t, purchasetest.FactionSetProductID)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypeFactionAcquired))
 
 					assert.Equal(t, purchasetest.FactionSetFaction, event.Payload["faction"])
 				})
-				t.Run("アウトボックスに記録されたfaction-acquiredの、記録のevent_idがイベントのevent_idと一致する", func(t *testing.T) {
+				t.Run("アウトボックスに記録されたfaction_acquiredの、記録のevent_idがイベントのevent_idと一致する", func(t *testing.T) {
 					result := purchaseValidProduct(t, purchasetest.FactionSetProductID)
 
 					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypeFactionAcquired))
@@ -147,47 +137,61 @@ func TestPurchase(t *testing.T) {
 					assert.Equal(t, event.EventID, event.Payload["event_id"])
 				})
 			})
-			t.Run("有効なレシートのcard_pack商品を購入したとき", func(t *testing.T) {
-				t.Run("商品一覧で、その商品のis_ownedがtrueになる", func(t *testing.T) {
-					result := purchaseValidProduct(t, purchasetest.CardPackProductID)
+			ownedRows := []struct {
+				name      string
+				productID string
+			}{
+				{"有効なレシートのfaction_set商品を購入したとき", purchasetest.FactionSetProductID},
+				{"有効なレシートのcard_pack商品を購入したとき", purchasetest.CardPackProductID},
+				{"有効なレシートのcosmetic商品を購入したとき", purchasetest.CosmeticProductID},
+			}
+			for _, tt := range ownedRows {
+				t.Run(tt.name+"、商品一覧で、その商品のis_ownedがtrueになる", func(t *testing.T) {
+					result := purchaseValidProduct(t, tt.productID)
 
-					assert.True(t, purchasetest.IsOwned(t, result.env.Service, purchasetest.PlayerID, purchasetest.CardPackProductID))
+					assert.True(t, purchasetest.IsOwned(t, result.env.Service, purchasetest.PlayerID, tt.productID))
 				})
-				t.Run("アウトボックスにcard-pack-purchasedが1件記録される", func(t *testing.T) {
-					result := purchaseValidProduct(t, purchasetest.CardPackProductID)
+			}
+			cardPackPurchasedRows := []struct {
+				name      string
+				productID string
+			}{
+				{"有効なレシートのfaction_set商品を購入したとき", purchasetest.FactionSetProductID},
+				{"有効なレシートのcard_pack商品を購入したとき", purchasetest.CardPackProductID},
+			}
+			for _, tt := range cardPackPurchasedRows {
+				t.Run(tt.name+"、アウトボックスにcard_pack_purchasedが1件記録される", func(t *testing.T) {
+					result := purchaseValidProduct(t, tt.productID)
 
 					assert.Len(t, result.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased), 1)
 				})
-				t.Run("アウトボックスに記録されたcard-pack-purchasedのcard_pack_idが商品のカードパックになる", func(t *testing.T) {
-					result := purchaseValidProduct(t, purchasetest.CardPackProductID)
+			}
+			t.Run("有効なレシートのcard_pack商品を購入したとき、アウトボックスに記録されたcard_pack_purchasedのcard_pack_idが商品のカードパックになる", func(t *testing.T) {
+				result := purchaseValidProduct(t, purchasetest.CardPackProductID)
 
-					event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased))
+				event := purchasetest.SingleEvent(t, result.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased))
 
-					assert.Equal(t, purchasetest.CardPackID, event.Payload["card_pack_id"])
-				})
-				t.Run("アウトボックスのfaction-acquiredが0件になる", func(t *testing.T) {
-					result := purchaseValidProduct(t, purchasetest.CardPackProductID)
+				assert.Equal(t, purchasetest.CardPackID, event.Payload["card_pack_id"])
+			})
+			t.Run("有効なレシートのcosmetic商品を購入したとき、アウトボックスのcard_pack_purchasedが0件になる", func(t *testing.T) {
+				result := purchaseValidProduct(t, purchasetest.CosmeticProductID)
+
+				assert.Empty(t, result.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased))
+			})
+			noFactionAcquiredRows := []struct {
+				name      string
+				productID string
+			}{
+				{"有効なレシートのcard_pack商品を購入したとき", purchasetest.CardPackProductID},
+				{"有効なレシートのcosmetic商品を購入したとき", purchasetest.CosmeticProductID},
+			}
+			for _, tt := range noFactionAcquiredRows {
+				t.Run(tt.name+"、アウトボックスのfaction_acquiredが0件になる", func(t *testing.T) {
+					result := purchaseValidProduct(t, tt.productID)
 
 					assert.Empty(t, result.snapshot.NewEvents(t, purchasetest.EventTypeFactionAcquired))
 				})
-			})
-			t.Run("有効なレシートのcosmetic商品を購入したとき", func(t *testing.T) {
-				t.Run("商品一覧で、その商品のis_ownedがtrueになる", func(t *testing.T) {
-					result := purchaseValidProduct(t, purchasetest.CosmeticProductID)
-
-					assert.True(t, purchasetest.IsOwned(t, result.env.Service, purchasetest.PlayerID, purchasetest.CosmeticProductID))
-				})
-				t.Run("アウトボックスのcard-pack-purchasedが0件になる", func(t *testing.T) {
-					result := purchaseValidProduct(t, purchasetest.CosmeticProductID)
-
-					assert.Empty(t, result.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased))
-				})
-				t.Run("アウトボックスのfaction-acquiredが0件になる", func(t *testing.T) {
-					result := purchaseValidProduct(t, purchasetest.CosmeticProductID)
-
-					assert.Empty(t, result.snapshot.NewEvents(t, purchasetest.EventTypeFactionAcquired))
-				})
-			})
+			}
 			t.Run("同じ購入トークンで同じfaction_set商品を2回続けて購入したとき", func(t *testing.T) {
 				t.Run("2回目の購入はエラーにならない", func(t *testing.T) {
 					_, secondErr := purchaseTwiceWithSameToken(t, purchasetest.FactionSetProductID)
@@ -200,13 +204,13 @@ func TestPurchase(t *testing.T) {
 
 					assert.Equal(t, 1, pg.CountRows(t, "shop.one_time_purchases"))
 				})
-				t.Run("アウトボックスにcard-pack-purchasedが1件だけ記録される", func(t *testing.T) {
+				t.Run("アウトボックスにcard_pack_purchasedが1件だけ記録される", func(t *testing.T) {
 					first, secondErr := purchaseTwiceWithSameToken(t, purchasetest.FactionSetProductID)
 					require.NoError(t, secondErr)
 
 					assert.Len(t, first.snapshot.NewEvents(t, purchasetest.EventTypeCardPackPurchased), 1)
 				})
-				t.Run("アウトボックスにfaction-acquiredが1件だけ記録される", func(t *testing.T) {
+				t.Run("アウトボックスにfaction_acquiredが1件だけ記録される", func(t *testing.T) {
 					first, secondErr := purchaseTwiceWithSameToken(t, purchasetest.FactionSetProductID)
 					require.NoError(t, secondErr)
 
@@ -230,7 +234,7 @@ func TestPurchase(t *testing.T) {
 
 					assert.False(t, purchasetest.IsOwned(t, first.env.Service, purchasetest.PlayerID, purchasetest.OtherCardPackProductID))
 				})
-				t.Run("アウトボックスのcard-pack-purchasedが、最初の購入の1件のままになる", func(t *testing.T) {
+				t.Run("アウトボックスのcard_pack_purchasedが、最初の購入の1件のままになる", func(t *testing.T) {
 					first := purchaseValidProduct(t, purchasetest.CardPackProductID)
 					err := first.env.Service.Purchase(t.Context(), purchasetest.PlayerID, purchasetest.OtherCardPackProductID, purchasetest.PlatformIOS, purchasetest.PurchaseToken)
 					require.NoError(t, err)

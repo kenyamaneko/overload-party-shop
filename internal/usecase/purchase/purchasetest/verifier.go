@@ -28,7 +28,7 @@ func NewStoreVerifier() *StoreVerifier {
 		MockReceiptVerifier: &porttest.MockReceiptVerifier{},
 		receipts:            map[string]receipt{},
 	}
-	verifier.VerifyPurchaseFn = func(_ context.Context, purchaseToken string) (*port.VerifyResult, error) {
+	verifier.VerifyPurchaseFn = func(_ context.Context, _, purchaseToken string) (*port.VerifyResult, error) {
 		found, err := verifier.lookup(purchaseToken)
 		if err != nil {
 			return nil, err
