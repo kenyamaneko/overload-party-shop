@@ -18,7 +18,7 @@ func NewVerifier() *Verifier {
 var _ port.ReceiptVerifier = (*Verifier)(nil)
 
 // VerifyPurchase はレシートを検証せず常に有効として返す。
-func (v *Verifier) VerifyPurchase(_ context.Context, _ string) (*port.VerifyResult, error) {
+func (v *Verifier) VerifyPurchase(_ context.Context, _, _ string) (*port.VerifyResult, error) {
 	return &port.VerifyResult{IsValid: true}, nil
 }
 

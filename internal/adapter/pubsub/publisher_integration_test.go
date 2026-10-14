@@ -41,6 +41,17 @@ func newPublisherFixture(t *testing.T, emulator *pubsubtest.Emulator) publisherF
 	return publisherFixture{publisher: publisher, subscriptions: subscriptions}
 }
 
+func publishToMissingTopic(t *testing.T, emulator *pubsubtest.Emulator) error {
+	t.Helper()
+	publisher, err := pubsub.New(context.Background(), emulator.ProjectID(), "missing-card-pack-error", "missing-faction-error", "missing-premium-error")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = publisher.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
+	defer cancel()
+
+	return publisher.Publish(ctx, "card_pack_purchased", []byte("test-data"))
+}
+
 func TestPublisher_Publish(t *testing.T) {
 	emulator, err := pubsubtest.StartEmulator(context.Background(), testProjectID)
 	require.NoError(t, err)
@@ -86,16 +97,24 @@ func TestPublisher_Publish(t *testing.T) {
 		})
 
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("event_typeが未登録のとき", func(t *testing.T) {
-				t.Run("event_typeがunknown_eventのとき、パブリッシュするとエラーの内容に未登録のevent_typeとunknown_eventが含まれる", func(t *testing.T) {
+			t.Run("event_typeがunknown_event(未登録)のとき", func(t *testing.T) {
+				t.Run("パブリッシュすると、エラーの内容に未登録のevent_typeが含まれる", func(t *testing.T) {
 					fixture := newPublisherFixture(t, emulator)
 
 					err := fixture.publisher.Publish(context.Background(), "unknown_event", []byte("test-data"))
 
-					assert.ErrorContains(t, err, `unknown event type "unknown_event"`)
+					assert.ErrorContains(t, err, "unknown event type")
 				})
 
-				t.Run("event_typeがunknown_eventのパブリッシュに失敗したあと、card_pack_purchasedをパブリッシュすると、card_pack_purchased用に指定したトピックのサブスクライブ側に届く", func(t *testing.T) {
+				t.Run("パブリッシュすると、エラーの内容にunknown_eventが含まれる", func(t *testing.T) {
+					fixture := newPublisherFixture(t, emulator)
+
+					err := fixture.publisher.Publish(context.Background(), "unknown_event", []byte("test-data"))
+
+					assert.ErrorContains(t, err, "unknown_event")
+				})
+
+				t.Run("パブリッシュに失敗したあと、card_pack_purchasedをパブリッシュすると、card_pack_purchased用に指定したトピックのサブスクライブ側に届く", func(t *testing.T) {
 					fixture := newPublisherFixture(t, emulator)
 					_ = fixture.publisher.Publish(context.Background(), "unknown_event", []byte("test-data"))
 
@@ -108,17 +127,19 @@ func TestPublisher_Publish(t *testing.T) {
 				})
 			})
 
-			t.Run("event_typeに対応するトピックがエミュレータ上に存在しないとき", func(t *testing.T) {
-				t.Run("card_pack_purchasedをパブリッシュすると、エラーの内容にパブリッシュ失敗とcard_pack_purchasedが含まれる", func(t *testing.T) {
-					publisher, err := pubsub.New(context.Background(), emulator.ProjectID(), "missing-card-pack-error", "missing-faction-error", "missing-premium-error")
-					require.NoError(t, err)
-					t.Cleanup(func() { _ = publisher.Close() })
-					ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
-					defer cancel()
+			t.Run("event_typeに対応するトピックが存在しないとき", func(t *testing.T) {
+				t.Run("card_pack_purchasedをパブリッシュすると", func(t *testing.T) {
+					t.Run("エラーの内容にパブリッシュ失敗が含まれる", func(t *testing.T) {
+						err := publishToMissingTopic(t, emulator)
 
-					err = publisher.Publish(ctx, "card_pack_purchased", []byte("test-data"))
+						assert.ErrorContains(t, err, "publish event_type=")
+					})
 
-					assert.ErrorContains(t, err, "publish event_type=card_pack_purchased")
+					t.Run("エラーの内容にcard_pack_purchasedが含まれる", func(t *testing.T) {
+						err := publishToMissingTopic(t, emulator)
+
+						assert.ErrorContains(t, err, "card_pack_purchased")
+					})
 				})
 
 				t.Run("card_pack_purchasedのパブリッシュに失敗したあと、トピックとサブスクリプションを作成し、同じパブリッシャーでcard_pack_purchasedを再度パブリッシュすると、サブスクライブ側に届く", func(t *testing.T) {

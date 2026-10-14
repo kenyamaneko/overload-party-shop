@@ -15,24 +15,22 @@ func loadPrivateKeyPEM(pemData []byte) (*apple.Verifier, error) {
 	return appletest.NewVerifierFromPEM(pemData, "Sandbox", &appletest.FakeJWSVerifier{})
 }
 
-func newVerifierWithEnvironment(t *testing.T, environment string, opts ...apple.VerifierOption) (*apple.Verifier, error) {
+func newVerifierWithEnvironment(t *testing.T, environment string) (*apple.Verifier, error) {
 	t.Helper()
 	pemData := appletest.EncodePKCS8PEM(t, appletest.GenerateECDSAKey(t, elliptic.P256()))
 	jwsVerifier := &appletest.FakeJWSVerifier{Payload: `{"bundleId":"com.test.shop","productId":"prod-1"}`}
-	return appletest.NewVerifierFromPEM(pemData, environment, jwsVerifier, opts...)
+	return appletest.NewVerifierFromPEM(pemData, environment, jwsVerifier)
 }
 
 func TestNewVerifierFromPEM(t *testing.T) {
 	t.Run("[Apple購入検証]認証用秘密鍵の読み込み", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("秘密鍵のPEMを読み込むと", func(t *testing.T) {
-				t.Run("P-256のPKCS#8形式の秘密鍵のとき、エラーは返らない", func(t *testing.T) {
-					pemData := appletest.EncodePKCS8PEM(t, appletest.GenerateECDSAKey(t, elliptic.P256()))
+			t.Run("P-256のPKCS#8形式の秘密鍵のとき、エラーは返らない", func(t *testing.T) {
+				pemData := appletest.EncodePKCS8PEM(t, appletest.GenerateECDSAKey(t, elliptic.P256()))
 
-					_, err := loadPrivateKeyPEM(pemData)
+				_, err := loadPrivateKeyPEM(pemData)
 
-					require.NoError(t, err)
-				})
+				require.NoError(t, err)
 			})
 		})
 
@@ -80,9 +78,9 @@ func TestNewVerifierFromPEM(t *testing.T) {
 		})
 	})
 
-	t.Run("[Apple購入検証]環境名ごとの接続先", func(t *testing.T) {
+	t.Run("[Apple購入検証]環境名の指定", func(t *testing.T) {
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("検証器を生成すると", func(t *testing.T) {
+			t.Run("Apple購入検証に環境名を指定すると", func(t *testing.T) {
 				invalidEnvironmentTests := []struct {
 					name        string
 					environment string

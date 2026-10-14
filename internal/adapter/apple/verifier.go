@@ -25,11 +25,11 @@ const (
 )
 
 const (
-	appleProductionURL = "https://api.storekit.itunes.apple.com"
-	appleSandboxURL    = "https://api.storekit-sandbox.itunes.apple.com"
+	appleProductionURL = "https://api.storekit.apple.com"
+	appleSandboxURL    = "https://api.storekit-sandbox.apple.com"
 	appleAPITimeout    = 10 * time.Second
 
-	appleTransactionPath  = "/inApps/v2/transactions/"
+	appleTransactionPath  = "/inApps/v1/transactions/"
 	appleSubscriptionPath = "/inApps/v1/subscriptions/"
 
 	appleJWTAudience = "appstoreconnect-v1"
@@ -47,18 +47,8 @@ type Verifier struct {
 	jwsVerifier port.AppleJWSVerifier
 }
 
-// VerifierOption は Verifier の構築時の設定を差し替える。
-type VerifierOption func(*Verifier)
-
-// WithEndpoint は App Store Server API の接続先 URL を環境名から決まる既定の接続先から差し替える。
-func WithEndpoint(baseURL string) VerifierOption {
-	return func(v *Verifier) {
-		v.baseURL = baseURL
-	}
-}
-
 // NewVerifierFromPEM はメモリ上の P-256 秘密鍵から Apple verifier を構築する。environment は EnvironmentProduction / EnvironmentSandbox。
-func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, environment string, jwsVerifier port.AppleJWSVerifier, opts ...VerifierOption) (*Verifier, error) {
+func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, environment string, jwsVerifier port.AppleJWSVerifier) (*Verifier, error) {
 	block, _ := pem.Decode(pemData)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
@@ -87,7 +77,7 @@ func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, enviro
 		return nil, fmt.Errorf("unknown apple environment %q: expected %q or %q", environment, EnvironmentProduction, EnvironmentSandbox)
 	}
 
-	v := &Verifier{
+	return &Verifier{
 		keyID:       keyID,
 		issuerID:    issuerID,
 		bundleID:    bundleID,
@@ -95,17 +85,13 @@ func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, enviro
 		baseURL:     baseURL,
 		httpClient:  &http.Client{Timeout: appleAPITimeout},
 		jwsVerifier: jwsVerifier,
-	}
-	for _, opt := range opts {
-		opt(v)
-	}
-	return v, nil
+	}, nil
 }
 
 var _ port.ReceiptVerifier = (*Verifier)(nil)
 
 // VerifyPurchase は App Store Server API で単発購入トランザクションを検証する。
-func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*port.VerifyResult, error) {
+func (v *Verifier) VerifyPurchase(ctx context.Context, _, purchaseToken string) (*port.VerifyResult, error) {
 	var apiResp struct {
 		SignedTransactionInfo string `json:"signedTransactionInfo"`
 	}

@@ -107,38 +107,22 @@ func signES256(t *testing.T, key *ecdsa.PrivateKey, signingInput string) []byte 
 func TestJWSVerifier_Verify(t *testing.T) {
 	t.Run("[Apple購入検証]署名付きデータの署名検証", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
-			t.Run("テスト専用のルート証明書を渡して生成した検証器で、ルート証明書に連なるx5cとES256の正しい署名を持つJWSを検証すると", func(t *testing.T) {
-				newValidJWS := func(t *testing.T) (*apple.JWSVerifier, string) {
-					t.Helper()
-					leafKey := appletest.GenerateECDSAKey(t, elliptic.P256())
-					chain := newTrustedChain(t, &leafKey.PublicKey)
-					header := encodeHeader(t, map[string]any{"alg": "ES256", "x5c": chain.x5c})
-					payload := encodeSegment([]byte("test-payload"))
-					signature := encodeSegment(signES256(t, leafKey, header+"."+payload))
-					return chain.verifier, header + "." + payload + "." + signature
-				}
+			t.Run("テスト専用のルート証明書を信頼するとき、そのルート証明書に連なるx5cとES256の正しい署名を持つJWSを検証すると、JWSのペイロードのバイト列がそのまま返る", func(t *testing.T) {
+				leafKey := appletest.GenerateECDSAKey(t, elliptic.P256())
+				chain := newTrustedChain(t, &leafKey.PublicKey)
+				header := encodeHeader(t, map[string]any{"alg": "ES256", "x5c": chain.x5c})
+				payload := encodeSegment([]byte("test-payload"))
+				signature := encodeSegment(signES256(t, leafKey, header+"."+payload))
 
-				t.Run("エラーは返らない", func(t *testing.T) {
-					verifier, jws := newValidJWS(t)
+				got, err := chain.verifier.Verify(header + "." + payload + "." + signature)
 
-					_, err := verifier.Verify(jws)
-
-					require.NoError(t, err)
-				})
-
-				t.Run("JWSのペイロードのバイト列がそのまま返る", func(t *testing.T) {
-					verifier, jws := newValidJWS(t)
-
-					got, err := verifier.Verify(jws)
-
-					require.NoError(t, err)
-					assert.Equal(t, []byte("test-payload"), got)
-				})
+				require.NoError(t, err)
+				assert.Equal(t, []byte("test-payload"), got)
 			})
 		})
 
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("テスト専用のルート証明書を渡して生成した検証器で、ルート証明書に連なるx5cを持つJWSを検証すると", func(t *testing.T) {
+			t.Run("テスト専用のルート証明書を信頼するとき、そのルート証明書に連なるx5cを持つJWSを検証すると", func(t *testing.T) {
 				t.Run("葉の証明書の公開鍵がECDSAでないとき、エラーの内容にECDSAでない公開鍵が含まれる", func(t *testing.T) {
 					chain := newTrustedChain(t, &appletest.GenerateRSAKey(t).PublicKey)
 					header := encodeHeader(t, map[string]any{"alg": "ES256", "x5c": chain.x5c})

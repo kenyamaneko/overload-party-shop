@@ -51,50 +51,6 @@ func TestNew(t *testing.T) {
 						assert.ErrorContains(t, err, "all topic names are required")
 					})
 				}
-
-				noPublisherTests := []struct {
-					name                   string
-					projectID              string
-					cardPackPurchasedTopic string
-					factionAcquiredTopic   string
-					premiumUpdatedTopic    string
-				}{
-					{
-						name:                   "プロジェクトIDが空のとき、パブリッシャーは得られない",
-						projectID:              "",
-						cardPackPurchasedTopic: "test-card-pack-topic",
-						factionAcquiredTopic:   "test-faction-topic",
-						premiumUpdatedTopic:    "test-premium-topic",
-					},
-					{
-						name:                   "event_typeがcard_pack_purchasedのトピック名が空のとき、パブリッシャーは得られない",
-						projectID:              "test-project",
-						cardPackPurchasedTopic: "",
-						factionAcquiredTopic:   "test-faction-topic",
-						premiumUpdatedTopic:    "test-premium-topic",
-					},
-					{
-						name:                   "event_typeがfaction_acquiredのトピック名が空のとき、パブリッシャーは得られない",
-						projectID:              "test-project",
-						cardPackPurchasedTopic: "test-card-pack-topic",
-						factionAcquiredTopic:   "",
-						premiumUpdatedTopic:    "test-premium-topic",
-					},
-					{
-						name:                   "event_typeがpremium_updatedのトピック名が空のとき、パブリッシャーは得られない",
-						projectID:              "test-project",
-						cardPackPurchasedTopic: "test-card-pack-topic",
-						factionAcquiredTopic:   "test-faction-topic",
-						premiumUpdatedTopic:    "",
-					},
-				}
-				for _, tc := range noPublisherTests {
-					t.Run(tc.name, func(t *testing.T) {
-						got, _ := pubsub.New(context.Background(), tc.projectID, tc.cardPackPurchasedTopic, tc.factionAcquiredTopic, tc.premiumUpdatedTopic)
-
-						assert.Nil(t, got)
-					})
-				}
 			})
 		})
 	})

@@ -50,29 +50,19 @@ func EncodeSEC1PEM(t *testing.T, key *ecdsa.PrivateKey) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 }
 
-// FakeJWSVerifier は署名を検証せず、決まった結果を返す port.AppleJWSVerifier の偽物。
+// FakeJWSVerifier は署名を検証せず、決まったペイロードを返す port.AppleJWSVerifier の偽物。
 type FakeJWSVerifier struct {
 	Payload string
-	Err     error
 }
 
-// Verify は Err があれば Err を、無ければ Payload を返す。
+// Verify は Payload を返す。
 func (f *FakeJWSVerifier) Verify(_ string) ([]byte, error) {
-	return []byte(f.Payload), f.Err
+	return []byte(f.Payload), nil
 }
 
 var _ port.AppleJWSVerifier = (*FakeJWSVerifier)(nil)
 
 // NewVerifierFromPEM はキー ID test-key-id、発行者 ID test-issuer-id、バンドル ID com.test.shop で検証器を組み立てる。
-func NewVerifierFromPEM(pemData []byte, environment string, jwsVerifier port.AppleJWSVerifier, opts ...apple.VerifierOption) (*apple.Verifier, error) {
-	return apple.NewVerifierFromPEM("test-key-id", "test-issuer-id", "com.test.shop", pemData, environment, jwsVerifier, opts...)
-}
-
-// NewVerifier は endpoint を接続先にし、環境名 Sandbox の検証器を組み立てる。
-func NewVerifier(t *testing.T, endpoint string, jwsVerifier port.AppleJWSVerifier) *apple.Verifier {
-	t.Helper()
-	pemData := EncodePKCS8PEM(t, GenerateECDSAKey(t, elliptic.P256()))
-	v, err := NewVerifierFromPEM(pemData, apple.EnvironmentSandbox, jwsVerifier, apple.WithEndpoint(endpoint))
-	require.NoError(t, err)
-	return v
+func NewVerifierFromPEM(pemData []byte, environment string, jwsVerifier port.AppleJWSVerifier) (*apple.Verifier, error) {
+	return apple.NewVerifierFromPEM("test-key-id", "test-issuer-id", "com.test.shop", pemData, environment, jwsVerifier)
 }
