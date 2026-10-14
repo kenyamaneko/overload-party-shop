@@ -23,20 +23,6 @@ services:
       timeout: 2s
       retries: 15
 
-  # shop は起動時に Firestore クライアントの到達性を検証するため、emulator を用意する。
-  # game_config は runtime で参照しないので seed は不要。
-  firestore-emulator:
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
-    command: >
-      gcloud beta emulators firestore start
-      --project=overload-party-local
-      --host-port=0.0.0.0:8080
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080 || exit 1"]
-      interval: 3s
-      timeout: 3s
-      retries: 20
-
   pubsub-emulator:
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
     command: >
@@ -68,13 +54,11 @@ services:
     restart: "no"
 
   shop:
-    image: golang:1.25-alpine
+    image: golang:1.26-alpine
     working_dir: /src
     command: go run ./cmd/server
     depends_on:
       postgres:
-        condition: service_healthy
-      firestore-emulator:
         condition: service_healthy
       pubsub-init:
         condition: service_completed_successfully
@@ -113,7 +97,6 @@ services:
       OUTBOX_FAILURE_THRESHOLD: "5"
       OUTBOX_VISIBILITY_TIMEOUT: 30s
       PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
-      FIRESTORE_EMULATOR_HOST: firestore-emulator:8080
     volumes:
       - ./:/src
       - ${HOST_GOMODCACHE:?make run 経由で起動すること (go env GOMODCACHE を渡す必要がある)}:/go/pkg/mod:ro

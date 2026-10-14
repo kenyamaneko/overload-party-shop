@@ -9,6 +9,16 @@ import (
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
+// 各 Topic は data/asyncapi.yaml の channels の address と同じ値。
+const (
+	// TopicFactionAcquired は FactionAcquiredEvent の topic 名。
+	TopicFactionAcquired = "faction-acquired"
+	// TopicCardPackPurchased は CardPackPurchasedEvent の topic 名。
+	TopicCardPackPurchased = "card-pack-purchased"
+	// TopicPremiumUpdated は PremiumUpdatedEvent の topic 名。
+	TopicPremiumUpdated = "premium-updated"
+)
+
 // PublishFactionAcquired は TopicFactionAcquired へ FactionAcquiredEvent を 1 件発行する。
 // EventID / Timestamp 未設定なら UUIDv4 / 現在時刻を補完、EventType は常に上書きする。
 func PublishFactionAcquired(ctx context.Context, p *Publisher, event apishop.FactionAcquiredEvent) error {
@@ -17,7 +27,7 @@ func PublishFactionAcquired(ctx context.Context, p *Publisher, event apishop.Fac
 	if err != nil {
 		return fmt.Errorf("marshal FactionAcquiredEvent: %w", err)
 	}
-	return p.Publish(ctx, "faction-acquired", data)
+	return p.Publish(ctx, TopicFactionAcquired, data)
 }
 
 // PublishCardPackPurchased は TopicCardPackPurchased へ CardPackPurchasedEvent を 1 件発行する。
@@ -28,7 +38,7 @@ func PublishCardPackPurchased(ctx context.Context, p *Publisher, event apishop.C
 	if err != nil {
 		return fmt.Errorf("marshal CardPackPurchasedEvent: %w", err)
 	}
-	return p.Publish(ctx, "card-pack-purchased", data)
+	return p.Publish(ctx, TopicCardPackPurchased, data)
 }
 
 // PublishPremiumUpdated は TopicPremiumUpdated へ PremiumUpdatedEvent を 1 件発行する。
@@ -39,7 +49,7 @@ func PublishPremiumUpdated(ctx context.Context, p *Publisher, event apishop.Prem
 	if err != nil {
 		return fmt.Errorf("marshal PremiumUpdatedEvent: %w", err)
 	}
-	return p.Publish(ctx, "premium-updated", data)
+	return p.Publish(ctx, TopicPremiumUpdated, data)
 }
 
 // FactionAcquiredExpecter は TopicFactionAcquired に subscribe 済みの待受器。
@@ -51,12 +61,12 @@ type FactionAcquiredExpecter struct {
 
 // ExpectFactionAcquired は即時 subscribe して Expecter を返す (publish より前に呼ぶこと)。
 func ExpectFactionAcquired(s *Subscriber) *FactionAcquiredExpecter {
-	return &FactionAcquiredExpecter{ch: s.Messages("faction-acquired")}
+	return &FactionAcquiredExpecter{ch: s.Messages(TopicFactionAcquired)}
 }
 
 // Wait は subscribe 後に publish された最初の event を timeout 付きで取り出す。
 func (e *FactionAcquiredExpecter) Wait(timeout time.Duration) (apishop.FactionAcquiredEvent, error) {
-	return waitTypedFromChan[apishop.FactionAcquiredEvent](e.ch, "faction-acquired", timeout)
+	return waitTypedFromChan[apishop.FactionAcquiredEvent](e.ch, TopicFactionAcquired, timeout)
 }
 
 // CardPackPurchasedExpecter は TopicCardPackPurchased 版の Expecter。
@@ -66,12 +76,12 @@ type CardPackPurchasedExpecter struct {
 
 // ExpectCardPackPurchased は TopicCardPackPurchased に即時 subscribe し Expecter を返す。
 func ExpectCardPackPurchased(s *Subscriber) *CardPackPurchasedExpecter {
-	return &CardPackPurchasedExpecter{ch: s.Messages("card-pack-purchased")}
+	return &CardPackPurchasedExpecter{ch: s.Messages(TopicCardPackPurchased)}
 }
 
 // Wait は publish された最初の CardPackPurchasedEvent を timeout 付きで取り出す。
 func (e *CardPackPurchasedExpecter) Wait(timeout time.Duration) (apishop.CardPackPurchasedEvent, error) {
-	return waitTypedFromChan[apishop.CardPackPurchasedEvent](e.ch, "card-pack-purchased", timeout)
+	return waitTypedFromChan[apishop.CardPackPurchasedEvent](e.ch, TopicCardPackPurchased, timeout)
 }
 
 // PremiumUpdatedExpecter は TopicPremiumUpdated 版の Expecter。
@@ -81,22 +91,19 @@ type PremiumUpdatedExpecter struct {
 
 // ExpectPremiumUpdated は TopicPremiumUpdated に即時 subscribe し Expecter を返す。
 func ExpectPremiumUpdated(s *Subscriber) *PremiumUpdatedExpecter {
-	return &PremiumUpdatedExpecter{ch: s.Messages("premium-updated")}
+	return &PremiumUpdatedExpecter{ch: s.Messages(TopicPremiumUpdated)}
 }
 
 // Wait は publish された最初の PremiumUpdatedEvent を timeout 付きで取り出す。
 func (e *PremiumUpdatedExpecter) Wait(timeout time.Duration) (apishop.PremiumUpdatedEvent, error) {
-	return waitTypedFromChan[apishop.PremiumUpdatedEvent](e.ch, "premium-updated", timeout)
+	return waitTypedFromChan[apishop.PremiumUpdatedEvent](e.ch, TopicPremiumUpdated, timeout)
 }
 
 // waitTypedFromChan は payload bytes を timeout 付きで受信し型 T にデコードする。
 func waitTypedFromChan[T any](ch <-chan []byte, topic string, timeout time.Duration) (T, error) {
 	var zero T
 	select {
-	case data, ok := <-ch:
-		if !ok {
-			return zero, fmt.Errorf("channel closed for topic %q before receiving message", topic)
-		}
+	case data := <-ch:
 		var v T
 		if err := json.Unmarshal(data, &v); err != nil {
 			return zero, fmt.Errorf("unmarshal %q payload: %w", topic, err)
@@ -107,39 +114,34 @@ func waitTypedFromChan[T any](ch <-chan []byte, topic string, timeout time.Durat
 	}
 }
 
+// fillEventIdentity は EventID / Timestamp が未設定なら補完する。
+func fillEventIdentity(eventID *string, timestamp *time.Time) {
+	if *eventID == "" {
+		*eventID = newEventID()
+	}
+	if timestamp.IsZero() {
+		*timestamp = time.Now().UTC()
+	}
+}
+
 // fillFactionAcquiredDefaults は EventType を上書きし、EventID / Timestamp 未設定なら補完する。
 func fillFactionAcquiredDefaults(event apishop.FactionAcquiredEvent) apishop.FactionAcquiredEvent {
 	event.EventType = apishop.EventTypeFactionAcquired
-	if event.EventID == "" {
-		event.EventID = newEventID()
-	}
-	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now().UTC()
-	}
+	fillEventIdentity(&event.EventID, &event.Timestamp)
 	return event
 }
 
 // fillCardPackPurchasedDefaults は fillFactionAcquiredDefaults の CardPackPurchasedEvent 版。
 func fillCardPackPurchasedDefaults(event apishop.CardPackPurchasedEvent) apishop.CardPackPurchasedEvent {
 	event.EventType = apishop.EventTypeCardPackPurchased
-	if event.EventID == "" {
-		event.EventID = newEventID()
-	}
-	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now().UTC()
-	}
+	fillEventIdentity(&event.EventID, &event.Timestamp)
 	return event
 }
 
 // fillPremiumDefaults は fillFactionAcquiredDefaults の PremiumUpdatedEvent 版 (Source 未設定なら shop)。
 func fillPremiumDefaults(event apishop.PremiumUpdatedEvent) apishop.PremiumUpdatedEvent {
 	event.EventType = apishop.EventTypePremiumUpdated
-	if event.EventID == "" {
-		event.EventID = newEventID()
-	}
-	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now().UTC()
-	}
+	fillEventIdentity(&event.EventID, &event.Timestamp)
 	if event.Source == "" {
 		event.Source = apishop.PremiumUpdatedSourceShop
 	}

@@ -78,32 +78,40 @@ func (r *OutboxRepository) ClaimUnpublished(ctx context.Context, limit int, visi
 	return claimed, nil
 }
 
-// MarkPublished は publish 成功した行に published_at を立て、last_error を解除する (冪等)。
+// MarkPublished は publish 成功した行に published_at を立て、last_error を解除する (冪等)。対象の行が無ければ port.ErrNotFound を返す。
 func (r *OutboxRepository) MarkPublished(ctx context.Context, eventID uuid.UUID) error {
-	if _, err := r.pool.Exec(ctx,
+	tag, err := r.pool.Exec(ctx,
 		`UPDATE shop.outbox_events
 		    SET published_at = now(),
 		        last_attempted_at = now(),
 		        last_error = NULL
 		  WHERE event_id = $1`,
 		eventID,
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("mark published event_id=%s: %w", eventID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("mark published event_id=%s: %w", eventID, port.ErrNotFound)
 	}
 	return nil
 }
 
-// RecordFailure は publish 失敗した行の failure_count を +1 し、last_error を記録する。
+// RecordFailure は publish 失敗した行の failure_count を +1 し、last_error を記録する。対象の行が無ければ port.ErrNotFound を返す。
 func (r *OutboxRepository) RecordFailure(ctx context.Context, eventID uuid.UUID, errMsg string) error {
-	if _, err := r.pool.Exec(ctx,
+	tag, err := r.pool.Exec(ctx,
 		`UPDATE shop.outbox_events
 		    SET failure_count = failure_count + 1,
 		        last_attempted_at = now(),
 		        last_error = $2
 		  WHERE event_id = $1`,
 		eventID, errMsg,
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("record failure event_id=%s: %w", eventID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("record failure event_id=%s: %w", eventID, port.ErrNotFound)
 	}
 	return nil
 }

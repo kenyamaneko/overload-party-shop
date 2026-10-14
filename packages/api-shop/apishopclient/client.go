@@ -45,7 +45,7 @@ type config struct {
 	editors    []apishop.RequestEditorFn
 }
 
-// WithHTTPClient は基底 HTTP doer を差し替える。デフォルトは http.DefaultClient。
+// WithHTTPClient は基底 HTTP doer を差し替える。指定しないときは生成クライアントが作る http.Client を使う。
 func WithHTTPClient(doer apishop.HttpRequestDoer) Option {
 	return func(c *config) { c.httpClient = doer }
 }
@@ -89,10 +89,10 @@ func (c *Client) GetHealth(ctx context.Context) (*apishop.HealthResponse, error)
 	return nil, newStatusError("GetHealth", resp.StatusCode())
 }
 
-// ListPlayerProducts は playerID の所持プロダクト一覧を返す。
-// playerID は X-Player-Id header として送られる (gateway が認証後に付与する想定)。
-func (c *Client) ListPlayerProducts(ctx context.Context, playerID string) (*apishop.ProductListResponse, error) {
-	resp, err := c.api.ListPlayerProductsWithResponse(ctx, &apishop.ListPlayerProductsParams{XPlayerId: playerID})
+// ListPlayerProducts は認証済みプレイヤーの所持情報付きプロダクト一覧を返す。
+// プレイヤーの識別は X-Internal-Auth header で行うため、WithRequestEditorFn で付与する。
+func (c *Client) ListPlayerProducts(ctx context.Context) (*apishop.ProductListResponse, error) {
+	resp, err := c.api.ListPlayerProductsWithResponse(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("apishopclient: ListPlayerProducts: %w", err)
 	}
@@ -103,10 +103,8 @@ func (c *Client) ListPlayerProducts(ctx context.Context, playerID string) (*apis
 }
 
 // PurchaseProduct は単発購入を実行する。
-func (c *Client) PurchaseProduct(ctx context.Context, playerID string, req apishop.PurchaseRequest) (*apishop.PurchaseResponse, error) {
-	resp, err := c.api.PurchaseProductWithResponse(ctx,
-		&apishop.PurchaseProductParams{XPlayerId: playerID},
-		apishop.PurchaseProductJSONRequestBody(req))
+func (c *Client) PurchaseProduct(ctx context.Context, req apishop.PurchaseRequest) (*apishop.PurchaseResponse, error) {
+	resp, err := c.api.PurchaseProductWithResponse(ctx, apishop.PurchaseProductJSONRequestBody(req))
 	if err != nil {
 		return nil, fmt.Errorf("apishopclient: PurchaseProduct: %w", err)
 	}
@@ -117,10 +115,8 @@ func (c *Client) PurchaseProduct(ctx context.Context, playerID string, req apish
 }
 
 // SubscribeProduct はサブスクリプション購入を実行する。
-func (c *Client) SubscribeProduct(ctx context.Context, playerID string, req apishop.PurchaseRequest) (*apishop.SubscribeResponse, error) {
-	resp, err := c.api.SubscribeProductWithResponse(ctx,
-		&apishop.SubscribeProductParams{XPlayerId: playerID},
-		apishop.SubscribeProductJSONRequestBody(req))
+func (c *Client) SubscribeProduct(ctx context.Context, req apishop.PurchaseRequest) (*apishop.SubscribeResponse, error) {
+	resp, err := c.api.SubscribeProductWithResponse(ctx, apishop.SubscribeProductJSONRequestBody(req))
 	if err != nil {
 		return nil, fmt.Errorf("apishopclient: SubscribeProduct: %w", err)
 	}

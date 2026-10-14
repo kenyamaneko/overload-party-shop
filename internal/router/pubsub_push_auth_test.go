@@ -1,89 +1,169 @@
-package router
+package router_test
 
 import (
-	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/api/idtoken"
+
+	"github.com/kenyamaneko/overload-party-shop/internal/router/routertest"
+	"github.com/kenyamaneko/overload-party-shop/internal/util/logtest"
 )
 
-func TestGoogleIDTokenValidatorValidate(t *testing.T) {
-	t.Run("Pub/Sub pushトークンの正当性判定", func(t *testing.T) {
-		validClaims := map[string]interface{}{"email_verified": true, "email": "sa@example.com"}
+type pushHeaderCase struct {
+	given   string
+	headers map[string]string
+}
 
-		errorCases := []struct {
-			name          string
-			validateFn    idTokenValidateFunc
-			wantErrSubstr string
-		}{
-			{
-				name: "トークン自体の署名・有効期限などの基礎検証が失敗するとき、検証は失敗と判定される",
-				validateFn: func(context.Context, string, string) (*idtoken.Payload, error) {
-					return nil, errors.New("signature invalid")
-				},
-				wantErrSubstr: "signature invalid",
-			},
-			{
-				name: "基礎検証は通るが、発行者の情報がGoogleの発行者情報と一致しないとき、検証は失敗と判定される",
-				validateFn: func(context.Context, string, string) (*idtoken.Payload, error) {
-					return &idtoken.Payload{Issuer: "https://evil.example", Claims: validClaims}, nil
-				},
-				wantErrSubstr: "unexpected issuer",
-			},
-			{
-				name: "発行者情報は一致するが、メールアドレスが検証済みであることを示すクレームが真でないとき (クレーム自体が存在しない場合)、検証は失敗と判定される",
-				validateFn: func(context.Context, string, string) (*idtoken.Payload, error) {
-					return &idtoken.Payload{Issuer: googleOIDCIssuer, Claims: map[string]interface{}{"email": "sa@example.com"}}, nil
-				},
-				wantErrSubstr: "email not verified",
-			},
-			{
-				name: "発行者情報は一致するが、メールアドレスが検証済みであることを示すクレームが真でないとき (クレームがfalseの場合)、検証は失敗と判定される",
-				validateFn: func(context.Context, string, string) (*idtoken.Payload, error) {
-					return &idtoken.Payload{Issuer: googleOIDCIssuer, Claims: map[string]interface{}{"email_verified": false, "email": "sa@example.com"}}, nil
-				},
-				wantErrSubstr: "email not verified",
-			},
-			{
-				name: "発行者情報とメール検証済みクレームは満たすが、メールアドレスのクレームが存在しないとき、検証は失敗と判定される",
-				validateFn: func(context.Context, string, string) (*idtoken.Payload, error) {
-					return &idtoken.Payload{Issuer: googleOIDCIssuer, Claims: map[string]interface{}{"email_verified": true}}, nil
-				},
-				wantErrSubstr: "email claim missing",
-			},
-			{
-				name: "発行者情報とメール検証済みクレームは満たすが、メールアドレスのクレームが空のとき、検証は失敗と判定される",
-				validateFn: func(context.Context, string, string) (*idtoken.Payload, error) {
-					return &idtoken.Payload{Issuer: googleOIDCIssuer, Claims: map[string]interface{}{"email_verified": true, "email": ""}}, nil
-				},
-				wantErrSubstr: "email claim missing",
-			},
-		}
+var pushHeaderMissingCase = pushHeaderCase{given: "無い", headers: nil}
 
-		for _, tc := range errorCases {
-			t.Run(tc.name, func(t *testing.T) {
-				v := &googleIDTokenValidator{validate: tc.validateFn}
+var pushHeaderMalformedCases = []pushHeaderCase{
+	{given: "Bearer以外の方式の", headers: map[string]string{"Authorization": "Basic TST-ID-TOKEN"}},
+	{given: "方式名が小文字のbearerの", headers: map[string]string{"Authorization": "bearer TST-ID-TOKEN"}},
+	{given: "Bearerだけでトークンを区切る空白が無い", headers: map[string]string{"Authorization": "Bearer"}},
+}
 
-				email, err := v.Validate(context.Background(), "id-token", "audience")
+var pushHeaderCases = append([]pushHeaderCase{pushHeaderMissingCase}, pushHeaderMalformedCases...)
 
-				require.Error(t, err)
-				assert.ErrorContains(t, err, tc.wantErrSubstr)
-				assert.Equal(t, "", email)
+func TestPubSubPushAuthentication(t *testing.T) {
+	googleBody := routertest.BuildGoogleWebhookBody(t, "TST-RTDN-DATA")
+	googleHeaders := routertest.BuildGooglePushHeaders()
+	buildValidValidator := func() *routertest.PushValidator {
+		return routertest.NewPushValidator(routertest.PushServiceAccountEmail, nil)
+	}
+
+	t.Run("[GooglePlay通知]PubSubプッシュ認証", func(t *testing.T) {
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("Authorizationヘッダーに問題があるとき", func(t *testing.T) {
+				for _, tt := range pushHeaderCases {
+					t.Run(tt.given+"とき、401になる", func(t *testing.T) {
+						engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildValidValidator(), routertest.PushAudience))
+
+						response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, tt.headers)
+
+						assert.Equal(t, http.StatusUnauthorized, response.Status)
+					})
+				}
+
+				t.Run("Authorizationヘッダーが無いとき、errorにヘッダーが無いことを示すメッセージが入る", func(t *testing.T) {
+					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildValidValidator(), routertest.PushAudience))
+
+					response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, pushHeaderMissingCase.headers)
+
+					assert.Equal(t, "missing authorization header", response.ErrorMessage(t))
+				})
+
+				for _, tt := range pushHeaderMalformedCases {
+					t.Run(tt.given+"とき、errorに形式が不正であることを示すメッセージが入る", func(t *testing.T) {
+						engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildValidValidator(), routertest.PushAudience))
+
+						response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, tt.headers)
+
+						assert.Equal(t, "invalid authorization format", response.ErrorMessage(t))
+					})
+				}
 			})
-		}
 
-		t.Run("発行者情報・メール検証済み・メールアドレスのすべての条件を満たすとき、検証は成功し、そのメールアドレスが判定結果として返る", func(t *testing.T) {
-			v := &googleIDTokenValidator{validate: func(context.Context, string, string) (*idtoken.Payload, error) {
-				return &idtoken.Payload{Issuer: googleOIDCIssuer, Claims: validClaims}, nil
-			}}
+			t.Run("トークンの検証が失敗するとき", func(t *testing.T) {
+				buildFailingValidator := func() *routertest.PushValidator {
+					return routertest.NewPushValidator("", errors.New("TST-VERIFICATION-FAILURE"))
+				}
 
-			email, err := v.Validate(context.Background(), "id-token", "audience")
+				t.Run("401になる", func(t *testing.T) {
+					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildFailingValidator(), routertest.PushAudience))
 
-			require.NoError(t, err)
-			assert.Equal(t, "sa@example.com", email)
+					response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
+
+					assert.Equal(t, http.StatusUnauthorized, response.Status)
+				})
+
+				t.Run("errorにトークンが不正であることを示すメッセージが入る", func(t *testing.T) {
+					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildFailingValidator(), routertest.PushAudience))
+
+					response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
+
+					assert.Equal(t, "invalid token", response.ErrorMessage(t))
+				})
+
+				t.Run("ログのレベルがWarnのログが出る", func(t *testing.T) {
+					logs := logtest.Capture(t)
+					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildFailingValidator(), routertest.PushAudience))
+
+					routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
+
+					authLogs := logs.ExcludeByMessage("http request")
+					require.Len(t, authLogs, 1)
+					assert.Equal(t, slog.LevelWarn, authLogs[0].Level)
+				})
+
+				t.Run("ログのerrorにトークンの検証が失敗した原因が含まれる", func(t *testing.T) {
+					logs := logtest.Capture(t)
+					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildFailingValidator(), routertest.PushAudience))
+
+					routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
+
+					authLogs := logs.ExcludeByMessage("http request")
+					require.Len(t, authLogs, 1)
+					assert.Contains(t, authLogs[0].String("error"), "TST-VERIFICATION-FAILURE")
+				})
+			})
+
+			t.Run("署名者のメールアドレスが想定するプッシュ用サービスアカウントと一致しないとき", func(t *testing.T) {
+				buildMismatchedValidator := func() *routertest.PushValidator {
+					return routertest.NewPushValidator("tst-other@tst.example.com", nil)
+				}
+
+				t.Run("401になる", func(t *testing.T) {
+					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildMismatchedValidator(), routertest.PushAudience))
+
+					response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
+
+					assert.Equal(t, http.StatusUnauthorized, response.Status)
+				})
+
+				t.Run("errorに想定外のサービスアカウントであることを示すメッセージが入る", func(t *testing.T) {
+					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildMismatchedValidator(), routertest.PushAudience))
+
+					response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
+
+					assert.Equal(t, "unexpected service account", response.ErrorMessage(t))
+				})
+
+				t.Run("ログのレベルがWarnのログが出る", func(t *testing.T) {
+					logs := logtest.Capture(t)
+					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildMismatchedValidator(), routertest.PushAudience))
+
+					routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
+
+					authLogs := logs.ExcludeByMessage("http request")
+					require.Len(t, authLogs, 1)
+					assert.Equal(t, slog.LevelWarn, authLogs[0].Level)
+				})
+
+				t.Run("ログのemailに署名者のメールアドレスが入る", func(t *testing.T) {
+					logs := logtest.Capture(t)
+					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildMismatchedValidator(), routertest.PushAudience))
+
+					routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
+
+					authLogs := logs.ExcludeByMessage("http request")
+					require.Len(t, authLogs, 1)
+					assert.Equal(t, "tst-other@tst.example.com", authLogs[0].String("email"))
+				})
+			})
+		})
+
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("トークンの検証が成功し、署名者のメールアドレスが想定するサービスアカウントと一致するとき、200になる", func(t *testing.T) {
+				engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, buildValidValidator(), routertest.PushAudience))
+
+				response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
+
+				assert.Equal(t, http.StatusOK, response.Status)
+			})
 		})
 	})
 }

@@ -12,55 +12,32 @@ import (
 	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
-// SelectFactionRequest は shopclient.SelectFactionRequest と同形のリクエスト型。
-type SelectFactionRequest struct {
-	Faction string `json:"faction"`
-}
+const (
+	purchaseAcceptedMessage     = "purchase accepted"
+	subscriptionAcceptedMessage = "subscription accepted"
+)
 
-// SelectFactionResponse は shopclient.SelectFactionResponse と同形のレスポンス型。
-type SelectFactionResponse struct {
-	Message      string `json:"message"`
-	Faction      string `json:"faction"`
-	CardsGranted int    `json:"cards_granted"`
-}
-
-// ProductsResponse は GetProducts endpoint の JSON envelope。
-type ProductsResponse struct {
-	Products []apishop.ProductResponse `json:"products"`
-}
-
-// SubscribeResponse は shopclient.subscribeResponse と同形のレスポンス型。
-type SubscribeResponse struct {
-	Message   string     `json:"message"`
-	ExpiresAt *time.Time `json:"expires_at"`
-}
+var defaultSubscriptionExpiresAt = time.Date(2100, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 // Server は shop HTTP 契約を実装する httptest.Server wrapper。
 type Server struct {
 	mu  sync.Mutex
 	srv *httptest.Server
 
-	// SelectFactionFn は POST /internal/v1/players/{playerID}/select-faction の応答を決定する (nil は 200 + 空 body)。
-	SelectFactionFn func(playerID string, req SelectFactionRequest) (int, any)
+	// GetProductsFn は GET /api/v1/shop/products の応答を決定する (nil は 200 + 空 Products)。
+	GetProductsFn func() (int, any)
 
-	// GetProductsFn は GET /api/v1/shop/products の応答を決定する (nil は 200 + 空 Products)。playerID は X-Player-Id ヘッダから取る。
-	GetProductsFn func(playerID string) (int, any)
+	// PurchaseFn は POST /api/v1/shop/purchase の応答を決定する (nil は 200 + PurchaseResponse)。
+	PurchaseFn func(req apishop.PurchaseRequest) (int, any)
 
-	// PurchaseFn は POST /api/v1/shop/purchase の応答を決定する (nil は 204)。playerID は X-Player-Id ヘッダから取る。
-	PurchaseFn func(playerID string, req apishop.PurchaseRequest) (int, any)
-
-	// SubscribeFn は POST /api/v1/shop/subscribe の応答を決定する (nil は 200 + 空 body)。playerID は X-Player-Id ヘッダから取る。
-	SubscribeFn func(playerID string, req apishop.PurchaseRequest) (int, any)
+	// SubscribeFn は POST /api/v1/shop/subscribe の応答を決定する (nil は 200 + SubscribeResponse)。
+	SubscribeFn func(req apishop.PurchaseRequest) (int, any)
 }
-
-// playerIDHeader は shop が gateway から受け取る player_id ヘッダ名。
-const playerIDHeader = "X-Player-Id"
 
 // NewServer は起動済み Server を返す。テスト終了時に Close() すること。
 func NewServer() *Server {
 	s := &Server{}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /internal/v1/players/{playerID}/select-faction", s.handleSelectFaction)
 	mux.HandleFunc("GET /api/v1/shop/products", s.handleGetProducts)
 	mux.HandleFunc("POST /api/v1/shop/purchase", s.handlePurchase)
 	mux.HandleFunc("POST /api/v1/shop/subscribe", s.handleSubscribe)
@@ -74,35 +51,16 @@ func (s *Server) URL() string { return s.srv.URL }
 // Close は内部 httptest.Server を閉じる。
 func (s *Server) Close() { s.srv.Close() }
 
-func (s *Server) handleSelectFaction(w http.ResponseWriter, r *http.Request) {
-	var req SelectFactionRequest
-	// body 不正でも Fn には空構造体を渡し、bad request の擬似は Fn 側で表現する。
-	_ = json.NewDecoder(r.Body).Decode(&req)
-
-	s.mu.Lock()
-	fn := s.SelectFactionFn
-	s.mu.Unlock()
-
-	playerID := r.PathValue("playerID")
-	if fn == nil {
-		writeJSON(w, http.StatusOK, SelectFactionResponse{})
-		return
-	}
-	status, body := fn(playerID, req)
-	writeJSON(w, status, body)
-}
-
 func (s *Server) handleGetProducts(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	fn := s.GetProductsFn
 	s.mu.Unlock()
 
-	playerID := r.Header.Get(playerIDHeader)
 	if fn == nil {
-		writeJSON(w, http.StatusOK, ProductsResponse{Products: []apishop.ProductResponse{}})
+		writeJSON(w, http.StatusOK, apishop.ProductListResponse{Products: []apishop.ProductResponse{}})
 		return
 	}
-	status, body := fn(playerID)
+	status, body := fn()
 	writeJSON(w, status, body)
 }
 
@@ -114,12 +72,11 @@ func (s *Server) handlePurchase(w http.ResponseWriter, r *http.Request) {
 	fn := s.PurchaseFn
 	s.mu.Unlock()
 
-	playerID := r.Header.Get(playerIDHeader)
 	if fn == nil {
-		w.WriteHeader(http.StatusNoContent)
+		writeJSON(w, http.StatusOK, apishop.PurchaseResponse{Message: purchaseAcceptedMessage, ProductID: req.ProductID})
 		return
 	}
-	status, body := fn(playerID, req)
+	status, body := fn(req)
 	writeJSON(w, status, body)
 }
 
@@ -131,12 +88,11 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 	fn := s.SubscribeFn
 	s.mu.Unlock()
 
-	playerID := r.Header.Get(playerIDHeader)
 	if fn == nil {
-		writeJSON(w, http.StatusOK, SubscribeResponse{})
+		writeJSON(w, http.StatusOK, apishop.SubscribeResponse{Message: subscriptionAcceptedMessage, ExpiresAt: defaultSubscriptionExpiresAt})
 		return
 	}
-	status, body := fn(playerID, req)
+	status, body := fn(req)
 	writeJSON(w, status, body)
 }
 

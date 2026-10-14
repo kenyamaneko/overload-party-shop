@@ -25,6 +25,8 @@ type ClaimedOutboxEvent struct {
 // OutboxStore は outbox 行の消費側 (claim + mark/fail) を抽象化する。
 type OutboxStore interface {
 	ClaimUnpublished(ctx context.Context, limit int, visibilityTimeout time.Duration, failureThreshold int) ([]ClaimedOutboxEvent, error)
+	// MarkPublished は対象の行が無ければ ErrNotFound を返す。
 	MarkPublished(ctx context.Context, eventID uuid.UUID) error
+	// RecordFailure は対象の行が無ければ ErrNotFound を返す。
 	RecordFailure(ctx context.Context, eventID uuid.UUID, errMsg string) error
 }

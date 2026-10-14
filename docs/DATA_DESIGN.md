@@ -22,7 +22,7 @@ shop スキーマは商品マスター・購入履歴・コスメティクスア
 |---|---|---|---|
 | `product_id` | VARCHAR(50) | No | 商品ID |
 | `name` | VARCHAR(100) | No | 商品名 |
-| `type` | VARCHAR(20) | No | 商品タイプ discriminator (faction_set / cosmetic / subscription) |
+| `type` | VARCHAR(20) | No | 商品タイプ discriminator (faction_set / card_pack / cosmetic / subscription) |
 | `price` | BIGINT | No | 価格 (JPY) |
 | `requires_product_id` | VARCHAR(50) | Yes | 購入前提の商品ID（拡張セット用、NULL: なし） |
 | `description` | VARCHAR(500) | Yes | 商品説明 |

@@ -21,19 +21,19 @@ func NewFactionPurchaseRepository(pool *pgxpool.Pool) *FactionPurchaseRepository
 	return &FactionPurchaseRepository{pool: pool}
 }
 
-func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, faction, cardPackID, platform, purchaseToken string, eventsOnCreate []port.OutboxEvent) (created bool, err error) {
+func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, faction, cardPackID, platform, purchaseToken string, eventsOnCreate []port.OutboxEvent) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("begin tx: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	created, err = insertOneTimePurchaseAndToken(ctx, tx, purchase, platform, purchaseToken)
+	isInserted, err := insertOneTimePurchaseAndToken(ctx, tx, purchase, platform, purchaseToken)
 	if err != nil {
-		return false, err
+		return err
 	}
-	if !created {
-		return false, nil
+	if !isInserted {
+		return nil
 	}
 
 	if _, err := tx.Exec(ctx,
@@ -41,7 +41,7 @@ func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase
 		 VALUES ($1, $2)`,
 		purchase.PlayerID, faction,
 	); err != nil {
-		return false, fmt.Errorf("insert owned faction: %w", err)
+		return fmt.Errorf("insert owned faction: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx,
@@ -49,19 +49,19 @@ func (r *FactionPurchaseRepository) CreatePurchase(ctx context.Context, purchase
 		 VALUES ($1, $2)`,
 		purchase.PlayerID, cardPackID,
 	); err != nil {
-		return false, fmt.Errorf("insert owned card pack: %w", err)
+		return fmt.Errorf("insert owned card pack: %w", err)
 	}
 
 	for _, event := range eventsOnCreate {
 		if err := writeOutboxEvent(ctx, tx, event); err != nil {
-			return false, err
+			return err
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit tx: %w", err)
+		return fmt.Errorf("commit tx: %w", err)
 	}
-	return true, nil
+	return nil
 }
 
 func (r *FactionPurchaseRepository) ListOwnedFactions(ctx context.Context, playerID string) ([]string, error) {

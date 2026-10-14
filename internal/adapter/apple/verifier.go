@@ -3,13 +3,14 @@ package apple
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+	"net/url"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -17,13 +18,25 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
 )
 
+// Apple の環境名。設定値と Verifier の接続先の選択で共有する。
 const (
-	appleProductionURL = "https://api.storekit.itunes.apple.com"
-	appleSandboxURL    = "https://api.storekit-sandbox.itunes.apple.com"
-	appleAPITimeout    = 10 * time.Second
+	EnvironmentProduction = "Production"
+	EnvironmentSandbox    = "Sandbox"
 )
 
-// Verifier は App Store Server API v2 を使用して port.ReceiptVerifier を実装する。
+const (
+	appleProductionURL = "https://api.storekit.apple.com"
+	appleSandboxURL    = "https://api.storekit-sandbox.apple.com"
+	appleAPITimeout    = 10 * time.Second
+
+	appleTransactionPath  = "/inApps/v1/transactions/"
+	appleSubscriptionPath = "/inApps/v1/subscriptions/"
+
+	appleJWTAudience = "appstoreconnect-v1"
+	appleJWTLifetime = 20 * time.Minute
+)
+
+// Verifier は App Store Server API を使用して port.ReceiptVerifier を実装する。
 type Verifier struct {
 	keyID       string
 	issuerID    string
@@ -34,16 +47,7 @@ type Verifier struct {
 	jwsVerifier port.AppleJWSVerifier
 }
 
-// NewVerifier はファイルシステムから PEM 鍵を読み込んで Apple verifier を構築する。
-func NewVerifier(keyID, issuerID, bundleID, privateKeyPath, environment string, jwsVerifier port.AppleJWSVerifier) (*Verifier, error) {
-	keyData, err := os.ReadFile(privateKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("read apple private key: %w", err)
-	}
-	return NewVerifierFromPEM(keyID, issuerID, bundleID, keyData, environment, jwsVerifier)
-}
-
-// NewVerifierFromPEM はメモリ上の P-256 秘密鍵から Apple verifier を構築する。environment は "Production" / "Sandbox"。
+// NewVerifierFromPEM はメモリ上の P-256 秘密鍵から Apple verifier を構築する。environment は EnvironmentProduction / EnvironmentSandbox。
 func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, environment string, jwsVerifier port.AppleJWSVerifier) (*Verifier, error) {
 	block, _ := pem.Decode(pemData)
 	if block == nil {
@@ -59,10 +63,18 @@ func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, enviro
 	if !ok {
 		return nil, fmt.Errorf("private key is not ECDSA")
 	}
+	if ecKey.Curve != elliptic.P256() {
+		return nil, fmt.Errorf("private key curve is %s, expected P-256", ecKey.Curve.Params().Name)
+	}
 
-	baseURL := appleProductionURL
-	if environment == "Sandbox" {
+	var baseURL string
+	switch environment {
+	case EnvironmentProduction:
+		baseURL = appleProductionURL
+	case EnvironmentSandbox:
 		baseURL = appleSandboxURL
+	default:
+		return nil, fmt.Errorf("unknown apple environment %q: expected %q or %q", environment, EnvironmentProduction, EnvironmentSandbox)
 	}
 
 	return &Verifier{
@@ -78,126 +90,115 @@ func NewVerifierFromPEM(keyID, issuerID, bundleID string, pemData []byte, enviro
 
 var _ port.ReceiptVerifier = (*Verifier)(nil)
 
-// VerifyPurchase は App Store Server API v2 で単発購入トランザクションを検証する。
-func (v *Verifier) VerifyPurchase(ctx context.Context, purchaseToken string) (*port.VerifyResult, error) {
-	token, err := v.generateJWT()
-	if err != nil {
-		return nil, fmt.Errorf("generate JWT: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/inApps/v2/transactions/%s", v.baseURL, purchaseToken)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := v.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request to Apple: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return &port.VerifyResult{IsValid: false}, fmt.Errorf("apple API returned %d (body read failed: %v)", resp.StatusCode, err)
-		}
-		return &port.VerifyResult{IsValid: false}, fmt.Errorf("apple API returned %d: %s", resp.StatusCode, string(body))
-	}
-
+// VerifyPurchase は App Store Server API で単発購入トランザクションを検証する。
+func (v *Verifier) VerifyPurchase(ctx context.Context, _, purchaseToken string) (*port.VerifyResult, error) {
 	var apiResp struct {
 		SignedTransactionInfo string `json:"signedTransactionInfo"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, fmt.Errorf("decode Apple response: %w", err)
+	if err := v.getJSON(ctx, appleTransactionPath, purchaseToken, "Apple response", &apiResp); err != nil {
+		return nil, err
 	}
 
-	txnInfo, err := v.decodeJWSPayload(apiResp.SignedTransactionInfo)
+	txnInfo, err := v.decodeTransactionInfo(apiResp.SignedTransactionInfo)
 	if err != nil {
 		return nil, fmt.Errorf("decode transaction info: %w", err)
 	}
+	if txnInfo.BundleID != v.bundleID {
+		return &port.VerifyResult{IsValid: false}, nil
+	}
 
 	return &port.VerifyResult{
-		IsValid:       true,
-		TransactionID: txnInfo.TransactionID,
-		ProductID:     txnInfo.ProductID,
-		PurchaseTime:  time.UnixMilli(txnInfo.PurchaseDate),
+		IsValid:   true,
+		ProductID: txnInfo.ProductID,
 	}, nil
 }
 
-// VerifySubscription は App Store Server API v2 でサブスクリプションを検証する。
+// VerifySubscription は App Store Server API でサブスクリプションを検証する。
 func (v *Verifier) VerifySubscription(ctx context.Context, purchaseToken string) (*port.SubscriptionInfo, error) {
-	token, err := v.generateJWT()
-	if err != nil {
-		return nil, fmt.Errorf("generate JWT: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/inApps/v2/subscriptions/%s", v.baseURL, purchaseToken)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := v.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request to Apple: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("apple API returned %d (body read failed: %v)", resp.StatusCode, err)
-		}
-		return &port.SubscriptionInfo{IsValid: false}, fmt.Errorf("apple API returned %d: %s", resp.StatusCode, string(body))
-	}
-
 	var apiResp struct {
 		Data []struct {
 			LastTransactions []struct {
 				SignedTransactionInfo string `json:"signedTransactionInfo"`
-				SignedRenewalInfo     string `json:"signedRenewalInfo"`
 			} `json:"lastTransactions"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, fmt.Errorf("decode Apple subscription response: %w", err)
+	if err := v.getJSON(ctx, appleSubscriptionPath, purchaseToken, "Apple subscription response", &apiResp); err != nil {
+		return nil, err
 	}
 
 	if len(apiResp.Data) == 0 || len(apiResp.Data[0].LastTransactions) == 0 {
 		return &port.SubscriptionInfo{IsValid: false}, nil
 	}
 
-	lastTxn := apiResp.Data[0].LastTransactions[0]
-
-	txnInfo, err := v.decodeJWSPayload(lastTxn.SignedTransactionInfo)
+	txnInfo, err := v.decodeTransactionInfo(apiResp.Data[0].LastTransactions[0].SignedTransactionInfo)
 	if err != nil {
 		return nil, fmt.Errorf("decode transaction info: %w", err)
 	}
-
-	renewalInfo, err := v.decodeJWSRenewalPayload(lastTxn.SignedRenewalInfo)
-	if err != nil {
-		return nil, fmt.Errorf("decode renewal info: %w", err)
+	if txnInfo.BundleID != v.bundleID {
+		return &port.SubscriptionInfo{IsValid: false}, nil
+	}
+	if txnInfo.ExpiresDate == nil || *txnInfo.ExpiresDate == 0 {
+		return nil, fmt.Errorf("decode transaction info: expiresDate is missing")
 	}
 
 	return &port.SubscriptionInfo{
-		IsValid:        true,
-		ProductID:      txnInfo.ProductID,
-		TransactionID:  txnInfo.TransactionID,
-		ExpiresAt:      time.UnixMilli(txnInfo.ExpiresDate),
-		IsAutoRenewing: renewalInfo.AutoRenewStatus == 1,
+		IsValid:   true,
+		ProductID: txnInfo.ProductID,
+		ExpiresAt: time.UnixMilli(*txnInfo.ExpiresDate),
 	}, nil
+}
+
+// getJSON は認証付きで basePath に transactionID を連結した URL へ GET し、200 の応答本文を out に復号する。responseName は復号失敗のエラーに含める応答の呼び名。
+func (v *Verifier) getJSON(ctx context.Context, basePath, transactionID, responseName string, out any) error {
+	token, err := v.generateJWT()
+	if err != nil {
+		return fmt.Errorf("generate JWT: %w", err)
+	}
+
+	requestURL := v.baseURL + basePath + url.PathEscape(transactionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := v.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request to Apple: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("apple API returned %d (body read failed: %v)", resp.StatusCode, err)
+		}
+		return fmt.Errorf("apple API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode %s: %w", responseName, err)
+	}
+	return nil
+}
+
+type appleAPIClaims struct {
+	jwt.RegisteredClaims
+	// Apple は aud を文字列で定めるため、RegisteredClaims の配列の aud を同名の文字列フィールドで隠す。
+	Audience string `json:"aud"`
+	BundleID string `json:"bid"`
 }
 
 func (v *Verifier) generateJWT() (string, error) {
 	now := time.Now()
-	claims := jwt.RegisteredClaims{
-		Issuer:    v.issuerID,
-		IssuedAt:  jwt.NewNumericDate(now),
-		ExpiresAt: jwt.NewNumericDate(now.Add(20 * time.Minute)),
-		Audience:  jwt.ClaimStrings{"appstoreconnect-v1"},
+	claims := appleAPIClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    v.issuerID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(appleJWTLifetime)),
+		},
+		Audience: appleJWTAudience,
+		BundleID: v.bundleID,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
@@ -207,19 +208,13 @@ func (v *Verifier) generateJWT() (string, error) {
 }
 
 type appleTransactionInfo struct {
-	TransactionID string `json:"transactionId"`
-	ProductID     string `json:"productId"`
-	PurchaseDate  int64  `json:"purchaseDate"`
-	ExpiresDate   int64  `json:"expiresDate"`
-	BundleID      string `json:"bundleId"`
+	ProductID   string `json:"productId"`
+	ExpiresDate *int64 `json:"expiresDate"`
+	BundleID    string `json:"bundleId"`
 }
 
-type appleRenewalInfo struct {
-	AutoRenewStatus int `json:"autoRenewStatus"`
-}
-
-// decodeJWSPayload は Apple JWS を検証してから transaction payload を抽出する。
-func (v *Verifier) decodeJWSPayload(jws string) (*appleTransactionInfo, error) {
+// decodeTransactionInfo は Apple JWS を検証してから transaction payload を抽出する。
+func (v *Verifier) decodeTransactionInfo(jws string) (*appleTransactionInfo, error) {
 	payload, err := v.jwsVerifier.Verify(jws)
 	if err != nil {
 		return nil, fmt.Errorf("verify JWS: %w", err)
@@ -228,20 +223,6 @@ func (v *Verifier) decodeJWSPayload(jws string) (*appleTransactionInfo, error) {
 	var info appleTransactionInfo
 	if err := json.Unmarshal(payload, &info); err != nil {
 		return nil, fmt.Errorf("unmarshal transaction info: %w", err)
-	}
-	return &info, nil
-}
-
-// decodeJWSRenewalPayload は Apple JWS を検証してから renewal payload を抽出する。
-func (v *Verifier) decodeJWSRenewalPayload(jws string) (*appleRenewalInfo, error) {
-	payload, err := v.jwsVerifier.Verify(jws)
-	if err != nil {
-		return nil, fmt.Errorf("verify JWS: %w", err)
-	}
-
-	var info appleRenewalInfo
-	if err := json.Unmarshal(payload, &info); err != nil {
-		return nil, fmt.Errorf("unmarshal renewal info: %w", err)
 	}
 	return &info, nil
 }

@@ -9,7 +9,6 @@
 | 言語 | Go |
 | フレームワーク | Gin |
 | データベース | Cloud SQL PostgreSQL |
-| NoSQL | Cloud Firestore |
 | シークレット管理 | Secret Manager |
 | 同期通信 | REST |
 | 非同期通信 | Cloud Pub/Sub |

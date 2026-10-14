@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	"testing"
@@ -6,415 +6,478 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kenyamaneko/overload-party-shop/internal/config"
+	"github.com/kenyamaneko/overload-party-shop/internal/config/configtest"
 )
 
-// allEnvKeys は FromEnv が読む全 env キー。各テストは毎回これらを明示値（または ""）
-// で上書きし、シェル環境からの漏れで Given が非決定になるのを防ぐ。
-// testPublicKeyPEM は config が値をそのまま保持することの確認にだけ使うダミー。
-// 鍵としての妥当性は検証しないため、PEM の体裁だけ揃えている。
-const testPublicKeyPEM = "-----BEGIN PUBLIC KEY-----\ndummy-not-a-real-key\n-----END PUBLIC KEY-----\n"
-
-var allEnvKeys = []string{
-	"PORT",
-	"DATABASE_CONN",
-	"GOOGLE_CLOUD_PROJECT",
-	"CARD_PACK_PURCHASED_TOPIC",
-	"FACTION_ACQUIRED_TOPIC",
-	"PREMIUM_UPDATED_TOPIC",
-	"IAP_VERIFIER",
-	"LOG_MODE",
-	"APPLE_ENVIRONMENT",
-	"APPLE_KEY_ID",
-	"APPLE_ISSUER_ID",
-	"APPLE_BUNDLE_ID",
-	"APPLE_PRIVATE_KEY_PATH",
-	"GOOGLE_PACKAGE_NAME",
-	"OUTBOX_POLL_INTERVAL",
-	"OUTBOX_BATCH_SIZE",
-	"OUTBOX_FAILURE_THRESHOLD",
-	"OUTBOX_VISIBILITY_TIMEOUT",
-	"INTERNAL_AUTH_PUBLIC_KEY",
-	"DATABASE_IAM_AUTH_ENABLED",
-	"CLOUDSQL_CONNECTION_NAME",
-	"PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL",
-	"PUBSUB_PUSH_AUDIENCE",
-}
-
-// setEnv は allEnvKeys を一括で上書きする。envs に無いキーは "" (未設定相当) として
-// t.Setenv で適用する — os.Getenv は "" と unset を区別しないため、空文字指定で
-// required チェックの missing 経路を発火できる。t.Setenv はテスト終了時に復元する。
-func setEnv(t *testing.T, envs map[string]string) {
-	t.Helper()
-	for _, k := range allEnvKeys {
-		t.Setenv(k, envs[k])
-	}
-}
-
-func mergeEnv(maps ...map[string]string) map[string]string {
-	out := map[string]string{}
-	for _, m := range maps {
-		for k, v := range m {
-			out[k] = v
-		}
-	}
-	return out
-}
-
-// validLocalEnv は IAP_VERIFIER=stub での最小構成（必須 env を全て明示）。
-// CLAUDE.md「デフォルト値へのフォールバックを行わない」方針により、
-// 全必須 env を明示的に供給する。各ケースはこれを baseline に override を重ねる。
-var validLocalEnv = map[string]string{
-	"PORT":                      "9006",
-	"DATABASE_CONN":             "host=localhost port=5432 dbname=test sslmode=disable",
-	"GOOGLE_CLOUD_PROJECT":      "test-project",
-	"CARD_PACK_PURCHASED_TOPIC": "card-pack-purchased",
-	"FACTION_ACQUIRED_TOPIC":    "faction-acquired",
-	"PREMIUM_UPDATED_TOPIC":     "premium-updated",
-	"IAP_VERIFIER":              "stub",
-	"LOG_MODE":                  "local",
-	"OUTBOX_POLL_INTERVAL":      "1s",
-	"OUTBOX_BATCH_SIZE":         "100",
-	"OUTBOX_FAILURE_THRESHOLD":  "5",
-	"OUTBOX_VISIBILITY_TIMEOUT": "30s",
-	"INTERNAL_AUTH_PUBLIC_KEY":  testPublicKeyPEM,
-	"DATABASE_IAM_AUTH_ENABLED": "false",
-}
-
-// validPubSubPushEnv は IAP_VERIFIER=store のときに追加で必須になる、Google webhook の
-// Pub/Sub push 認証用 env の最小構成。
-var validPubSubPushEnv = map[string]string{
-	"PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL": "pubsub-push@test-project.iam.gserviceaccount.com",
-	"PUBSUB_PUSH_AUDIENCE":              "overload-party-pubsub-push-shop-test",
-}
+const stubEnvGiven = "IAP_VERIFIERがstubで、他の必須環境変数がすべて有効な値で設定されているとき"
 
 func TestFromEnv(t *testing.T) {
-	t.Run("環境変数からのConfig構築", func(t *testing.T) {
-		t.Run("IAP設定が未指定のlocal modeのとき、起動に成功しAppleKeyIDは空になる", func(t *testing.T) {
-			setEnv(t, validLocalEnv)
+	t.Run("[起動設定]必須の環境変数", func(t *testing.T) {
+		t.Run(stubEnvGiven, func(t *testing.T) {
+			t.Run("異常系", func(t *testing.T) {
+				t.Run("必須の環境変数が未設定のとき", func(t *testing.T) {
+					configtest.RunErrorCases(t, configtest.StubEnvWith, []configtest.ErrorCase{
+						{
+							Name:         "PORTのとき、PORTが必須であることを示すエラーになる",
+							Env:          map[string]string{"PORT": ""},
+							WantContains: []string{"PORT", "is required"},
+						},
+						{
+							Name:         "DATABASE_CONNのとき、DATABASE_CONNが必須であることを示すエラーになる",
+							Env:          map[string]string{"DATABASE_CONN": ""},
+							WantContains: []string{"DATABASE_CONN", "is required"},
+						},
+						{
+							Name:         "GOOGLE_CLOUD_PROJECTのとき、GOOGLE_CLOUD_PROJECTが必須であることを示すエラーになる",
+							Env:          map[string]string{"GOOGLE_CLOUD_PROJECT": ""},
+							WantContains: []string{"GOOGLE_CLOUD_PROJECT", "is required"},
+						},
+						{
+							Name:         "CARD_PACK_PURCHASED_TOPICのとき、CARD_PACK_PURCHASED_TOPICが必須であることを示すエラーになる",
+							Env:          map[string]string{"CARD_PACK_PURCHASED_TOPIC": ""},
+							WantContains: []string{"CARD_PACK_PURCHASED_TOPIC", "is required"},
+						},
+						{
+							Name:         "FACTION_ACQUIRED_TOPICのとき、FACTION_ACQUIRED_TOPICが必須であることを示すエラーになる",
+							Env:          map[string]string{"FACTION_ACQUIRED_TOPIC": ""},
+							WantContains: []string{"FACTION_ACQUIRED_TOPIC", "is required"},
+						},
+						{
+							Name:         "PREMIUM_UPDATED_TOPICのとき、PREMIUM_UPDATED_TOPICが必須であることを示すエラーになる",
+							Env:          map[string]string{"PREMIUM_UPDATED_TOPIC": ""},
+							WantContains: []string{"PREMIUM_UPDATED_TOPIC", "is required"},
+						},
+						{
+							Name:         "INTERNAL_AUTH_PUBLIC_KEYのとき、INTERNAL_AUTH_PUBLIC_KEYが必須であることを示すエラーになる",
+							Env:          map[string]string{"INTERNAL_AUTH_PUBLIC_KEY": ""},
+							WantContains: []string{"INTERNAL_AUTH_PUBLIC_KEY", "is required"},
+						},
+					})
+				})
 
-			cfg, err := FromEnv()
+				t.Run("PORTがabcのとき、PORTと入力値abcを含むエラーになる", func(t *testing.T) {
+					configtest.AssertConfigError(t,
+						configtest.StubEnvWith(map[string]string{"PORT": "abc"}),
+						[]string{"PORT", "abc"},
+					)
+				})
 
-			require.NoError(t, err)
-			assert.Equal(t, IAPVerifierStub, cfg.IAPVerifier)
-			assert.Equal(t, LogModeLocal, cfg.LogMode)
-			assert.Empty(t, cfg.AppleKeyID)
-		})
-
-		t.Run("必須envが揃うとき、全フィールドがConfigに伝搬する", func(t *testing.T) {
-			setEnv(t, validLocalEnv)
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.Equal(t, 9006, cfg.Port)
-			assert.Equal(t, "host=localhost port=5432 dbname=test sslmode=disable", cfg.DatabaseConn)
-			assert.Equal(t, "test-project", cfg.GoogleCloudProject)
-			assert.Equal(t, "card-pack-purchased", cfg.CardPackPurchasedTopic)
-			assert.Equal(t, "faction-acquired", cfg.FactionAcquiredTopic)
-			assert.Equal(t, "premium-updated", cfg.PremiumUpdatedTopic)
-			assert.Equal(t, testPublicKeyPEM, cfg.InternalAuthPublicKey)
-		})
-
-		t.Run("DATABASE_IAM_AUTH_ENABLEDがfalseのとき、CLOUDSQL_CONNECTION_NAMEが未設定でも成功する", func(t *testing.T) {
-			setEnv(t, validLocalEnv)
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.False(t, cfg.DatabaseIAMAuthEnabled)
-			assert.Empty(t, cfg.CloudSQLConnectionName)
-		})
-
-		t.Run("DATABASE_IAM_AUTH_ENABLEDがtrueかつCLOUDSQL_CONNECTION_NAMEが指定されるとき、両方の値がConfigに反映される", func(t *testing.T) {
-			setEnv(t, mergeEnv(validLocalEnv, map[string]string{
-				"DATABASE_IAM_AUTH_ENABLED": "true",
-				"CLOUDSQL_CONNECTION_NAME":  "overload-party-dev:asia-northeast1:overload-party-db",
-			}))
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.True(t, cfg.DatabaseIAMAuthEnabled)
-			assert.Equal(t, "overload-party-dev:asia-northeast1:overload-party-db", cfg.CloudSQLConnectionName)
-		})
-
-		t.Run("OUTBOX_POLL_INTERVAL等のoutbox envが指定されるとき、値がConfigに反映される", func(t *testing.T) {
-			setEnv(t, validLocalEnv)
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.Equal(t, 1*time.Second, cfg.OutboxPollInterval)
-			assert.Equal(t, 100, cfg.OutboxBatchSize)
-			assert.Equal(t, 5, cfg.OutboxFailureThreshold)
-			assert.Equal(t, 30*time.Second, cfg.OutboxVisibilityTimeout)
-		})
-
-		t.Run("OUTBOX_BATCH_SIZEが有効最小の1のとき、バッチサイズに1が設定される", func(t *testing.T) {
-			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_BATCH_SIZE": "1"}))
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.Equal(t, 1, cfg.OutboxBatchSize)
-		})
-
-		t.Run("OUTBOX_FAILURE_THRESHOLDが有効最小の1のとき、失敗閾値に1が設定される", func(t *testing.T) {
-			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": "1"}))
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.Equal(t, 1, cfg.OutboxFailureThreshold)
-		})
-
-		t.Run("OUTBOX_VISIBILITY_TIMEOUTが下限ちょうどの1msのとき、可視性タイムアウトに1msが設定される", func(t *testing.T) {
-			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "1ms"}))
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.Equal(t, time.Millisecond, cfg.OutboxVisibilityTimeout)
-		})
-
-		t.Run("OUTBOX_POLL_INTERVALが正の最小値 (1ns)のとき、ポーリング間隔に1nsが設定される", func(t *testing.T) {
-			setEnv(t, mergeEnv(validLocalEnv, map[string]string{"OUTBOX_POLL_INTERVAL": "1ns"}))
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.Equal(t, time.Nanosecond, cfg.OutboxPollInterval)
-		})
-
-		t.Run("local modeでAPPLE_KEY_ID等のIAP envが指定されるとき、値がConfigに反映される", func(t *testing.T) {
-			setEnv(t, mergeEnv(validLocalEnv, map[string]string{
-				"APPLE_KEY_ID":           "KEY123",
-				"APPLE_ISSUER_ID":        "ISS456",
-				"APPLE_BUNDLE_ID":        "com.test.app",
-				"APPLE_PRIVATE_KEY_PATH": "/tmp/test.p8",
-				"GOOGLE_PACKAGE_NAME":    "com.test.android",
-			}))
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.Equal(t, "KEY123", cfg.AppleKeyID)
-			assert.Equal(t, "ISS456", cfg.AppleIssuerID)
-			assert.Equal(t, "com.test.app", cfg.AppleBundleID)
-			assert.Equal(t, "/tmp/test.p8", cfg.ApplePrivateKeyPath)
-			assert.Equal(t, "com.test.android", cfg.GooglePackageName)
-		})
-
-		t.Run("PORTと各topic envがbaselineから上書きされるとき、上書き後の値がConfigに反映される", func(t *testing.T) {
-			setEnv(t, mergeEnv(validLocalEnv, map[string]string{
-				"PORT":                      "8080",
-				"CARD_PACK_PURCHASED_TOPIC": "card-pack-purchased-ci",
-				"FACTION_ACQUIRED_TOPIC":    "faction-acquired-ci",
-				"PREMIUM_UPDATED_TOPIC":     "premium-updated-ci",
-			}))
-
-			cfg, err := FromEnv()
-
-			require.NoError(t, err)
-			assert.Equal(t, 8080, cfg.Port)
-			assert.Equal(t, "card-pack-purchased-ci", cfg.CardPackPurchasedTopic)
-			assert.Equal(t, "faction-acquired-ci", cfg.FactionAcquiredTopic)
-			assert.Equal(t, "premium-updated-ci", cfg.PremiumUpdatedTopic)
-		})
-
-		// 必須 env が未設定・未定義値のときはデフォルトにフォールバックせず即エラーにする (回帰防止)。
-		invalidCases := []struct {
-			name    string
-			envs    map[string]string
-			wantErr string
-		}{
-			{
-				name:    "PORTが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"PORT": ""}),
-				wantErr: "PORT is required",
-			},
-			{
-				name:    "PORTが数値でないとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"PORT": "not-a-number"}),
-				wantErr: "PORT",
-			},
-			{
-				name:    "DATABASE_CONNが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"DATABASE_CONN": ""}),
-				wantErr: "DATABASE_CONN is required",
-			},
-			{
-				name:    "GOOGLE_CLOUD_PROJECTが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"GOOGLE_CLOUD_PROJECT": ""}),
-				wantErr: "GOOGLE_CLOUD_PROJECT is required",
-			},
-			{
-				name:    "CARD_PACK_PURCHASED_TOPICが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"CARD_PACK_PURCHASED_TOPIC": ""}),
-				wantErr: "CARD_PACK_PURCHASED_TOPIC is required",
-			},
-			{
-				name:    "FACTION_ACQUIRED_TOPICが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"FACTION_ACQUIRED_TOPIC": ""}),
-				wantErr: "FACTION_ACQUIRED_TOPIC is required",
-			},
-			{
-				name:    "PREMIUM_UPDATED_TOPICが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"PREMIUM_UPDATED_TOPIC": ""}),
-				wantErr: "PREMIUM_UPDATED_TOPIC is required",
-			},
-			{
-				name:    "IAP_VERIFIERが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"IAP_VERIFIER": ""}),
-				wantErr: "IAP_VERIFIER must be",
-			},
-			{
-				name:    "IAP_VERIFIERが未定義値 (invalid)のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"IAP_VERIFIER": "invalid"}),
-				wantErr: "IAP_VERIFIER must be",
-			},
-			{
-				name:    "LOG_MODEが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"LOG_MODE": ""}),
-				wantErr: "LOG_MODE must be",
-			},
-			{
-				name:    "LOG_MODEが未定義値 (invalid)のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"LOG_MODE": "invalid"}),
-				wantErr: "LOG_MODE must be",
-			},
-			{
-				name: "IAP_VERIFIERがstoreかつAPPLE_ENVIRONMENTが未設定のとき、エラーになる",
-				envs: mergeEnv(validLocalEnv, validPubSubPushEnv, map[string]string{
-					"IAP_VERIFIER":      "store",
-					"APPLE_ENVIRONMENT": "",
-				}),
-				wantErr: "APPLE_ENVIRONMENT must be",
-			},
-			{
-				name: "IAP_VERIFIERがstoreかつAPPLE_ENVIRONMENTが未定義値 (staging)のとき、エラーになる",
-				envs: mergeEnv(validLocalEnv, validPubSubPushEnv, map[string]string{
-					"IAP_VERIFIER":      "store",
-					"APPLE_ENVIRONMENT": "staging",
-				}),
-				wantErr: "APPLE_ENVIRONMENT must be",
-			},
-			{
-				name: "IAP_VERIFIERがstoreかつPUBSUB_PUSH_SERVICE_ACCOUNT_EMAILが未設定のとき、エラーになる",
-				envs: mergeEnv(validLocalEnv, validPubSubPushEnv, map[string]string{
-					"IAP_VERIFIER":                      "store",
-					"APPLE_ENVIRONMENT":                 "Sandbox",
-					"PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL": "",
-				}),
-				wantErr: "PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL is required",
-			},
-			{
-				name: "IAP_VERIFIERがstoreかつPUBSUB_PUSH_AUDIENCEが未設定のとき、エラーになる",
-				envs: mergeEnv(validLocalEnv, validPubSubPushEnv, map[string]string{
-					"IAP_VERIFIER":         "store",
-					"APPLE_ENVIRONMENT":    "Sandbox",
-					"PUBSUB_PUSH_AUDIENCE": "",
-				}),
-				wantErr: "PUBSUB_PUSH_AUDIENCE is required",
-			},
-			{
-				name:    "OUTBOX_POLL_INTERVALが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_POLL_INTERVAL": ""}),
-				wantErr: "OUTBOX_POLL_INTERVAL is required",
-			},
-			{
-				name:    "OUTBOX_POLL_INTERVALがdurationとしてパースできない (abc)のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_POLL_INTERVAL": "abc"}),
-				wantErr: "OUTBOX_POLL_INTERVAL",
-			},
-			{
-				name:    "OUTBOX_POLL_INTERVALが0sのとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_POLL_INTERVAL": "0s"}),
-				wantErr: "OUTBOX_POLL_INTERVAL must be positive",
-			},
-			{
-				name:    "OUTBOX_BATCH_SIZEが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_BATCH_SIZE": ""}),
-				wantErr: "OUTBOX_BATCH_SIZE is required",
-			},
-			{
-				name:    "OUTBOX_BATCH_SIZEが数値でない (abc)のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_BATCH_SIZE": "abc"}),
-				wantErr: "OUTBOX_BATCH_SIZE",
-			},
-			{
-				name:    "OUTBOX_BATCH_SIZEが0のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_BATCH_SIZE": "0"}),
-				wantErr: "OUTBOX_BATCH_SIZE must be positive",
-			},
-			{
-				name:    "OUTBOX_FAILURE_THRESHOLDが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": ""}),
-				wantErr: "OUTBOX_FAILURE_THRESHOLD is required",
-			},
-			{
-				name:    "OUTBOX_FAILURE_THRESHOLDが0のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": "0"}),
-				wantErr: "OUTBOX_FAILURE_THRESHOLD must be positive",
-			},
-			{
-				name:    "OUTBOX_FAILURE_THRESHOLDが数値でない (abc)のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_FAILURE_THRESHOLD": "abc"}),
-				wantErr: "OUTBOX_FAILURE_THRESHOLD",
-			},
-			{
-				name:    "OUTBOX_VISIBILITY_TIMEOUTが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": ""}),
-				wantErr: "OUTBOX_VISIBILITY_TIMEOUT is required",
-			},
-			{
-				name:    "OUTBOX_VISIBILITY_TIMEOUTがdurationとしてパースできない (abc)のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "abc"}),
-				wantErr: "OUTBOX_VISIBILITY_TIMEOUT",
-			},
-			{
-				name:    "OUTBOX_VISIBILITY_TIMEOUTが0sのとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "0s"}),
-				wantErr: "OUTBOX_VISIBILITY_TIMEOUT must be >= 1ms",
-			},
-			{
-				name:    "OUTBOX_VISIBILITY_TIMEOUTが1ms未満 (500us)のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "500us"}),
-				wantErr: "OUTBOX_VISIBILITY_TIMEOUT must be >= 1ms",
-			},
-			{
-				name:    "INTERNAL_AUTH_PUBLIC_KEYが未設定のとき、エラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"INTERNAL_AUTH_PUBLIC_KEY": ""}),
-				wantErr: "INTERNAL_AUTH_PUBLIC_KEY is required",
-			},
-			{
-				name:    "DATABASE_IAM_AUTH_ENABLEDが未設定のとき、変数名を含むエラーになる",
-				envs:    mergeEnv(validLocalEnv, map[string]string{"DATABASE_IAM_AUTH_ENABLED": ""}),
-				wantErr: "DATABASE_IAM_AUTH_ENABLED must be",
-			},
-			{
-				name:    `DATABASE_IAM_AUTH_ENABLEDが "true"/"false" 以外の "yes" のとき、変数名を含むエラーになる`,
-				envs:    mergeEnv(validLocalEnv, map[string]string{"DATABASE_IAM_AUTH_ENABLED": "yes"}),
-				wantErr: "DATABASE_IAM_AUTH_ENABLED must be",
-			},
-			{
-				name: "DATABASE_IAM_AUTH_ENABLEDがtrueかつCLOUDSQL_CONNECTION_NAMEが未設定のとき、CLOUDSQL_CONNECTION_NAMEを含むエラーになる",
-				envs: mergeEnv(validLocalEnv, map[string]string{
-					"DATABASE_IAM_AUTH_ENABLED": "true",
-					"CLOUDSQL_CONNECTION_NAME":  "",
-				}),
-				wantErr: "CLOUDSQL_CONNECTION_NAME is required",
-			},
-		}
-		for _, tc := range invalidCases {
-			t.Run(tc.name, func(t *testing.T) {
-				setEnv(t, tc.envs)
-
-				_, err := FromEnv()
-
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.wantErr)
+				t.Run("PORTが数値でも範囲の外のとき", func(t *testing.T) {
+					configtest.RunErrorCases(t, configtest.StubEnvWith, []configtest.ErrorCase{
+						{
+							Name:         "0のとき、PORTと入力値0と許容範囲を含むエラーになる",
+							Env:          map[string]string{"PORT": "0"},
+							WantContains: []string{"PORT", "0", "1", "65535"},
+						},
+						{
+							Name:         "65536のとき、PORTと入力値65536と許容範囲を含むエラーになる",
+							Env:          map[string]string{"PORT": "65536"},
+							WantContains: []string{"PORT", "65536", "1", "65535"},
+						},
+					})
+				})
 			})
-		}
+		})
+	})
+
+	t.Run("[起動設定]環境変数の値の読み取り", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run(stubEnvGiven, func(t *testing.T) {
+				const dummyConn = "host=tst-db-host port=5432 dbname=tst_db user=tst_user password=TST-PASSWORD sslmode=disable"
+				const dummyPublicKey = "-----BEGIN PUBLIC KEY-----\nTST-DUMMY-LINE-1\nTST-DUMMY-LINE-2\n-----END PUBLIC KEY-----\n"
+				configtest.RunReadCases(t, configtest.StubEnvWith, []configtest.ReadCase{
+					{
+						Name: "PORTが9006のとき、待ち受けポートが9006になる",
+						Env:  map[string]string{"PORT": "9006"},
+						Read: func(cfg *config.Config) any { return cfg.Port },
+						Want: 9006,
+					},
+					{
+						Name: "PORTが1のとき、待ち受けポートが1になる",
+						Env:  map[string]string{"PORT": "1"},
+						Read: func(cfg *config.Config) any { return cfg.Port },
+						Want: 1,
+					},
+					{
+						Name: "PORTが65535のとき、待ち受けポートが65535になる",
+						Env:  map[string]string{"PORT": "65535"},
+						Read: func(cfg *config.Config) any { return cfg.Port },
+						Want: 65535,
+					},
+					{
+						Name: "DATABASE_CONNがダミーの接続文字列のとき、データベース接続文字列が同じ文字列になる",
+						Env:  map[string]string{"DATABASE_CONN": dummyConn},
+						Read: func(cfg *config.Config) any { return cfg.DatabaseConn },
+						Want: dummyConn,
+					},
+					{
+						Name: "GOOGLE_CLOUD_PROJECTがtest-projectのとき、GoogleCloudプロジェクトがtest-projectになる",
+						Env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project"},
+						Read: func(cfg *config.Config) any { return cfg.GoogleCloudProject },
+						Want: "test-project",
+					},
+					{
+						Name: "CARD_PACK_PURCHASED_TOPICがtest-card-pack-purchasedのとき、カードパック購入通知のトピックがtest-card-pack-purchasedになる",
+						Env:  map[string]string{"CARD_PACK_PURCHASED_TOPIC": "test-card-pack-purchased"},
+						Read: func(cfg *config.Config) any { return cfg.CardPackPurchasedTopic },
+						Want: "test-card-pack-purchased",
+					},
+					{
+						Name: "FACTION_ACQUIRED_TOPICがtest-faction-acquiredのとき、陣営獲得通知のトピックがtest-faction-acquiredになる",
+						Env:  map[string]string{"FACTION_ACQUIRED_TOPIC": "test-faction-acquired"},
+						Read: func(cfg *config.Config) any { return cfg.FactionAcquiredTopic },
+						Want: "test-faction-acquired",
+					},
+					{
+						Name: "PREMIUM_UPDATED_TOPICがtest-premium-updatedのとき、プレミアム更新通知のトピックがtest-premium-updatedになる",
+						Env:  map[string]string{"PREMIUM_UPDATED_TOPIC": "test-premium-updated"},
+						Read: func(cfg *config.Config) any { return cfg.PremiumUpdatedTopic },
+						Want: "test-premium-updated",
+					},
+					{
+						Name: "INTERNAL_AUTH_PUBLIC_KEYが改行を含むダミーのPEM文字列のとき、内部認証の公開鍵が改行を含めて同じ文字列になる",
+						Env:  map[string]string{"INTERNAL_AUTH_PUBLIC_KEY": dummyPublicKey},
+						Read: func(cfg *config.Config) any { return cfg.InternalAuthPublicKey },
+						Want: dummyPublicKey,
+					},
+				})
+			})
+		})
+	})
+
+	t.Run("[起動設定]データベースのIAM認証", func(t *testing.T) {
+		t.Run(stubEnvGiven, func(t *testing.T) {
+			t.Run("正常系", func(t *testing.T) {
+				t.Run("DATABASE_IAM_AUTH_ENABLEDがfalseのとき", func(t *testing.T) {
+					t.Run("IAM認証は無効になる", func(t *testing.T) {
+						cfg, err := configtest.LoadConfig(t, configtest.StubEnvWith(map[string]string{
+							"DATABASE_IAM_AUTH_ENABLED": "false",
+						}))
+						require.NoError(t, err)
+						assert.False(t, cfg.DatabaseIAMAuthEnabled)
+					})
+
+					t.Run("CLOUDSQL_CONNECTION_NAMEが設定されているとき、CloudSQL接続名は空になる", func(t *testing.T) {
+						cfg, err := configtest.LoadConfig(t, configtest.StubEnvWith(map[string]string{
+							"DATABASE_IAM_AUTH_ENABLED": "false",
+							"CLOUDSQL_CONNECTION_NAME":  "tst-project:tst-region:tst-instance",
+						}))
+						require.NoError(t, err)
+						assert.Empty(t, cfg.CloudSQLConnectionName)
+					})
+				})
+
+				t.Run("DATABASE_IAM_AUTH_ENABLEDがtrueでCLOUDSQL_CONNECTION_NAMEが設定されているとき", func(t *testing.T) {
+					env := configtest.StubEnvWith(map[string]string{
+						"DATABASE_IAM_AUTH_ENABLED": "true",
+						"CLOUDSQL_CONNECTION_NAME":  "tst-project:tst-region:tst-instance",
+					})
+
+					t.Run("IAM認証は有効になる", func(t *testing.T) {
+						cfg, err := configtest.LoadConfig(t, env)
+						require.NoError(t, err)
+						assert.True(t, cfg.DatabaseIAMAuthEnabled)
+					})
+
+					t.Run("CloudSQL接続名がCLOUDSQL_CONNECTION_NAMEの値になる", func(t *testing.T) {
+						cfg, err := configtest.LoadConfig(t, env)
+						require.NoError(t, err)
+						assert.Equal(t, "tst-project:tst-region:tst-instance", cfg.CloudSQLConnectionName)
+					})
+				})
+			})
+
+			t.Run("異常系", func(t *testing.T) {
+				t.Run("DATABASE_IAM_AUTH_ENABLEDがtrueでもfalseでもないとき", func(t *testing.T) {
+					configtest.RunErrorCases(t, configtest.StubEnvWith, []configtest.ErrorCase{
+						{
+							Name:         "未設定のとき、DATABASE_IAM_AUTH_ENABLEDの許容値を示すエラーになる",
+							Env:          map[string]string{"DATABASE_IAM_AUTH_ENABLED": ""},
+							WantContains: []string{"DATABASE_IAM_AUTH_ENABLED", "true", "false"},
+						},
+						{
+							Name:         "yesのとき、DATABASE_IAM_AUTH_ENABLEDの許容値と入力値yesを含むエラーになる",
+							Env:          map[string]string{"DATABASE_IAM_AUTH_ENABLED": "yes"},
+							WantContains: []string{"DATABASE_IAM_AUTH_ENABLED", "true", "false", "yes"},
+						},
+					})
+				})
+
+				t.Run("DATABASE_IAM_AUTH_ENABLEDがtrueでCLOUDSQL_CONNECTION_NAMEが未設定のとき、CLOUDSQL_CONNECTION_NAMEが必須であることを示すエラーになる", func(t *testing.T) {
+					configtest.AssertConfigError(t,
+						configtest.StubEnvWith(map[string]string{
+							"DATABASE_IAM_AUTH_ENABLED": "true",
+							"CLOUDSQL_CONNECTION_NAME":  "",
+						}),
+						[]string{"CLOUDSQL_CONNECTION_NAME", "is required"},
+					)
+				})
+			})
+		})
+	})
+
+	t.Run("[起動設定]ログ出力方式", func(t *testing.T) {
+		t.Run(stubEnvGiven, func(t *testing.T) {
+			t.Run("正常系", func(t *testing.T) {
+				configtest.RunReadCases(t, configtest.StubEnvWith, []configtest.ReadCase{
+					{
+						Name: "LOG_MODEがlocalのとき、ログ出力方式がlocalになる",
+						Env:  map[string]string{"LOG_MODE": "local"},
+						Read: func(cfg *config.Config) any { return cfg.LogMode },
+						Want: config.LogMode("local"),
+					},
+					{
+						Name: "LOG_MODEがproductionのとき、ログ出力方式がproductionになる",
+						Env:  map[string]string{"LOG_MODE": "production"},
+						Read: func(cfg *config.Config) any { return cfg.LogMode },
+						Want: config.LogMode("production"),
+					},
+				})
+			})
+
+			t.Run("異常系", func(t *testing.T) {
+				configtest.RunErrorCases(t, configtest.StubEnvWith, []configtest.ErrorCase{
+					{
+						Name:         "LOG_MODEが未設定のとき、LOG_MODEの許容値を示すエラーになる",
+						Env:          map[string]string{"LOG_MODE": ""},
+						WantContains: []string{"LOG_MODE", "production", "local"},
+					},
+					{
+						Name:         "LOG_MODEがinvalidのとき、LOG_MODEの許容値と入力値invalidを含むエラーになる",
+						Env:          map[string]string{"LOG_MODE": "invalid"},
+						WantContains: []string{"LOG_MODE", "production", "local", "invalid"},
+					},
+				})
+			})
+		})
+	})
+
+	t.Run("[起動設定]レシート検証方式", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("IAP_VERIFIERがstubで、他の必須環境変数がすべて有効な値で、ストア連携用の環境変数が一つも設定されていないとき、レシート検証方式がstubになる", func(t *testing.T) {
+				cfg, err := configtest.LoadConfig(t, configtest.StubEnvWith(map[string]string{
+					"IAP_VERIFIER":                      "stub",
+					"APPLE_ENVIRONMENT":                 "",
+					"PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL": "",
+					"PUBSUB_PUSH_AUDIENCE":              "",
+				}))
+				require.NoError(t, err)
+				assert.Equal(t, config.IAPVerifier("stub"), cfg.IAPVerifier)
+			})
+		})
+
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("他の必須環境変数がすべて有効な値で設定されているとき", func(t *testing.T) {
+				t.Run("IAP_VERIFIERが不正なとき", func(t *testing.T) {
+					configtest.RunErrorCases(t, configtest.StubEnvWith, []configtest.ErrorCase{
+						{
+							Name:         "未設定のとき、IAP_VERIFIERの許容値を示すエラーになる",
+							Env:          map[string]string{"IAP_VERIFIER": ""},
+							WantContains: []string{"IAP_VERIFIER", "store", "stub"},
+						},
+						{
+							Name:         "invalidのとき、IAP_VERIFIERの許容値と入力値invalidを含むエラーになる",
+							Env:          map[string]string{"IAP_VERIFIER": "invalid"},
+							WantContains: []string{"IAP_VERIFIER", "store", "stub", "invalid"},
+						},
+					})
+				})
+
+				t.Run("IAP_VERIFIERがstoreのとき", func(t *testing.T) {
+					t.Run("PubSubプッシュ用の環境変数の片方だけが未設定のとき", func(t *testing.T) {
+						configtest.RunErrorCases(t, configtest.StoreEnvWith, []configtest.ErrorCase{
+							{
+								Name:         "PUBSUB_PUSH_SERVICE_ACCOUNT_EMAILのとき、PUBSUB_PUSH_SERVICE_ACCOUNT_EMAILが必須であることを示すエラーになる",
+								Env:          map[string]string{"PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL": ""},
+								WantContains: []string{"PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL", "is required"},
+							},
+							{
+								Name:         "PUBSUB_PUSH_AUDIENCEのとき、PUBSUB_PUSH_AUDIENCEが必須であることを示すエラーになる",
+								Env:          map[string]string{"PUBSUB_PUSH_AUDIENCE": ""},
+								WantContains: []string{"PUBSUB_PUSH_AUDIENCE", "is required"},
+							},
+						})
+					})
+
+					t.Run("PubSubプッシュ用の環境変数が両方設定されているとき", func(t *testing.T) {
+						configtest.RunErrorCases(t, configtest.StoreEnvWith, []configtest.ErrorCase{
+							{
+								Name:         "APPLE_ENVIRONMENTが未設定のとき、APPLE_ENVIRONMENTの許容値を示すエラーになる",
+								Env:          map[string]string{"APPLE_ENVIRONMENT": ""},
+								WantContains: []string{"APPLE_ENVIRONMENT", "Production", "Sandbox"},
+							},
+							{
+								Name:         "APPLE_ENVIRONMENTがstagingのとき、APPLE_ENVIRONMENTの許容値と入力値stagingを含むエラーになる",
+								Env:          map[string]string{"APPLE_ENVIRONMENT": "staging"},
+								WantContains: []string{"APPLE_ENVIRONMENT", "Production", "Sandbox", "staging"},
+							},
+						})
+					})
+				})
+			})
+		})
+	})
+
+	t.Run("[起動設定]outbox送信の設定値", func(t *testing.T) {
+		t.Run(stubEnvGiven, func(t *testing.T) {
+			t.Run("正常系", func(t *testing.T) {
+				t.Run("OUTBOX_POLL_INTERVAL", func(t *testing.T) {
+					configtest.RunReadCases(t, configtest.StubEnvWith, []configtest.ReadCase{
+						{
+							Name: "1sのとき、outboxのポーリング間隔が1秒になる",
+							Env:  map[string]string{"OUTBOX_POLL_INTERVAL": "1s"},
+							Read: func(cfg *config.Config) any { return cfg.OutboxPollInterval },
+							Want: time.Second,
+						},
+						{
+							Name: "1nsのとき、outboxのポーリング間隔が1ナノ秒になる",
+							Env:  map[string]string{"OUTBOX_POLL_INTERVAL": "1ns"},
+							Read: func(cfg *config.Config) any { return cfg.OutboxPollInterval },
+							Want: time.Nanosecond,
+						},
+					})
+				})
+
+				t.Run("OUTBOX_BATCH_SIZE", func(t *testing.T) {
+					configtest.RunReadCases(t, configtest.StubEnvWith, []configtest.ReadCase{
+						{
+							Name: "100のとき、outboxのバッチサイズが100になる",
+							Env:  map[string]string{"OUTBOX_BATCH_SIZE": "100"},
+							Read: func(cfg *config.Config) any { return cfg.OutboxBatchSize },
+							Want: 100,
+						},
+						{
+							Name: "1のとき、outboxのバッチサイズが1になる",
+							Env:  map[string]string{"OUTBOX_BATCH_SIZE": "1"},
+							Read: func(cfg *config.Config) any { return cfg.OutboxBatchSize },
+							Want: 1,
+						},
+					})
+				})
+
+				t.Run("OUTBOX_FAILURE_THRESHOLD", func(t *testing.T) {
+					configtest.RunReadCases(t, configtest.StubEnvWith, []configtest.ReadCase{
+						{
+							Name: "5のとき、outboxの失敗閾値が5になる",
+							Env:  map[string]string{"OUTBOX_FAILURE_THRESHOLD": "5"},
+							Read: func(cfg *config.Config) any { return cfg.OutboxFailureThreshold },
+							Want: 5,
+						},
+						{
+							Name: "1のとき、outboxの失敗閾値が1になる",
+							Env:  map[string]string{"OUTBOX_FAILURE_THRESHOLD": "1"},
+							Read: func(cfg *config.Config) any { return cfg.OutboxFailureThreshold },
+							Want: 1,
+						},
+					})
+				})
+
+				t.Run("OUTBOX_VISIBILITY_TIMEOUT", func(t *testing.T) {
+					configtest.RunReadCases(t, configtest.StubEnvWith, []configtest.ReadCase{
+						{
+							Name: "30sのとき、outboxの可視性タイムアウトが30秒になる",
+							Env:  map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "30s"},
+							Read: func(cfg *config.Config) any { return cfg.OutboxVisibilityTimeout },
+							Want: 30 * time.Second,
+						},
+						{
+							Name: "1msのとき、outboxの可視性タイムアウトが1ミリ秒になる",
+							Env:  map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "1ms"},
+							Read: func(cfg *config.Config) any { return cfg.OutboxVisibilityTimeout },
+							Want: time.Millisecond,
+						},
+					})
+				})
+			})
+
+			t.Run("異常系", func(t *testing.T) {
+				t.Run("OUTBOX_POLL_INTERVAL", func(t *testing.T) {
+					configtest.RunErrorCases(t, configtest.StubEnvWith, []configtest.ErrorCase{
+						{
+							Name:         "未設定のとき、OUTBOX_POLL_INTERVALが必須であることを示すエラーになる",
+							Env:          map[string]string{"OUTBOX_POLL_INTERVAL": ""},
+							WantContains: []string{"OUTBOX_POLL_INTERVAL", "is required"},
+						},
+						{
+							Name:         "abcのとき、OUTBOX_POLL_INTERVALと入力値abcを含むエラーになる",
+							Env:          map[string]string{"OUTBOX_POLL_INTERVAL": "abc"},
+							WantContains: []string{"OUTBOX_POLL_INTERVAL", "abc"},
+						},
+						{
+							Name:         "0sのとき、OUTBOX_POLL_INTERVALが正の値であることを求めるエラーになる",
+							Env:          map[string]string{"OUTBOX_POLL_INTERVAL": "0s"},
+							WantContains: []string{"OUTBOX_POLL_INTERVAL", "must be positive"},
+						},
+					})
+				})
+
+				t.Run("OUTBOX_BATCH_SIZE", func(t *testing.T) {
+					configtest.RunErrorCases(t, configtest.StubEnvWith, []configtest.ErrorCase{
+						{
+							Name:         "未設定のとき、OUTBOX_BATCH_SIZEが必須であることを示すエラーになる",
+							Env:          map[string]string{"OUTBOX_BATCH_SIZE": ""},
+							WantContains: []string{"OUTBOX_BATCH_SIZE", "is required"},
+						},
+						{
+							Name:         "abcのとき、OUTBOX_BATCH_SIZEと入力値abcを含むエラーになる",
+							Env:          map[string]string{"OUTBOX_BATCH_SIZE": "abc"},
+							WantContains: []string{"OUTBOX_BATCH_SIZE", "abc"},
+						},
+						{
+							Name:         "0のとき、OUTBOX_BATCH_SIZEが正の値であることを求めるエラーになる",
+							Env:          map[string]string{"OUTBOX_BATCH_SIZE": "0"},
+							WantContains: []string{"OUTBOX_BATCH_SIZE", "must be positive"},
+						},
+					})
+				})
+
+				t.Run("OUTBOX_FAILURE_THRESHOLD", func(t *testing.T) {
+					configtest.RunErrorCases(t, configtest.StubEnvWith, []configtest.ErrorCase{
+						{
+							Name:         "未設定のとき、OUTBOX_FAILURE_THRESHOLDが必須であることを示すエラーになる",
+							Env:          map[string]string{"OUTBOX_FAILURE_THRESHOLD": ""},
+							WantContains: []string{"OUTBOX_FAILURE_THRESHOLD", "is required"},
+						},
+						{
+							Name:         "abcのとき、OUTBOX_FAILURE_THRESHOLDと入力値abcを含むエラーになる",
+							Env:          map[string]string{"OUTBOX_FAILURE_THRESHOLD": "abc"},
+							WantContains: []string{"OUTBOX_FAILURE_THRESHOLD", "abc"},
+						},
+						{
+							Name:         "0のとき、OUTBOX_FAILURE_THRESHOLDが正の値であることを求めるエラーになる",
+							Env:          map[string]string{"OUTBOX_FAILURE_THRESHOLD": "0"},
+							WantContains: []string{"OUTBOX_FAILURE_THRESHOLD", "must be positive"},
+						},
+					})
+				})
+
+				t.Run("OUTBOX_VISIBILITY_TIMEOUT", func(t *testing.T) {
+					configtest.RunErrorCases(t, configtest.StubEnvWith, []configtest.ErrorCase{
+						{
+							Name:         "未設定のとき、OUTBOX_VISIBILITY_TIMEOUTが必須であることを示すエラーになる",
+							Env:          map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": ""},
+							WantContains: []string{"OUTBOX_VISIBILITY_TIMEOUT", "is required"},
+						},
+						{
+							Name:         "abcのとき、OUTBOX_VISIBILITY_TIMEOUTと入力値abcを含むエラーになる",
+							Env:          map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "abc"},
+							WantContains: []string{"OUTBOX_VISIBILITY_TIMEOUT", "abc"},
+						},
+						{
+							Name:         "0sのとき、OUTBOX_VISIBILITY_TIMEOUTが1ミリ秒以上であることを求めるエラーになる",
+							Env:          map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "0s"},
+							WantContains: []string{"OUTBOX_VISIBILITY_TIMEOUT", "must be >= 1ms"},
+						},
+						{
+							Name:         "999usのとき、OUTBOX_VISIBILITY_TIMEOUTが1ミリ秒以上であることを求めるエラーになる",
+							Env:          map[string]string{"OUTBOX_VISIBILITY_TIMEOUT": "999us"},
+							WantContains: []string{"OUTBOX_VISIBILITY_TIMEOUT", "must be >= 1ms"},
+						},
+					})
+				})
+			})
+		})
 	})
 }

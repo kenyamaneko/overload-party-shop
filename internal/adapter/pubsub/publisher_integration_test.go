@@ -1,219 +1,166 @@
 //go:build integration
 
-package pubsub
+package pubsub_test
 
 import (
 	"context"
-	"encoding/json"
-	"log"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
 	"github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub/pubsubtest"
-	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
 )
 
-var sharedEmulator *pubsubtest.Emulator
+const (
+	testProjectID  = "test-project"
+	receiveTimeout = 20 * time.Second
+	publishTimeout = 30 * time.Second
+)
 
-// TestMain は package 内の全 integration test で共有する emulator を起動する。
-// container 起動コストは高いので per-test ではなく package scope で償却する。
-// test 毎の分離は topic / subscription の UUID suffix で担保する。
-func TestMain(m *testing.M) {
-	ctx := context.Background()
-	em, err := pubsubtest.StartEmulator(ctx, "shop-test")
-	if err != nil {
-		log.Fatalf("start pubsub emulator: %v", err)
-	}
-	sharedEmulator = em
-
-	code := m.Run()
-
-	if cerr := em.Close(ctx); cerr != nil {
-		log.Printf("close emulator: %v", cerr)
-	}
-	os.Exit(code)
+type publisherFixture struct {
+	publisher     *pubsub.Publisher
+	subscriptions map[string]*pubsubtest.Subscription
 }
 
-// Publisher を emulator に向けて構築するヘルパ。全 topic を事前作成。
-// 物理 topic 名は infra (Terraform) が SSoT であり、test は production と同じ env 由来で解決する。
-func setupPublisher(t *testing.T) (*Publisher, publisherTopics) {
+func newPublisherFixture(t *testing.T, emulator *pubsubtest.Emulator) publisherFixture {
 	t.Helper()
-	envTopics := loadTopicsFromEnv(t)
-	topics := publisherTopics{
-		cardPackPurchased: sharedEmulator.CreateTopic(t, envTopics.cardPackPurchased),
-		factionAcquired:   sharedEmulator.CreateTopic(t, envTopics.factionAcquired),
-		premiumUpdated:    sharedEmulator.CreateTopic(t, envTopics.premiumUpdated),
+	cardPackTopic := emulator.CreateTopic(t, "test-card-pack")
+	factionTopic := emulator.CreateTopic(t, "test-faction")
+	premiumTopic := emulator.CreateTopic(t, "test-premium")
+	subscriptions := map[string]*pubsubtest.Subscription{
+		"card_pack_purchased": emulator.Subscribe(t, cardPackTopic),
+		"faction_acquired":    emulator.Subscribe(t, factionTopic),
+		"premium_updated":     emulator.Subscribe(t, premiumTopic),
 	}
-
-	ctx := context.Background()
-	pub, err := New(ctx, sharedEmulator.ProjectID(), topics.cardPackPurchased, topics.factionAcquired, topics.premiumUpdated)
+	publisher, err := pubsub.New(context.Background(), emulator.ProjectID(), cardPackTopic, factionTopic, premiumTopic)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = pub.Close() })
-
-	return pub, topics
+	t.Cleanup(func() { _ = publisher.Close() })
+	return publisherFixture{publisher: publisher, subscriptions: subscriptions}
 }
 
-func buildCardPackPurchasedOutbox(t *testing.T, playerID, cardPackID string) port.OutboxEvent {
+func publishToMissingTopic(t *testing.T, emulator *pubsubtest.Emulator) error {
 	t.Helper()
-	id := uuid.New()
-	payload, err := json.Marshal(apishop.CardPackPurchasedEvent{
-		EventType:  apishop.EventTypeCardPackPurchased,
-		EventID:    id.String(),
-		Timestamp:  time.Now().UTC(),
-		PlayerID:   playerID,
-		CardPackID: cardPackID,
-	})
+	publisher, err := pubsub.New(context.Background(), emulator.ProjectID(), "missing-card-pack-error", "missing-faction-error", "missing-premium-error")
 	require.NoError(t, err)
-	return port.OutboxEvent{
-		EventID:   id,
-		EventType: apishop.EventTypeCardPackPurchased,
-		Payload:   payload,
-	}
+	t.Cleanup(func() { _ = publisher.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
+	defer cancel()
+
+	return publisher.Publish(ctx, "card_pack_purchased", []byte("test-data"))
 }
 
-func buildFactionAcquiredOutbox(t *testing.T, playerID, faction string) port.OutboxEvent {
-	t.Helper()
-	id := uuid.New()
-	payload, err := json.Marshal(apishop.FactionAcquiredEvent{
-		EventType: apishop.EventTypeFactionAcquired,
-		EventID:   id.String(),
-		Timestamp: time.Now().UTC(),
-		PlayerID:  playerID,
-		Faction:   faction,
-	})
+func TestPublisher_Publish(t *testing.T) {
+	emulator, err := pubsubtest.StartEmulator(context.Background(), testProjectID)
 	require.NoError(t, err)
-	return port.OutboxEvent{
-		EventID:   id,
-		EventType: apishop.EventTypeFactionAcquired,
-		Payload:   payload,
-	}
-}
+	t.Cleanup(func() { require.NoError(t, emulator.Close(context.Background())) })
 
-func buildPremiumUpdatedOutbox(t *testing.T, playerID string, isPremium bool, expiresAt *time.Time) port.OutboxEvent {
-	t.Helper()
-	id := uuid.New()
-	payload, err := json.Marshal(apishop.PremiumUpdatedEvent{
-		EventType:        apishop.EventTypePremiumUpdated,
-		EventID:          id.String(),
-		Timestamp:        time.Now().UTC(),
-		PlayerID:         playerID,
-		IsPremium:        isPremium,
-		PremiumExpiresAt: expiresAt,
-		Source:           apishop.PremiumUpdatedSourceShop,
-	})
-	require.NoError(t, err)
-	return port.OutboxEvent{
-		EventID:   id,
-		EventType: apishop.EventTypePremiumUpdated,
-		Payload:   payload,
-	}
-}
+	t.Run("[shopイベントのパブリッシュ]event_typeに対応するトピックへのパブリッシュ", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("パブリッシュすると", func(t *testing.T) {
+				deliveryTests := []struct {
+					name      string
+					eventType string
+					data      []byte
+				}{
+					{
+						name:      "event_typeがcard_pack_purchasedのとき、そのevent_type用に指定したトピックのサブスクライブ側に、パブリッシュしたメッセージのデータがバイト列のまま届く",
+						eventType: "card_pack_purchased",
+						data:      []byte{0x01, 0x00, 0xfe, 0xff},
+					},
+					{
+						name:      "event_typeがfaction_acquiredのとき、そのevent_type用に指定したトピックのサブスクライブ側に、パブリッシュしたメッセージのデータがバイト列のまま届く",
+						eventType: "faction_acquired",
+						data:      []byte{0x02, 0x00, 0xfe, 0xff},
+					},
+					{
+						name:      "event_typeがpremium_updatedのとき、そのevent_type用に指定したトピックのサブスクライブ側に、パブリッシュしたメッセージのデータがバイト列のまま届く",
+						eventType: "premium_updated",
+						data:      []byte{0x03, 0x00, 0xfe, 0xff},
+					},
+				}
+				for _, tc := range deliveryTests {
+					t.Run(tc.name, func(t *testing.T) {
+						fixture := newPublisherFixture(t, emulator)
 
-func TestPublishIntegration(t *testing.T) {
-	t.Run("Pub/Subへの配信", func(t *testing.T) {
-		t.Run("card-pack-purchasedを配信すると、購読側に送信内容がそのまま届く", func(t *testing.T) {
-			// outbox 行を worker が送出する経路の近似。
-			pub, topics := setupPublisher(t)
-			sub := sharedEmulator.Subscribe(t, topics.cardPackPurchased)
+						err := fixture.publisher.Publish(context.Background(), tc.eventType, tc.data)
 
-			ctx := context.Background()
-			ev := buildCardPackPurchasedOutbox(t, "player-123", "faction_set_tenki")
-			require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
-
-			msg, err := sub.WaitForMessage(ctx, 5*time.Second)
-			require.NoError(t, err)
-
-			var decoded apishop.CardPackPurchasedEvent
-			require.NoError(t, json.Unmarshal(msg.Data, &decoded))
-
-			assert.Equal(t, apishop.EventTypeCardPackPurchased, decoded.EventType)
-			assert.Equal(t, ev.EventID.String(), decoded.EventID, "payload の eventId は outbox 行の PK と一致する")
-			assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
-			assert.Equal(t, "player-123", decoded.PlayerID)
-			assert.Equal(t, "faction_set_tenki", decoded.CardPackID)
+						require.NoError(t, err)
+						got, err := fixture.subscriptions[tc.eventType].WaitForMessage(context.Background(), receiveTimeout)
+						require.NoError(t, err)
+						assert.Equal(t, tc.data, got.Data)
+					})
+				}
+			})
 		})
 
-		t.Run("faction-acquiredを配信すると、送信内容が保たれる", func(t *testing.T) {
-			pub, topics := setupPublisher(t)
-			sub := sharedEmulator.Subscribe(t, topics.factionAcquired)
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("event_typeがunknown_event(未登録)のとき", func(t *testing.T) {
+				t.Run("パブリッシュすると、エラーの内容に未登録のevent_typeが含まれる", func(t *testing.T) {
+					fixture := newPublisherFixture(t, emulator)
 
-			ctx := context.Background()
-			ev := buildFactionAcquiredOutbox(t, "player-456", "Tenki")
-			require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
+					err := fixture.publisher.Publish(context.Background(), "unknown_event", []byte("test-data"))
 
-			msg, err := sub.WaitForMessage(ctx, 5*time.Second)
-			require.NoError(t, err)
+					assert.ErrorContains(t, err, "unknown event type")
+				})
 
-			var decoded apishop.FactionAcquiredEvent
-			require.NoError(t, json.Unmarshal(msg.Data, &decoded))
+				t.Run("パブリッシュすると、エラーの内容にunknown_eventが含まれる", func(t *testing.T) {
+					fixture := newPublisherFixture(t, emulator)
 
-			assert.Equal(t, apishop.EventTypeFactionAcquired, decoded.EventType)
-			assert.Equal(t, ev.EventID.String(), decoded.EventID)
-			assert.Equal(t, "player-456", decoded.PlayerID)
-			assert.Equal(t, "Tenki", decoded.Faction)
-		})
+					err := fixture.publisher.Publish(context.Background(), "unknown_event", []byte("test-data"))
 
-		t.Run("premium付与 (expires_atあり)を配信すると、送信内容が保たれる", func(t *testing.T) {
-			pub, topics := setupPublisher(t)
-			sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
+					assert.ErrorContains(t, err, "unknown_event")
+				})
 
-			ctx := context.Background()
-			expiresAt := time.Now().Add(30 * 24 * time.Hour).UTC()
-			ev := buildPremiumUpdatedOutbox(t, "player-premium", true, &expiresAt)
-			require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
+				t.Run("パブリッシュに失敗したあと、card_pack_purchasedをパブリッシュすると、card_pack_purchased用に指定したトピックのサブスクライブ側に届く", func(t *testing.T) {
+					fixture := newPublisherFixture(t, emulator)
+					_ = fixture.publisher.Publish(context.Background(), "unknown_event", []byte("test-data"))
 
-			msg, err := sub.WaitForMessage(ctx, 5*time.Second)
-			require.NoError(t, err)
+					err := fixture.publisher.Publish(context.Background(), "card_pack_purchased", []byte("test-data-after-failure"))
 
-			var decoded apishop.PremiumUpdatedEvent
-			require.NoError(t, json.Unmarshal(msg.Data, &decoded))
+					require.NoError(t, err)
+					got, err := fixture.subscriptions["card_pack_purchased"].WaitForMessage(context.Background(), receiveTimeout)
+					require.NoError(t, err)
+					assert.Equal(t, []byte("test-data-after-failure"), got.Data)
+				})
+			})
 
-			assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
-			assert.Equal(t, ev.EventID.String(), decoded.EventID)
-			assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
-			assert.Equal(t, "player-premium", decoded.PlayerID)
-			assert.True(t, decoded.IsPremium)
-			assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
-			require.NotNil(t, decoded.PremiumExpiresAt)
-			assert.WithinDuration(t, expiresAt, *decoded.PremiumExpiresAt, time.Second)
-		})
+			t.Run("event_typeに対応するトピックが存在しないとき", func(t *testing.T) {
+				t.Run("card_pack_purchasedをパブリッシュすると", func(t *testing.T) {
+					t.Run("エラーの内容にパブリッシュ失敗が含まれる", func(t *testing.T) {
+						err := publishToMissingTopic(t, emulator)
 
-		t.Run("premium解除 (expires_at=nil)を配信すると、送信内容が保たれる", func(t *testing.T) {
-			pub, topics := setupPublisher(t)
-			sub := sharedEmulator.Subscribe(t, topics.premiumUpdated)
+						assert.ErrorContains(t, err, "publish event_type=")
+					})
 
-			ctx := context.Background()
-			ev := buildPremiumUpdatedOutbox(t, "player-not-premium", false, nil)
-			require.NoError(t, pub.Publish(ctx, ev.EventType, ev.Payload))
+					t.Run("エラーの内容にcard_pack_purchasedが含まれる", func(t *testing.T) {
+						err := publishToMissingTopic(t, emulator)
 
-			msg, err := sub.WaitForMessage(ctx, 5*time.Second)
-			require.NoError(t, err)
+						assert.ErrorContains(t, err, "card_pack_purchased")
+					})
+				})
 
-			var decoded apishop.PremiumUpdatedEvent
-			require.NoError(t, json.Unmarshal(msg.Data, &decoded))
+				t.Run("card_pack_purchasedのパブリッシュに失敗したあと、トピックとサブスクリプションを作成し、同じパブリッシャーでcard_pack_purchasedを再度パブリッシュすると、サブスクライブ側に届く", func(t *testing.T) {
+					const missingTopic = "missing-card-pack-recovery"
+					publisher, err := pubsub.New(context.Background(), emulator.ProjectID(), missingTopic, "missing-faction-recovery", "missing-premium-recovery")
+					require.NoError(t, err)
+					t.Cleanup(func() { _ = publisher.Close() })
+					ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
+					defer cancel()
+					_ = publisher.Publish(ctx, "card_pack_purchased", []byte("test-data"))
+					emulator.CreateTopicWithID(t, missingTopic)
+					subscription := emulator.Subscribe(t, missingTopic)
 
-			assert.Equal(t, apishop.EventTypePremiumUpdated, decoded.EventType)
-			assert.Equal(t, ev.EventID.String(), decoded.EventID)
-			assert.WithinDuration(t, time.Now(), decoded.Timestamp, 5*time.Second)
-			assert.Equal(t, "player-not-premium", decoded.PlayerID)
-			assert.False(t, decoded.IsPremium)
-			assert.Equal(t, apishop.PremiumUpdatedSourceShop, decoded.Source)
-			assert.Nil(t, decoded.PremiumExpiresAt)
-		})
+					err = publisher.Publish(ctx, "card_pack_purchased", []byte("test-data-after-failure"))
 
-		t.Run("配信しなければ、購読側はタイムアウトする", func(t *testing.T) {
-			// 正例テストの偽陽性除け。
-			_, topics := setupPublisher(t)
-			sub := sharedEmulator.Subscribe(t, topics.cardPackPurchased)
-
-			_, err := sub.WaitForMessage(context.Background(), 500*time.Millisecond)
-			assert.ErrorIs(t, err, pubsubtest.ErrTimeout)
+					require.NoError(t, err)
+					got, err := subscription.WaitForMessage(context.Background(), receiveTimeout)
+					require.NoError(t, err)
+					assert.Equal(t, []byte("test-data-after-failure"), got.Data)
+				})
+			})
 		})
 	})
 }

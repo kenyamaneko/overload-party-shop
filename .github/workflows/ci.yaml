@@ -21,6 +21,5 @@ jobs:
   ci:
     uses: kenyamaneko/overload-party-common/.github/workflows/go-service-ci.yaml@main
     with:
-      needs-firestore-emulator: true
       codegen-needs-node: true
     secrets: inherit

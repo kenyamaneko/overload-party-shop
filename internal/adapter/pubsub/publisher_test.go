@@ -1,96 +1,57 @@
-package pubsub
+package pubsub_test
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+
+	"github.com/kenyamaneko/overload-party-shop/internal/adapter/pubsub"
 )
 
-// publisherTopics は test 内で New に渡す topic 名一式。
-type publisherTopics struct {
-	cardPackPurchased string
-	factionAcquired   string
-	premiumUpdated    string
-}
-
-// loadTopicsFromEnv は production と同じ env 経由で topic 名を解決する。
-// 個別 case で空文字を強制したい時のみ struct を上書きする。
-func loadTopicsFromEnv(t *testing.T) publisherTopics {
-	t.Helper()
-	t.Setenv("CARD_PACK_PURCHASED_TOPIC", "card-pack-purchased")
-	t.Setenv("FACTION_ACQUIRED_TOPIC", "faction-acquired")
-	t.Setenv("PREMIUM_UPDATED_TOPIC", "premium-updated")
-	return publisherTopics{
-		cardPackPurchased: os.Getenv("CARD_PACK_PURCHASED_TOPIC"),
-		factionAcquired:   os.Getenv("FACTION_ACQUIRED_TOPIC"),
-		premiumUpdated:    os.Getenv("PREMIUM_UPDATED_TOPIC"),
-	}
-}
-
 func TestNew(t *testing.T) {
-	t.Run("生成時の入力検証", func(t *testing.T) {
-		// 入力検証は gpubsub.NewClient 呼び出し前に return する。
-		tests := []struct {
-			name      string
-			projectID string
-			override  func(topics *publisherTopics)
-			wantSubs  string
-		}{
-			{
-				name:      "プロジェクトIDが空のとき、生成に失敗する",
-				projectID: "",
-				override:  func(*publisherTopics) {},
-				wantSubs:  "projectID is empty",
-			},
-			{
-				name:      "card-pack-purchased topic名が空のとき、生成に失敗する",
-				projectID: "test-project",
-				override: func(topics *publisherTopics) {
-					topics.cardPackPurchased = ""
-				},
-				wantSubs: "all topic names are required",
-			},
-			{
-				name:      "faction-acquired topic名が空のとき、生成に失敗する",
-				projectID: "test-project",
-				override: func(topics *publisherTopics) {
-					topics.factionAcquired = ""
-				},
-				wantSubs: "all topic names are required",
-			},
-			{
-				name:      "premium-updated topic名が空のとき、生成に失敗する",
-				projectID: "test-project",
-				override: func(topics *publisherTopics) {
-					topics.premiumUpdated = ""
-				},
-				wantSubs: "all topic names are required",
-			},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				topics := loadTopicsFromEnv(t)
-				tt.override(&topics)
-				p, err := New(context.Background(), tt.projectID, topics.cardPackPurchased, topics.factionAcquired, topics.premiumUpdated)
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantSubs)
-				assert.Nil(t, p)
-			})
-		}
-	})
-}
+	t.Run("[shopイベントのパブリッシュ]パブリッシャー生成時の入力検証", func(t *testing.T) {
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("パブリッシャーを生成すると", func(t *testing.T) {
+				t.Run("プロジェクトIDが空のとき、エラーの内容にプロジェクトID未指定が含まれる", func(t *testing.T) {
+					_, err := pubsub.New(context.Background(), "", "test-card-pack-topic", "test-faction-topic", "test-premium-topic")
 
-func TestPublish(t *testing.T) {
-	t.Run("イベントの配信", func(t *testing.T) {
-		t.Run("未登録のイベント種別のとき、エラーになる", func(t *testing.T) {
-			// 未登録 eventType は Pub/Sub SDK に届く前に弾く。
-			p := &Publisher{}
-			err := p.Publish(context.Background(), "unknown-event-type", []byte(`{}`))
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "unknown event type")
+					assert.ErrorContains(t, err, "projectID is empty")
+				})
+
+				emptyTopicTests := []struct {
+					name                   string
+					cardPackPurchasedTopic string
+					factionAcquiredTopic   string
+					premiumUpdatedTopic    string
+				}{
+					{
+						name:                   "event_typeがcard_pack_purchasedのトピック名が空のとき、エラーの内容にトピック名未指定が含まれる",
+						cardPackPurchasedTopic: "",
+						factionAcquiredTopic:   "test-faction-topic",
+						premiumUpdatedTopic:    "test-premium-topic",
+					},
+					{
+						name:                   "event_typeがfaction_acquiredのトピック名が空のとき、エラーの内容にトピック名未指定が含まれる",
+						cardPackPurchasedTopic: "test-card-pack-topic",
+						factionAcquiredTopic:   "",
+						premiumUpdatedTopic:    "test-premium-topic",
+					},
+					{
+						name:                   "event_typeがpremium_updatedのトピック名が空のとき、エラーの内容にトピック名未指定が含まれる",
+						cardPackPurchasedTopic: "test-card-pack-topic",
+						factionAcquiredTopic:   "test-faction-topic",
+						premiumUpdatedTopic:    "",
+					},
+				}
+				for _, tc := range emptyTopicTests {
+					t.Run(tc.name, func(t *testing.T) {
+						_, err := pubsub.New(context.Background(), "test-project", tc.cardPackPurchasedTopic, tc.factionAcquiredTopic, tc.premiumUpdatedTopic)
+
+						assert.ErrorContains(t, err, "all topic names are required")
+					})
+				}
+			})
 		})
 	})
 }

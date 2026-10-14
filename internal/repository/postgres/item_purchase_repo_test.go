@@ -4,309 +4,282 @@ package postgres_test
 
 import (
 	"context"
-	"strings"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/domain"
-	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres/postgrestest"
 )
 
-func TestItemPurchaseRepository_CreatePurchase(t *testing.T) {
-	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
+func itemKey(itemType string, itemNo int64) string {
+	return fmt.Sprintf("%s/%d", itemType, itemNo)
+}
+
+func TestItemPurchaseCreatePurchase(t *testing.T) {
 	ctx := context.Background()
 
-	const (
-		user1 = "11111111-2222-2222-2222-111111111111"
-		user2 = "22222222-3333-3333-3333-222222222222"
-	)
+	t.Run("[アイテム購入]購入の作成", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("プレイヤーAが新規の購入トークンでアイテムを購入する", func(t *testing.T) {
+				t.Run("プレイヤーAがそのアイテムを所有している状態になる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
 
-	newPurchase := func(playerID string) *domain.OneTimePurchase {
-		return &domain.OneTimePurchase{
-			PlayerID:    playerID,
-			ProductID:   "playmat_01",
-			PurchasedAt: time.Now().UTC(),
-		}
-	}
-	newItem := func(playerID string, itemNo int64) *domain.PlayerItem {
-		return &domain.PlayerItem{
-			PlayerID:   playerID,
-			ItemType:   domain.ItemTypePlaymat,
-			ItemNo:     itemNo,
-			AcquiredAt: time.Now().UTC(),
-		}
-	}
+					owned, err := pg.ItemPurchaseRepository().HasPlayerItem(ctx, playerA, "playmat", 1)
 
-	assertRowCounts := func(t *testing.T, wantPurchases, wantItems int) {
-		var purchases, items int
-		require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
-		require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM shop.player_items`).Scan(&items))
-		assert.Equal(t, wantPurchases, purchases)
-		assert.Equal(t, wantItems, items)
-	}
-
-	type seed struct {
-		playerID string
-		itemNo   int64
-		platform string
-		token    string
-	}
-
-	t.Run("item購入の作成", func(t *testing.T) {
-		successCases := []struct {
-			name          string
-			seeds         []seed
-			playerID      string
-			itemNo        int64
-			platform      string
-			token         string
-			wantCreated   bool
-			wantPurchases int
-			wantItems     int
-		}{
-			{
-				name:          "新規トークンのとき、purchase / token / itemが作成される",
-				playerID:      user1,
-				itemNo:        1,
-				platform:      domain.PlatformIOS,
-				token:         "cosmetic-new",
-				wantCreated:   true,
-				wantPurchases: 1,
-				wantItems:     1,
-			},
-			{
-				name: "同一ユーザーの既存トークンのとき、べき等でcreated=false、itemも増えない",
-				seeds: []seed{
-					{user1, 1, domain.PlatformIOS, "dup-token"},
-				},
-				playerID:      user1,
-				itemNo:        1,
-				platform:      domain.PlatformIOS,
-				token:         "dup-token",
-				wantCreated:   false,
-				wantPurchases: 1,
-				wantItems:     1,
-			},
-			{
-				name: "別ユーザーが同一itemを別トークンで買うとき、追加される",
-				seeds: []seed{
-					{user1, 1, domain.PlatformIOS, "tok-u1"},
-				},
-				playerID:      user2,
-				itemNo:        1,
-				platform:      domain.PlatformIOS,
-				token:         "tok-u2",
-				wantCreated:   true,
-				wantPurchases: 2,
-				wantItems:     2,
-			},
-		}
-
-		for _, tt := range successCases {
-			t.Run(tt.name, func(t *testing.T) {
-				sharedPg.Truncate(t)
-				for _, s := range tt.seeds {
-					_, err := repo.CreatePurchase(ctx, newPurchase(s.playerID), newItem(s.playerID, s.itemNo), s.platform, s.token)
 					require.NoError(t, err)
+					assert.True(t, owned)
+				})
+
+				t.Run("購入トークンで検索すると、プレイヤーAの購入が見つかる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenOne)
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.Equal(t, playerA, got.PlayerID)
+				})
+			})
+
+			t.Run("プレイヤーAがアイテムを購入済みのとき、別の購入トークンで別のアイテムを購入する", func(t *testing.T) {
+				t.Run("プレイヤーAの所有アイテム一覧に2件とも含まれる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+					require.NoError(t, pg.CreateItemPurchase(playerA, "sleeve", 2, "ios", tokenTwo))
+
+					items, err := pg.ItemPurchaseRepository().ListPlayerItems(ctx, playerA)
+
+					require.NoError(t, err)
+					require.Len(t, items, 2)
+					assert.ElementsMatch(t,
+						[]string{"playmat/1", "sleeve/2"},
+						[]string{itemKey(items[0].ItemType, items[0].ItemNo), itemKey(items[1].ItemType, items[1].ItemNo)},
+					)
+				})
+			})
+
+			t.Run("プレイヤーAがアイテムを購入済みのとき、プレイヤーBが別の購入トークンで同じアイテムを購入する", func(t *testing.T) {
+				t.Run("プレイヤーAとプレイヤーBの両方がそのアイテムを所有している状態になる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+					require.NoError(t, pg.CreateItemPurchase(playerB, "playmat", 1, "ios", tokenTwo))
+
+					ownedByA, errA := pg.ItemPurchaseRepository().HasPlayerItem(ctx, playerA, "playmat", 1)
+					ownedByB, errB := pg.ItemPurchaseRepository().HasPlayerItem(ctx, playerB, "playmat", 1)
+
+					require.NoError(t, errA)
+					require.NoError(t, errB)
+					assert.True(t, ownedByA)
+					assert.True(t, ownedByB)
+				})
+			})
+
+			t.Run("プレイヤーAが同じ購入トークンでアイテムの購入を2回続けて行う", func(t *testing.T) {
+				t.Run("プレイヤーAの所有アイテム一覧は1件のままになる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+
+					items, err := pg.ItemPurchaseRepository().ListPlayerItems(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.Len(t, items, 1)
+				})
+			})
+
+			t.Run("プレイヤーAが同じ購入トークンでアイテムの購入を同時に2回行う", func(t *testing.T) {
+				purchaseConcurrently := func(t *testing.T) {
+					pg.Truncate(t)
+					errs := postgrestest.RunConcurrently(2, func() error {
+						return pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne)
+					})
+					require.NoError(t, errs[0])
+					require.NoError(t, errs[1])
 				}
 
-				created, err := repo.CreatePurchase(ctx, newPurchase(tt.playerID), newItem(tt.playerID, tt.itemNo), tt.platform, tt.token)
-				require.NoError(t, err)
-				assert.Equal(t, tt.wantCreated, created)
-				assertRowCounts(t, tt.wantPurchases, tt.wantItems)
+				t.Run("プレイヤーAの所有アイテム一覧は1件になる", func(t *testing.T) {
+					purchaseConcurrently(t)
+
+					items, err := pg.ItemPurchaseRepository().ListPlayerItems(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.Len(t, items, 1)
+				})
 			})
-		}
-
-		t.Run("unsupported platformのとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			_, err := repo.CreatePurchase(ctx, newPurchase(user1), newItem(user1, 1), "windows", "tok")
-			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 		})
 
-		t.Run("player_idが空文字 (UUID不正)のとき、エラーになる", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			_, err := repo.CreatePurchase(ctx, newPurchase(""), newItem("", 1), domain.PlatformIOS, "tok")
-			assert.Error(t, err)
-		})
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("購入トークンが257文字で、アイテムを購入するとき", func(t *testing.T) {
+				t.Run("プレイヤーAはそのアイテムを所有していない状態のままになる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.Error(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", postgrestest.TokenOfLength(257)))
 
-		t.Run("player_itemのINSERTがPK違反で失敗するとき、purchaseとtokenがrollbackされる", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			const playerID = "99999999-9999-9999-9999-999999999999"
-			seedPlayerItem(t, playerID, domain.ItemTypePlaymat, 1, time.Now().UTC())
+					owned, err := pg.ItemPurchaseRepository().HasPlayerItem(ctx, playerA, "playmat", 1)
 
-			created, err := repo.CreatePurchase(ctx,
-				&domain.OneTimePurchase{PlayerID: playerID, ProductID: "playmat_01", PurchasedAt: time.Now().UTC()},
-				&domain.PlayerItem{PlayerID: playerID, ItemType: domain.ItemTypePlaymat, ItemNo: 1, AcquiredAt: time.Now().UTC()},
-				domain.PlatformIOS, "atomic-rollback-token")
-			require.Error(t, err, "player_items PK違反で失敗するはず")
-			require.Contains(t, err.Error(), "insert player item",
-				"player_item INSERTで落ちている (purchase/token INSERT後の失敗)")
-			assert.False(t, created)
+					require.NoError(t, err)
+					assert.False(t, owned)
+				})
+			})
 
-			var purchases, tokens, items int
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.apple_purchase_tokens`).Scan(&tokens))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.player_items`).Scan(&items))
+			t.Run("プレイヤーAがアイテムを所有しているとき、別の購入トークンで同じアイテムを購入する", func(t *testing.T) {
+				purchaseOwnedItemAgain := func(t *testing.T) error {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+					return pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenFailed)
+				}
 
-			assert.Equal(t, 0, purchases)
-			assert.Equal(t, 0, tokens)
-			assert.Equal(t, 1, items, "既存seed分のみ残る")
-		})
+				t.Run("エラーの原因はアイテムの所有の重複になる", func(t *testing.T) {
+					err := purchaseOwnedItemAgain(t)
 
-		t.Run("tokenがVARCHAR(256)超過で失敗するとき、purchase / token / itemが作成されない", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			const playerID = "88888888-8888-8888-8888-888888888888"
-			tooLongToken := strings.Repeat("y", 257)
+					postgrestest.RequireDuplicateKeyError(t, err, "player_items_pkey")
+				})
 
-			created, err := repo.CreatePurchase(ctx,
-				&domain.OneTimePurchase{PlayerID: playerID, ProductID: "sleeve_01", PurchasedAt: time.Now().UTC()},
-				&domain.PlayerItem{PlayerID: playerID, ItemType: domain.ItemTypeSleeve, ItemNo: 1, AcquiredAt: time.Now().UTC()},
-				domain.PlatformIOS, tooLongToken)
-			require.Error(t, err, "VARCHAR(256)超えでtoken INSERTが失敗するはず")
-			require.Contains(t, err.Error(), "insert purchase token")
-			assert.False(t, created)
+				t.Run("失敗した購入トークンで検索しても、購入は見つからない", func(t *testing.T) {
+					purchaseOwnedItemAgain(t)
 
-			var purchases, tokens, items int
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.apple_purchase_tokens`).Scan(&tokens))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.player_items`).Scan(&items))
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenFailed)
 
-			assert.Equal(t, 0, purchases)
-			assert.Equal(t, 0, tokens)
-			assert.Equal(t, 0, items)
+					assert.NoError(t, err)
+					assert.Nil(t, got)
+				})
+
+				t.Run("プレイヤーAの所有アイテム一覧は1件のままになる", func(t *testing.T) {
+					purchaseOwnedItemAgain(t)
+
+					items, err := pg.ItemPurchaseRepository().ListPlayerItems(ctx, playerA)
+
+					require.NoError(t, err)
+					assert.Len(t, items, 1)
+				})
+
+				t.Run("続けて、失敗した購入トークンで別のアイテムを購入すると、プレイヤーAがそのアイテムを所有している状態になる", func(t *testing.T) {
+					require.Error(t, purchaseOwnedItemAgain(t))
+					require.NoError(t, pg.CreateItemPurchase(playerA, "sleeve", 2, "ios", tokenFailed))
+
+					owned, err := pg.ItemPurchaseRepository().HasPlayerItem(ctx, playerA, "sleeve", 2)
+
+					require.NoError(t, err)
+					assert.True(t, owned)
+				})
+			})
 		})
 	})
 }
 
-func TestItemPurchaseRepository_ListPlayerItems(t *testing.T) {
-	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
+func TestItemPurchaseListPlayerItems(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("所有item一覧の取得", func(t *testing.T) {
-		const (
-			userA = "aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa"
-			userB = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
-			userC = "cccccccc-2222-2222-2222-cccccccccccc"
-		)
+	t.Run("[アイテム購入]所有アイテムの一覧取得", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("プレイヤーAがplaymat番号1とsleeve番号2を所有し、プレイヤーBがicon番号9を所有し、プレイヤーCは何も所有していないとき", func(t *testing.T) {
+				playmatAcquiredAt := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+				sleeveAcquiredAt := time.Date(2026, 4, 5, 6, 7, 8, 0, time.UTC)
+				prepare := func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchaseAt(playerA, "playmat", 1, "ios", "TST-TOKEN-A1", playmatAcquiredAt))
+					require.NoError(t, pg.CreateItemPurchaseAt(playerA, "sleeve", 2, "ios", "TST-TOKEN-A2", sleeveAcquiredAt))
+					require.NoError(t, pg.CreateItemPurchaseAt(playerB, "icon", 9, "ios", "TST-TOKEN-B1", playmatAcquiredAt))
+				}
 
-		sharedPg.Truncate(t)
-		now := time.Now().UTC()
-		seedPlayerItem(t, userA, domain.ItemTypePlaymat, 1, now)
-		seedPlayerItem(t, userA, domain.ItemTypeSleeve, 2, now)
-		seedPlayerItem(t, userB, domain.ItemTypeIcon, 9, now)
+				t.Run("プレイヤーAの一覧は、playmat番号1とsleeve番号2の2件になる", func(t *testing.T) {
+					prepare(t)
 
-		tests := []struct {
-			name      string
-			playerID  string
-			wantCount int
-		}{
-			{
-				name:      "userAが2件所有するとき、2件返す",
-				playerID:  userA,
-				wantCount: 2,
-			},
-			{
-				name:      "userBが1件所有するとき、1件返す",
-				playerID:  userB,
-				wantCount: 1,
-			},
-			{
-				name:      "所有行の無いuserCのとき、空を返す",
-				playerID:  userC,
-				wantCount: 0,
-			},
-		}
+					items, err := pg.ItemPurchaseRepository().ListPlayerItems(ctx, playerA)
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				got, err := repo.ListPlayerItems(ctx, tt.playerID)
-				require.NoError(t, err)
-				assert.Len(t, got, tt.wantCount)
+					require.NoError(t, err)
+					require.Len(t, items, 2)
+					assert.ElementsMatch(t,
+						[]string{"playmat/1", "sleeve/2"},
+						[]string{itemKey(items[0].ItemType, items[0].ItemNo), itemKey(items[1].ItemType, items[1].ItemNo)},
+					)
+				})
+
+				t.Run("プレイヤーAの一覧の各アイテムの獲得日時は、購入時に渡した獲得日時になる", func(t *testing.T) {
+					prepare(t)
+
+					items, err := pg.ItemPurchaseRepository().ListPlayerItems(ctx, playerA)
+
+					require.NoError(t, err)
+					require.Len(t, items, 2)
+					acquiredAtByKey := map[string]time.Time{
+						itemKey(items[0].ItemType, items[0].ItemNo): items[0].AcquiredAt,
+						itemKey(items[1].ItemType, items[1].ItemNo): items[1].AcquiredAt,
+					}
+					assert.True(t, acquiredAtByKey["playmat/1"].Equal(playmatAcquiredAt), "playmat/1 acquired at %s", acquiredAtByKey["playmat/1"])
+					assert.True(t, acquiredAtByKey["sleeve/2"].Equal(sleeveAcquiredAt), "sleeve/2 acquired at %s", acquiredAtByKey["sleeve/2"])
+				})
+
+				t.Run("プレイヤーBの一覧は、icon番号9の1件になる", func(t *testing.T) {
+					prepare(t)
+
+					items, err := pg.ItemPurchaseRepository().ListPlayerItems(ctx, playerB)
+
+					require.NoError(t, err)
+					require.Len(t, items, 1)
+					assert.Equal(t, "icon/9", itemKey(items[0].ItemType, items[0].ItemNo))
+				})
+
+				t.Run("プレイヤーCの一覧は0件になる", func(t *testing.T) {
+					prepare(t)
+
+					items, err := pg.ItemPurchaseRepository().ListPlayerItems(ctx, playerC)
+
+					require.NoError(t, err)
+					assert.Len(t, items, 0)
+				})
 			})
-		}
-
-		t.Run("player_idが空文字 (UUID不正)のとき、エラーになる", func(t *testing.T) {
-			_, err := repo.ListPlayerItems(ctx, "")
-			assert.Error(t, err)
 		})
 	})
 }
 
-func TestItemPurchaseRepository_HasPlayerItem(t *testing.T) {
-	repo := postgres.NewItemPurchaseRepository(sharedPg.Pool)
+func TestItemPurchaseHasPlayerItem(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("item所有判定", func(t *testing.T) {
-		const (
-			userA = "aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa"
-			userB = "bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb"
-		)
+	t.Run("[アイテム購入]アイテムの所有判定", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("プレイヤーAがplaymat番号1を所有し、プレイヤーBがicon番号9を所有しているとき", func(t *testing.T) {
+				prepare := func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+					require.NoError(t, pg.CreateItemPurchase(playerB, "icon", 9, "ios", tokenTwo))
+				}
 
-		sharedPg.Truncate(t)
-		now := time.Now().UTC()
-		seedPlayerItem(t, userA, domain.ItemTypePlaymat, 1, now)
-		seedPlayerItem(t, userB, domain.ItemTypeIcon, 9, now)
+				t.Run("プレイヤーAについてplaymat番号1を判定すると、所有ありになる", func(t *testing.T) {
+					prepare(t)
 
-		tests := []struct {
-			name     string
-			playerID string
-			itemType string
-			itemNo   int64
-			want     bool
-		}{
-			{
-				name:     "所有itemのとき、trueになる",
-				playerID: userA,
-				itemType: domain.ItemTypePlaymat,
-				itemNo:   1,
-				want:     true,
-			},
-			{
-				name:     "別item_noのとき、falseになる",
-				playerID: userA,
-				itemType: domain.ItemTypePlaymat,
-				itemNo:   999,
-				want:     false,
-			},
-			{
-				name:     "別item_typeのとき、falseになる",
-				playerID: userA,
-				itemType: domain.ItemTypeSleeve,
-				itemNo:   1,
-				want:     false,
-			},
-			{
-				name:     "別ユーザーの所有は検出せず、falseになる",
-				playerID: userA,
-				itemType: domain.ItemTypeIcon,
-				itemNo:   9,
-				want:     false,
-			},
-		}
+					owned, err := pg.ItemPurchaseRepository().HasPlayerItem(ctx, playerA, "playmat", 1)
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				got, err := repo.HasPlayerItem(ctx, tt.playerID, tt.itemType, tt.itemNo)
-				require.NoError(t, err)
-				assert.Equal(t, tt.want, got)
+					require.NoError(t, err)
+					assert.True(t, owned)
+				})
+
+				t.Run("プレイヤーAについて判定する", func(t *testing.T) {
+					cases := []struct {
+						name     string
+						itemType string
+						itemNo   int64
+					}{
+						{name: "playmatの別の番号999のとき、所有なしになる", itemType: "playmat", itemNo: 999},
+						{name: "sleeve番号1のとき、所有なしになる", itemType: "sleeve", itemNo: 1},
+						{name: "プレイヤーBだけが所有するicon番号9のとき、所有なしになる", itemType: "icon", itemNo: 9},
+					}
+					for _, tc := range cases {
+						t.Run(tc.name, func(t *testing.T) {
+							prepare(t)
+
+							owned, err := pg.ItemPurchaseRepository().HasPlayerItem(ctx, playerA, tc.itemType, tc.itemNo)
+
+							require.NoError(t, err)
+							assert.False(t, owned)
+						})
+					}
+				})
 			})
-		}
-
-		t.Run("player_idが空文字 (UUID不正)のとき、エラーになる", func(t *testing.T) {
-			_, err := repo.HasPlayerItem(ctx, "", domain.ItemTypePlaymat, 1)
-			assert.Error(t, err)
 		})
 	})
 }

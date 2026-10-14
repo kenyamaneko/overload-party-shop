@@ -13,8 +13,10 @@ import (
 	"net/url"
 	"strings"
 	"time"
+)
 
-	"github.com/oapi-codegen/runtime"
+const (
+	InternalAuthScopes internalAuthContextKey = "InternalAuth.Scopes"
 )
 
 // Defines values for Platform.
@@ -128,26 +130,8 @@ type SubscribeResponse struct {
 	Message   string    `json:"message"`
 }
 
-// PlayerIdHeader defines model for PlayerIdHeader.
-type PlayerIdHeader = string
-
-// ListPlayerProductsParams defines parameters for ListPlayerProducts.
-type ListPlayerProductsParams struct {
-	// XPlayerId gateway が認証後に付与する player_id。client が直接設定するヘッダではない。
-	XPlayerId PlayerIdHeader `json:"X-Player-Id"`
-}
-
-// PurchaseProductParams defines parameters for PurchaseProduct.
-type PurchaseProductParams struct {
-	// XPlayerId gateway が認証後に付与する player_id。client が直接設定するヘッダではない。
-	XPlayerId PlayerIdHeader `json:"X-Player-Id"`
-}
-
-// SubscribeProductParams defines parameters for SubscribeProduct.
-type SubscribeProductParams struct {
-	// XPlayerId gateway が認証後に付与する player_id。client が直接設定するヘッダではない。
-	XPlayerId PlayerIdHeader `json:"X-Player-Id"`
-}
+// internalAuthContextKey is the context key for InternalAuth security scheme
+type internalAuthContextKey string
 
 // PurchaseProductJSONRequestBody defines body for PurchaseProduct for application/json ContentType.
 type PurchaseProductJSONRequestBody = PurchaseRequest
@@ -235,17 +219,17 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 	// ListPlayerProducts request
-	ListPlayerProducts(ctx context.Context, params *ListPlayerProductsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ListPlayerProducts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PurchaseProductWithBody request with any body
-	PurchaseProductWithBody(ctx context.Context, params *PurchaseProductParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	PurchaseProductWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	PurchaseProduct(ctx context.Context, params *PurchaseProductParams, body PurchaseProductJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	PurchaseProduct(ctx context.Context, body PurchaseProductJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SubscribeProductWithBody request with any body
-	SubscribeProductWithBody(ctx context.Context, params *SubscribeProductParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SubscribeProductWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	SubscribeProduct(ctx context.Context, params *SubscribeProductParams, body SubscribeProductJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SubscribeProduct(ctx context.Context, body SubscribeProductJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetHealth request
 	GetHealth(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -261,8 +245,8 @@ type ClientInterface interface {
 	GoogleWebhook(ctx context.Context, body GoogleWebhookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-func (c *Client) ListPlayerProducts(ctx context.Context, params *ListPlayerProductsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListPlayerProductsRequest(c.Server, params)
+func (c *Client) ListPlayerProducts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListPlayerProductsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -273,8 +257,8 @@ func (c *Client) ListPlayerProducts(ctx context.Context, params *ListPlayerProdu
 	return c.Client.Do(req)
 }
 
-func (c *Client) PurchaseProductWithBody(ctx context.Context, params *PurchaseProductParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPurchaseProductRequestWithBody(c.Server, params, contentType, body)
+func (c *Client) PurchaseProductWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPurchaseProductRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -285,8 +269,8 @@ func (c *Client) PurchaseProductWithBody(ctx context.Context, params *PurchasePr
 	return c.Client.Do(req)
 }
 
-func (c *Client) PurchaseProduct(ctx context.Context, params *PurchaseProductParams, body PurchaseProductJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPurchaseProductRequest(c.Server, params, body)
+func (c *Client) PurchaseProduct(ctx context.Context, body PurchaseProductJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPurchaseProductRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -297,8 +281,8 @@ func (c *Client) PurchaseProduct(ctx context.Context, params *PurchaseProductPar
 	return c.Client.Do(req)
 }
 
-func (c *Client) SubscribeProductWithBody(ctx context.Context, params *SubscribeProductParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSubscribeProductRequestWithBody(c.Server, params, contentType, body)
+func (c *Client) SubscribeProductWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubscribeProductRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -309,8 +293,8 @@ func (c *Client) SubscribeProductWithBody(ctx context.Context, params *Subscribe
 	return c.Client.Do(req)
 }
 
-func (c *Client) SubscribeProduct(ctx context.Context, params *SubscribeProductParams, body SubscribeProductJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSubscribeProductRequest(c.Server, params, body)
+func (c *Client) SubscribeProduct(ctx context.Context, body SubscribeProductJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubscribeProductRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +366,7 @@ func (c *Client) GoogleWebhook(ctx context.Context, body GoogleWebhookJSONReques
 }
 
 // NewListPlayerProductsRequest generates requests for ListPlayerProducts
-func NewListPlayerProductsRequest(server string, params *ListPlayerProductsParams) (*http.Request, error) {
+func NewListPlayerProductsRequest(server string) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -405,35 +389,22 @@ func NewListPlayerProductsRequest(server string, params *ListPlayerProductsParam
 		return nil, err
 	}
 
-	if params != nil {
-
-		var headerParam0 string
-
-		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Player-Id", params.XPlayerId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
-		if err != nil {
-			return nil, err
-		}
-
-		req.Header.Set("X-Player-Id", headerParam0)
-
-	}
-
 	return req, nil
 }
 
 // NewPurchaseProductRequest calls the generic PurchaseProduct builder with application/json body
-func NewPurchaseProductRequest(server string, params *PurchaseProductParams, body PurchaseProductJSONRequestBody) (*http.Request, error) {
+func NewPurchaseProductRequest(server string, body PurchaseProductJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewPurchaseProductRequestWithBody(server, params, "application/json", bodyReader)
+	return NewPurchaseProductRequestWithBody(server, "application/json", bodyReader)
 }
 
 // NewPurchaseProductRequestWithBody generates requests for PurchaseProduct with any type of body
-func NewPurchaseProductRequestWithBody(server string, params *PurchaseProductParams, contentType string, body io.Reader) (*http.Request, error) {
+func NewPurchaseProductRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -458,35 +429,22 @@ func NewPurchaseProductRequestWithBody(server string, params *PurchaseProductPar
 
 	req.Header.Add("Content-Type", contentType)
 
-	if params != nil {
-
-		var headerParam0 string
-
-		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Player-Id", params.XPlayerId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
-		if err != nil {
-			return nil, err
-		}
-
-		req.Header.Set("X-Player-Id", headerParam0)
-
-	}
-
 	return req, nil
 }
 
 // NewSubscribeProductRequest calls the generic SubscribeProduct builder with application/json body
-func NewSubscribeProductRequest(server string, params *SubscribeProductParams, body SubscribeProductJSONRequestBody) (*http.Request, error) {
+func NewSubscribeProductRequest(server string, body SubscribeProductJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewSubscribeProductRequestWithBody(server, params, "application/json", bodyReader)
+	return NewSubscribeProductRequestWithBody(server, "application/json", bodyReader)
 }
 
 // NewSubscribeProductRequestWithBody generates requests for SubscribeProduct with any type of body
-func NewSubscribeProductRequestWithBody(server string, params *SubscribeProductParams, contentType string, body io.Reader) (*http.Request, error) {
+func NewSubscribeProductRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -510,19 +468,6 @@ func NewSubscribeProductRequestWithBody(server string, params *SubscribeProductP
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	if params != nil {
-
-		var headerParam0 string
-
-		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Player-Id", params.XPlayerId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
-		if err != nil {
-			return nil, err
-		}
-
-		req.Header.Set("X-Player-Id", headerParam0)
-
-	}
 
 	return req, nil
 }
@@ -678,17 +623,17 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 	// ListPlayerProductsWithResponse request
-	ListPlayerProductsWithResponse(ctx context.Context, params *ListPlayerProductsParams, reqEditors ...RequestEditorFn) (*ListPlayerProductsResponse, error)
+	ListPlayerProductsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListPlayerProductsResponse, error)
 
 	// PurchaseProductWithBodyWithResponse request with any body
-	PurchaseProductWithBodyWithResponse(ctx context.Context, params *PurchaseProductParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PurchaseProductResponse, error)
+	PurchaseProductWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PurchaseProductResponse, error)
 
-	PurchaseProductWithResponse(ctx context.Context, params *PurchaseProductParams, body PurchaseProductJSONRequestBody, reqEditors ...RequestEditorFn) (*PurchaseProductResponse, error)
+	PurchaseProductWithResponse(ctx context.Context, body PurchaseProductJSONRequestBody, reqEditors ...RequestEditorFn) (*PurchaseProductResponse, error)
 
 	// SubscribeProductWithBodyWithResponse request with any body
-	SubscribeProductWithBodyWithResponse(ctx context.Context, params *SubscribeProductParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubscribeProductResponse, error)
+	SubscribeProductWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubscribeProductResponse, error)
 
-	SubscribeProductWithResponse(ctx context.Context, params *SubscribeProductParams, body SubscribeProductJSONRequestBody, reqEditors ...RequestEditorFn) (*SubscribeProductResponse, error)
+	SubscribeProductWithResponse(ctx context.Context, body SubscribeProductJSONRequestBody, reqEditors ...RequestEditorFn) (*SubscribeProductResponse, error)
 
 	// GetHealthWithResponse request
 	GetHealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetHealthResponse, error)
@@ -883,8 +828,8 @@ func (r GoogleWebhookResponse) ContentType() string {
 }
 
 // ListPlayerProductsWithResponse request returning *ListPlayerProductsResponse
-func (c *ClientWithResponses) ListPlayerProductsWithResponse(ctx context.Context, params *ListPlayerProductsParams, reqEditors ...RequestEditorFn) (*ListPlayerProductsResponse, error) {
-	rsp, err := c.ListPlayerProducts(ctx, params, reqEditors...)
+func (c *ClientWithResponses) ListPlayerProductsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListPlayerProductsResponse, error) {
+	rsp, err := c.ListPlayerProducts(ctx, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -892,16 +837,16 @@ func (c *ClientWithResponses) ListPlayerProductsWithResponse(ctx context.Context
 }
 
 // PurchaseProductWithBodyWithResponse request with arbitrary body returning *PurchaseProductResponse
-func (c *ClientWithResponses) PurchaseProductWithBodyWithResponse(ctx context.Context, params *PurchaseProductParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PurchaseProductResponse, error) {
-	rsp, err := c.PurchaseProductWithBody(ctx, params, contentType, body, reqEditors...)
+func (c *ClientWithResponses) PurchaseProductWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PurchaseProductResponse, error) {
+	rsp, err := c.PurchaseProductWithBody(ctx, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParsePurchaseProductResponse(rsp)
 }
 
-func (c *ClientWithResponses) PurchaseProductWithResponse(ctx context.Context, params *PurchaseProductParams, body PurchaseProductJSONRequestBody, reqEditors ...RequestEditorFn) (*PurchaseProductResponse, error) {
-	rsp, err := c.PurchaseProduct(ctx, params, body, reqEditors...)
+func (c *ClientWithResponses) PurchaseProductWithResponse(ctx context.Context, body PurchaseProductJSONRequestBody, reqEditors ...RequestEditorFn) (*PurchaseProductResponse, error) {
+	rsp, err := c.PurchaseProduct(ctx, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -909,16 +854,16 @@ func (c *ClientWithResponses) PurchaseProductWithResponse(ctx context.Context, p
 }
 
 // SubscribeProductWithBodyWithResponse request with arbitrary body returning *SubscribeProductResponse
-func (c *ClientWithResponses) SubscribeProductWithBodyWithResponse(ctx context.Context, params *SubscribeProductParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubscribeProductResponse, error) {
-	rsp, err := c.SubscribeProductWithBody(ctx, params, contentType, body, reqEditors...)
+func (c *ClientWithResponses) SubscribeProductWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubscribeProductResponse, error) {
+	rsp, err := c.SubscribeProductWithBody(ctx, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseSubscribeProductResponse(rsp)
 }
 
-func (c *ClientWithResponses) SubscribeProductWithResponse(ctx context.Context, params *SubscribeProductParams, body SubscribeProductJSONRequestBody, reqEditors ...RequestEditorFn) (*SubscribeProductResponse, error) {
-	rsp, err := c.SubscribeProduct(ctx, params, body, reqEditors...)
+func (c *ClientWithResponses) SubscribeProductWithResponse(ctx context.Context, body SubscribeProductJSONRequestBody, reqEditors ...RequestEditorFn) (*SubscribeProductResponse, error) {
+	rsp, err := c.SubscribeProduct(ctx, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}

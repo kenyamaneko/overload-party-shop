@@ -1,214 +1,108 @@
-package apple
+package apple_test
 
 import (
-	"context"
-	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	"github.com/kenyamaneko/overload-party-shop/internal/adapter/apple"
+	"github.com/kenyamaneko/overload-party-shop/internal/adapter/apple/appletest"
 )
 
-const (
-	testPurchaseMillis = int64(1_700_000_000_000)
-	testExpiresMillis  = int64(1_800_000_000_000)
-)
+func loadPrivateKeyPEM(pemData []byte) (*apple.Verifier, error) {
+	return appletest.NewVerifierFromPEM(pemData, "Sandbox", &appletest.FakeJWSVerifier{})
+}
 
-// newTestECDSAKey は JWT 署名に使う P-256 秘密鍵を生成する。
-func newTestECDSAKey(t *testing.T) *ecdsa.PrivateKey {
+func newVerifierWithEnvironment(t *testing.T, environment string) (*apple.Verifier, error) {
 	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	return key
+	pemData := appletest.EncodePKCS8PEM(t, appletest.GenerateECDSAKey(t, elliptic.P256()))
+	jwsVerifier := &appletest.FakeJWSVerifier{Payload: `{"bundleId":"com.test.shop","productId":"prod-1"}`}
+	return appletest.NewVerifierFromPEM(pemData, environment, jwsVerifier)
 }
 
-// newTestVerifier は App Store Server API を模したテストサーバへ向けた Verifier を構築する。
-// jwsVerifier をスタブ化することで、署名検証後の payload をテストが直接指定できる。
-func newTestVerifier(t *testing.T, status int, body string, verifyFn func(jws string) ([]byte, error)) *Verifier {
-	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, body)
-	}))
-	t.Cleanup(server.Close)
+func TestNewVerifierFromPEM(t *testing.T) {
+	t.Run("[Apple購入検証]認証用秘密鍵の読み込み", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("P-256のPKCS#8形式の秘密鍵のとき、エラーは返らない", func(t *testing.T) {
+				pemData := appletest.EncodePKCS8PEM(t, appletest.GenerateECDSAKey(t, elliptic.P256()))
 
-	return &Verifier{
-		keyID:       "test-key-id",
-		issuerID:    "test-issuer-id",
-		bundleID:    "com.overloadparty.shop",
-		privateKey:  newTestECDSAKey(t),
-		baseURL:     server.URL,
-		httpClient:  server.Client(),
-		jwsVerifier: &port.MockAppleJWSVerifier{VerifyFn: verifyFn},
-	}
-}
+				_, err := loadPrivateKeyPEM(pemData)
 
-func TestVerifier_VerifyPurchase(t *testing.T) {
-	t.Run("単発購入の検証", func(t *testing.T) {
-		cases := []struct {
-			name     string
-			status   int
-			body     string
-			verifyFn func(jws string) ([]byte, error)
-			want     *port.VerifyResult
-			wantErr  bool
-		}{
-			{
-				name:   "200と検証済みtransactionのとき、有効な結果を写像する",
-				status: http.StatusOK,
-				body:   `{"signedTransactionInfo":"signed-txn"}`,
-				verifyFn: func(string) ([]byte, error) {
-					return []byte(fmt.Sprintf(`{"transactionId":"txn-1","productId":"prod-1","purchaseDate":%d}`, testPurchaseMillis)), nil
-				},
-				want: &port.VerifyResult{
-					IsValid:       true,
-					TransactionID: "txn-1",
-					ProductID:     "prod-1",
-					PurchaseTime:  time.UnixMilli(testPurchaseMillis),
-				},
-				wantErr: false,
-			},
-			{
-				name:     "非200応答のとき、無効な結果とエラーになる",
-				status:   http.StatusNotFound,
-				body:     `{"errorCode":4040010}`,
-				verifyFn: func(string) ([]byte, error) { return []byte("{}"), nil },
-				want:     &port.VerifyResult{IsValid: false},
-				wantErr:  true,
-			},
-			{
-				name:     "JWS署名検証に失敗するとき、結果を返さずエラーを伝播する",
-				status:   http.StatusOK,
-				body:     `{"signedTransactionInfo":"signed-txn"}`,
-				verifyFn: func(string) ([]byte, error) { return nil, errors.New("x5c chain verify failed") },
-				want:     nil,
-				wantErr:  true,
-			},
-			{
-				name:     "署名は通るがpayloadがJSONでないとき、エラーになる",
-				status:   http.StatusOK,
-				body:     `{"signedTransactionInfo":"signed-txn"}`,
-				verifyFn: func(string) ([]byte, error) { return []byte("not-json"), nil },
-				want:     nil,
-				wantErr:  true,
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				v := newTestVerifier(t, tc.status, tc.body, tc.verifyFn)
-				got, err := v.VerifyPurchase(context.Background(), "purchase-token")
-				assert.Equal(t, tc.wantErr, err != nil)
-				assert.Equal(t, tc.want, got)
-			})
-		}
-	})
-}
-
-func TestVerifier_VerifySubscription(t *testing.T) {
-	const subBody = `{"data":[{"lastTransactions":[{"signedTransactionInfo":"signed-txn","signedRenewalInfo":"signed-renewal"}]}]}`
-
-	t.Run("サブスクリプションの検証", func(t *testing.T) {
-		validCases := []struct {
-			name     string
-			status   int
-			body     string
-			verifyFn func(jws string) ([]byte, error)
-			want     *port.SubscriptionInfo
-		}{
-			{
-				name:   "200と検証済みtransaction/renewalのとき、有効なサブスク結果を写像する",
-				status: http.StatusOK,
-				body:   subBody,
-				verifyFn: func(string) ([]byte, error) {
-					return []byte(fmt.Sprintf(`{"transactionId":"txn-sub","productId":"premium_monthly","expiresDate":%d,"autoRenewStatus":1}`, testExpiresMillis)), nil
-				},
-				want: &port.SubscriptionInfo{
-					IsValid:        true,
-					ProductID:      "premium_monthly",
-					TransactionID:  "txn-sub",
-					ExpiresAt:      time.UnixMilli(testExpiresMillis),
-					IsAutoRenewing: true,
-				},
-			},
-			{
-				name:   "autoRenewStatusが1以外のとき、自動更新はfalseになる",
-				status: http.StatusOK,
-				body:   subBody,
-				verifyFn: func(string) ([]byte, error) {
-					return []byte(fmt.Sprintf(`{"transactionId":"txn-sub","productId":"premium_monthly","expiresDate":%d,"autoRenewStatus":0}`, testExpiresMillis)), nil
-				},
-				want: &port.SubscriptionInfo{
-					IsValid:        true,
-					ProductID:      "premium_monthly",
-					TransactionID:  "txn-sub",
-					ExpiresAt:      time.UnixMilli(testExpiresMillis),
-					IsAutoRenewing: false,
-				},
-			},
-			{
-				name:     "取引データが空のとき、無効な結果でエラーは返さない",
-				status:   http.StatusOK,
-				body:     `{"data":[]}`,
-				verifyFn: func(string) ([]byte, error) { return []byte("{}"), nil },
-				want:     &port.SubscriptionInfo{IsValid: false},
-			},
-			{
-				name:     "取引データはあるが直近取引が空のとき、無効な結果でエラーは返さない",
-				status:   http.StatusOK,
-				body:     `{"data":[{"lastTransactions":[]}]}`,
-				verifyFn: func(string) ([]byte, error) { return []byte("{}"), nil },
-				want:     &port.SubscriptionInfo{IsValid: false},
-			},
-		}
-		for _, tc := range validCases {
-			t.Run(tc.name, func(t *testing.T) {
-				v := newTestVerifier(t, tc.status, tc.body, tc.verifyFn)
-				got, err := v.VerifySubscription(context.Background(), "sub-token")
 				require.NoError(t, err)
-				assert.Equal(t, tc.want, got)
 			})
-		}
+		})
 
-		invalidCases := []struct {
-			name     string
-			status   int
-			body     string
-			verifyFn func(jws string) ([]byte, error)
-			want     *port.SubscriptionInfo
-		}{
-			{
-				name:     "非200応答のとき、無効な結果とエラーになる",
-				status:   http.StatusInternalServerError,
-				body:     `{}`,
-				verifyFn: func(string) ([]byte, error) { return []byte("{}"), nil },
-				want:     &port.SubscriptionInfo{IsValid: false},
-			},
-			{
-				name:     "JWS署名検証に失敗するとき、結果を返さずエラーを伝播する",
-				status:   http.StatusOK,
-				body:     subBody,
-				verifyFn: func(string) ([]byte, error) { return nil, errors.New("x5c chain verify failed") },
-				want:     nil,
-			},
-		}
-		for _, tc := range invalidCases {
-			t.Run(tc.name, func(t *testing.T) {
-				v := newTestVerifier(t, tc.status, tc.body, tc.verifyFn)
-				got, err := v.VerifySubscription(context.Background(), "sub-token")
-				require.Error(t, err)
-				assert.Equal(t, tc.want, got)
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("秘密鍵のPEMを読み込むと", func(t *testing.T) {
+				invalidPEMTests := []struct {
+					name    string
+					pemData []byte
+				}{
+					{name: "空のデータのとき、エラーの内容にPEMブロック解析失敗が含まれる", pemData: []byte{}},
+					{name: "PEMブロックを含まない文字列のとき、エラーの内容にPEMブロック解析失敗が含まれる", pemData: []byte("not-a-pem-block")},
+				}
+				for _, tc := range invalidPEMTests {
+					t.Run(tc.name, func(t *testing.T) {
+						_, err := loadPrivateKeyPEM(tc.pemData)
+
+						assert.ErrorContains(t, err, "failed to decode PEM block")
+					})
+				}
+
+				t.Run("PKCS#8形式でないSEC1形式のEC秘密鍵のとき、エラーの内容に鍵解析失敗が含まれる", func(t *testing.T) {
+					pemData := appletest.EncodeSEC1PEM(t, appletest.GenerateECDSAKey(t, elliptic.P256()))
+
+					_, err := loadPrivateKeyPEM(pemData)
+
+					assert.ErrorContains(t, err, "parse private key")
+				})
+
+				t.Run("PKCS#8形式のRSA秘密鍵のとき、エラーの内容にECDSAでない鍵が含まれる", func(t *testing.T) {
+					pemData := appletest.EncodePKCS8PEM(t, appletest.GenerateRSAKey(t))
+
+					_, err := loadPrivateKeyPEM(pemData)
+
+					assert.ErrorContains(t, err, "private key is not ECDSA")
+				})
+
+				t.Run("PKCS#8形式のP-384の秘密鍵のとき、エラーの内容にP-256でない曲線が含まれる", func(t *testing.T) {
+					pemData := appletest.EncodePKCS8PEM(t, appletest.GenerateECDSAKey(t, elliptic.P384()))
+
+					_, err := loadPrivateKeyPEM(pemData)
+
+					assert.ErrorContains(t, err, "P-256")
+				})
 			})
-		}
+		})
+	})
+
+	t.Run("[Apple購入検証]環境名の指定", func(t *testing.T) {
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("Apple購入検証に環境名を指定すると", func(t *testing.T) {
+				invalidEnvironmentTests := []struct {
+					name        string
+					environment string
+				}{
+					{name: "環境名が空文字のとき、エラーの内容に許容値のProductionとSandboxが含まれる", environment: ""},
+					{name: "環境名がstagingのとき、エラーの内容に許容値のProductionとSandboxが含まれる", environment: "staging"},
+				}
+				for _, tc := range invalidEnvironmentTests {
+					t.Run(tc.name, func(t *testing.T) {
+						_, err := newVerifierWithEnvironment(t, tc.environment)
+
+						assert.ErrorContains(t, err, "Production")
+						assert.ErrorContains(t, err, "Sandbox")
+					})
+				}
+
+				t.Run("環境名がstagingのとき、エラーの内容に渡した環境名stagingが含まれる", func(t *testing.T) {
+					_, err := newVerifierWithEnvironment(t, "staging")
+
+					assert.ErrorContains(t, err, "staging")
+				})
+			})
+		})
 	})
 }

@@ -9,61 +9,57 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kenyamaneko/overload-party-shop/internal/domain"
-	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 )
 
-func TestPurchaseLookupRepository_FindPurchaseByToken(t *testing.T) {
-	lookup := postgres.NewPurchaseLookupRepository(sharedPg.Pool)
-	factionPurchase := postgres.NewFactionPurchaseRepository(sharedPg.Pool)
+func TestFindPurchaseByToken(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("tokenによるpurchase検索", func(t *testing.T) {
-		const user1 = "11111111-4444-4444-4444-111111111111"
+	t.Run("[購入検索]購入トークンによる購入の取得", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("保存済みの購入トークンで検索する", func(t *testing.T) {
+				t.Run("購入者は、保存した購入者になる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
 
-		sharedPg.Truncate(t)
-		_, err := factionPurchase.CreatePurchase(ctx,
-			&domain.OneTimePurchase{PlayerID: user1, ProductID: "faction_she", PurchasedAt: time.Now().UTC()},
-			"SHE", "faction_set_she", domain.PlatformIOS, "apple-token-1", newFactionPurchaseEvents())
-		require.NoError(t, err)
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenOne)
 
-		t.Run("存在するtokenのとき、紐付くpurchaseを返す", func(t *testing.T) {
-			got, err := lookup.FindPurchaseByToken(ctx, domain.PlatformIOS, "apple-token-1")
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.Equal(t, user1, got.PlayerID)
-		})
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.Equal(t, playerA, got.PlayerID)
+				})
 
-		notFoundCases := []struct {
-			name     string
-			platform string
-			token    string
-		}{
-			{
-				name:     "存在しないtokenのとき、(nil, nil)を返す",
-				platform: domain.PlatformIOS,
-				token:    "missing",
-			},
-			{
-				name:     "別プラットフォームで同一文字列のtokenのとき、見つからず (nil, nil)を返す",
-				platform: domain.PlatformAndroid,
-				token:    "apple-token-1",
-			},
-		}
+				t.Run("商品は、保存した商品になる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
 
-		for _, tt := range notFoundCases {
-			t.Run(tt.name, func(t *testing.T) {
-				got, err := lookup.FindPurchaseByToken(ctx, tt.platform, tt.token)
-				require.NoError(t, err)
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenOne)
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.Equal(t, "TST-PRODUCT-1", got.ProductID)
+				})
+
+				t.Run("購入日時は、保存した購入日時になる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenOne)
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.True(t, got.PurchasedAt.Equal(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)), "got %s", got.PurchasedAt)
+				})
+			})
+
+			t.Run("保存されていない購入トークンで検索すると、見つからず、エラーにもならない", func(t *testing.T) {
+				pg.Truncate(t)
+				require.NoError(t, pg.CreateItemPurchase(playerA, "playmat", 1, "ios", tokenOne))
+
+				got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenTwo)
+
+				assert.NoError(t, err)
 				assert.Nil(t, got)
 			})
-		}
-
-		t.Run("unsupported platformのとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
-			_, err := lookup.FindPurchaseByToken(ctx, "windows", "apple-token-1")
-			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
 		})
 	})
 }

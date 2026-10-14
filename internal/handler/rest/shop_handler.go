@@ -17,7 +17,7 @@ import (
 type shopServicer interface {
 	GetProducts(ctx context.Context, playerID string) ([]domain.ProductWithOwnership, error)
 	Purchase(ctx context.Context, playerID, productID, platform, purchaseToken string) error
-	Subscribe(ctx context.Context, playerID, productID, platform, purchaseToken string) (*time.Time, error)
+	Subscribe(ctx context.Context, playerID, productID, platform, purchaseToken string) (time.Time, error)
 }
 
 // ShopHandler は商品カタログ・購入・サブスクリプションの REST ハンドラを提供する。
@@ -39,12 +39,12 @@ func (h *ShopHandler) GetProducts(c *gin.Context) {
 		return
 	}
 
-	resp, err := presenter.ToProductResponses(products)
+	resp, err := presenter.ToProductListResponse(products)
 	if err != nil {
 		respondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"products": resp})
+	c.JSON(http.StatusOK, resp)
 }
 
 // Purchase は単発購入リクエストを処理する。
@@ -52,8 +52,12 @@ func (h *ShopHandler) Purchase(c *gin.Context) {
 	playerID := c.GetString(internalauth.PlayerIDContextKey)
 
 	var req apishop.PurchaseRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := decodeRequestBody(c, &req); err != nil {
+		respondError(c, err)
+		return
+	}
+	if err := validatePurchaseRequest(req); err != nil {
+		respondBadRequest(c, err)
 		return
 	}
 
@@ -62,10 +66,7 @@ func (h *ShopHandler) Purchase(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusAccepted, gin.H{
-		"message":    "purchase accepted",
-		"product_id": req.ProductID,
-	})
+	c.JSON(http.StatusOK, presenter.ToPurchaseResponse(req.ProductID))
 }
 
 // Subscribe はサブスクリプション購入リクエストを処理する。
@@ -73,8 +74,12 @@ func (h *ShopHandler) Subscribe(c *gin.Context) {
 	playerID := c.GetString(internalauth.PlayerIDContextKey)
 
 	var req apishop.PurchaseRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := decodeRequestBody(c, &req); err != nil {
+		respondError(c, err)
+		return
+	}
+	if err := validatePurchaseRequest(req); err != nil {
+		respondBadRequest(c, err)
 		return
 	}
 
@@ -84,8 +89,14 @@ func (h *ShopHandler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusAccepted, gin.H{
-		"message":    "subscription accepted",
-		"expires_at": expiresAt,
-	})
+	c.JSON(http.StatusOK, presenter.ToSubscribeResponse(expiresAt))
+}
+
+// validatePurchaseRequest は購入リクエストの必須項目の欠落を検査する。
+func validatePurchaseRequest(req apishop.PurchaseRequest) error {
+	return validateRequiredFields(
+		requiredField{name: "product_id", value: req.ProductID},
+		requiredField{name: "platform", value: string(req.Platform)},
+		requiredField{name: "purchase_token", value: req.PurchaseToken},
+	)
 }

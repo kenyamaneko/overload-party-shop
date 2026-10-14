@@ -4,262 +4,250 @@ package postgres_test
 
 import (
 	"context"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kenyamaneko/overload-party-shop/internal/domain"
-	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
-	apishop "github.com/kenyamaneko/overload-party-shop/packages/api-shop"
+	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres/postgrestest"
 )
 
-const (
-	cardPackTestUser1 = "31111111-1111-1111-1111-111111111111"
-	cardPackTestUser2 = "32222222-2222-2222-2222-222222222222"
-)
-
-func newCardPackPurchaseEvent() port.OutboxEvent {
-	return port.OutboxEvent{
-		EventID:   uuid.New(),
-		EventType: apishop.EventTypeCardPackPurchased,
-		Payload:   []byte(`{}`),
-	}
-}
-
-func newCardPackTestPurchase(playerID string) *domain.OneTimePurchase {
-	return &domain.OneTimePurchase{
-		PlayerID:    playerID,
-		ProductID:   "limited_2026_summer",
-		PurchasedAt: time.Now().UTC(),
-	}
-}
-
-type cardPackPurchaseSeed struct {
-	playerID, cardPackID, platform, token string
-}
-
-func TestCardPackPurchaseRepository_CreatePurchase(t *testing.T) {
-	repo := postgres.NewCardPackPurchaseRepository(sharedPg.Pool)
+func TestCardPackPurchaseCreatePurchase(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("card_pack購入の作成", func(t *testing.T) {
-		successCases := []struct {
-			name              string
-			seeds             []cardPackPurchaseSeed
-			playerID          string
-			cardPackID        string
-			platform          string
-			token             string
-			wantCreated       bool
-			wantPurchaseRows  int
-			wantTokenRows     int
-			wantOwnedPackRows int
-			wantOutboxRows    int
-		}{
-			{
-				name:              "新規トークンのとき、purchase / token / owned_card_pack / outboxが作成される",
-				seeds:             nil,
-				playerID:          cardPackTestUser1,
-				cardPackID:        "limited_2026_summer",
-				platform:          domain.PlatformIOS,
-				token:             "apple-new-pack",
-				wantCreated:       true,
-				wantPurchaseRows:  1,
-				wantTokenRows:     1,
-				wantOwnedPackRows: 1,
-				wantOutboxRows:    1,
-			},
-			{
-				name: "同一トークンで再作成すると、べき等でcreated=falseになり行が増えない",
-				seeds: []cardPackPurchaseSeed{
-					{cardPackTestUser1, "limited_2026_summer", domain.PlatformIOS, "dup-pack-token"},
-				},
-				playerID:          cardPackTestUser1,
-				cardPackID:        "limited_2026_summer",
-				platform:          domain.PlatformIOS,
-				token:             "dup-pack-token",
-				wantCreated:       false,
-				wantPurchaseRows:  1,
-				wantTokenRows:     1,
-				wantOwnedPackRows: 1,
-				wantOutboxRows:    1,
-			},
-			{
-				name: "別プレイヤーが同一packを新規トークンで買うとき、独立して追加される",
-				seeds: []cardPackPurchaseSeed{
-					{cardPackTestUser1, "limited_2026_summer", domain.PlatformIOS, "tok-u1-pack"},
-				},
-				playerID:          cardPackTestUser2,
-				cardPackID:        "limited_2026_summer",
-				platform:          domain.PlatformIOS,
-				token:             "tok-u2-pack",
-				wantCreated:       true,
-				wantPurchaseRows:  2,
-				wantTokenRows:     2,
-				wantOwnedPackRows: 2,
-				wantOutboxRows:    2,
-			},
-		}
+	t.Run("[カードパック購入]購入の作成", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("プレイヤーAが新規の購入トークンでカードパックXを購入する", func(t *testing.T) {
+				t.Run("プレイヤーAがカードパックXを所有している状態になる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
 
-		for _, tt := range successCases {
-			t.Run(tt.name, func(t *testing.T) {
-				sharedPg.Truncate(t)
-				for _, s := range tt.seeds {
-					_, err := repo.CreatePurchase(ctx, newCardPackTestPurchase(s.playerID), s.cardPackID, s.platform, s.token, newCardPackPurchaseEvent())
+					owned, err := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackX)
+
 					require.NoError(t, err)
+					assert.True(t, owned)
+				})
+
+				t.Run("購入トークンで検索すると、プレイヤーAの購入が見つかる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
+
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenOne)
+
+					require.NoError(t, err)
+					require.NotNil(t, got)
+					assert.Equal(t, playerA, got.PlayerID)
+				})
+
+				t.Run("取得したイベントは、購入時に渡したイベントIDの1件だけになる", func(t *testing.T) {
+					pg.Truncate(t)
+					event := postgrestest.NewOutboxEvent()
+					require.NoError(t, pg.CreateCardPackPurchaseWithEvent(playerA, cardPackX, tokenOne, event))
+
+					claimed := pg.ClaimAll(t)
+
+					assert.Equal(t, []uuid.UUID{event.EventID}, postgrestest.ClaimedEventIDs(claimed))
+				})
+			})
+
+			t.Run("プレイヤーAがカードパックXを購入済みのとき、プレイヤーBが別の購入トークンでカードパックXを購入する", func(t *testing.T) {
+				eventOfA := postgrestest.NewOutboxEvent()
+				eventOfB := postgrestest.NewOutboxEvent()
+				purchaseAsBoth := func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateCardPackPurchaseWithEvent(playerA, cardPackX, tokenOne, eventOfA))
+					require.NoError(t, pg.CreateCardPackPurchaseWithEvent(playerB, cardPackX, tokenTwo, eventOfB))
 				}
 
-				created, err := repo.CreatePurchase(ctx, newCardPackTestPurchase(tt.playerID), tt.cardPackID, tt.platform, tt.token, newCardPackPurchaseEvent())
-				require.NoError(t, err)
-				assert.Equal(t, tt.wantCreated, created)
+				t.Run("プレイヤーAとプレイヤーBの両方がカードパックXを所有している状態になる", func(t *testing.T) {
+					purchaseAsBoth(t)
 
-				var purchases, tokens, ownedPacks, outboxRows int
-				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-					`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
-				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-					`SELECT COUNT(*) FROM shop.apple_purchase_tokens`).Scan(&tokens))
-				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-					`SELECT COUNT(*) FROM shop.player_owned_card_packs`).Scan(&ownedPacks))
-				require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-					`SELECT COUNT(*) FROM shop.outbox_events`).Scan(&outboxRows))
-				assert.Equal(t, tt.wantPurchaseRows, purchases)
-				assert.Equal(t, tt.wantTokenRows, tokens)
-				assert.Equal(t, tt.wantOwnedPackRows, ownedPacks)
-				assert.Equal(t, tt.wantOutboxRows, outboxRows)
+					ownedByA, errA := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackX)
+					ownedByB, errB := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerB, cardPackX)
+
+					require.NoError(t, errA)
+					require.NoError(t, errB)
+					assert.True(t, ownedByA)
+					assert.True(t, ownedByB)
+				})
+
+				t.Run("取得したイベントは、プレイヤーAの購入とプレイヤーBの購入でそれぞれ渡したイベントIDの2件になる", func(t *testing.T) {
+					purchaseAsBoth(t)
+
+					claimed := pg.ClaimAll(t)
+
+					assert.ElementsMatch(t, []uuid.UUID{eventOfA.EventID, eventOfB.EventID}, postgrestest.ClaimedEventIDs(claimed))
+				})
 			})
-		}
 
-		t.Run("unsupported platform (windows)のとき、ErrUnsupportedPlatformになる", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			_, err := repo.CreatePurchase(ctx, newCardPackTestPurchase(cardPackTestUser1), "limited_2026_summer", "windows", "tok", newCardPackPurchaseEvent())
-			assert.ErrorIs(t, err, port.ErrUnsupportedPlatform)
+			t.Run("プレイヤーAがカードパックXを購入済みのとき、別の購入トークンでカードパックYを購入する", func(t *testing.T) {
+				t.Run("プレイヤーAがカードパックXとカードパックYの両方を所有している状態になる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
+					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackY, tokenTwo))
+
+					ownedX, errX := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackX)
+					ownedY, errY := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackY)
+
+					require.NoError(t, errX)
+					require.NoError(t, errY)
+					assert.True(t, ownedX)
+					assert.True(t, ownedY)
+				})
+			})
+
+			t.Run("プレイヤーAが同じ購入トークンでカードパックXの購入を2回続けて行う", func(t *testing.T) {
+				purchaseTwice := func(t *testing.T) {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
+					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
+				}
+
+				t.Run("カードパックXの所有は1件のままになる", func(t *testing.T) {
+					purchaseTwice(t)
+
+					assert.Equal(t, 1, pg.CountRows(t, "shop.player_owned_card_packs"))
+				})
+
+				t.Run("イベントは1件のままになる", func(t *testing.T) {
+					purchaseTwice(t)
+
+					assert.Len(t, pg.ClaimAll(t), 1)
+				})
+			})
+
+			t.Run("プレイヤーAが同じ購入トークンでカードパックXの購入を同時に2回行う", func(t *testing.T) {
+				purchaseConcurrently := func(t *testing.T) {
+					pg.Truncate(t)
+					errs := postgrestest.RunConcurrently(2, func() error {
+						return pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne)
+					})
+					require.NoError(t, errs[0])
+					require.NoError(t, errs[1])
+				}
+
+				t.Run("カードパックXの所有は1件になる", func(t *testing.T) {
+					purchaseConcurrently(t)
+
+					assert.Equal(t, 1, pg.CountRows(t, "shop.player_owned_card_packs"))
+				})
+
+				t.Run("イベントは1件になる", func(t *testing.T) {
+					purchaseConcurrently(t)
+
+					assert.Len(t, pg.ClaimAll(t), 1)
+				})
+			})
 		})
 
-		t.Run("tokenがVARCHAR(256)超過 (257文字)で失敗するとき、purchaseがrollbackされowned_card_packは作成されない", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			tooLongToken := strings.Repeat("x", 257)
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("購入トークンが257文字のとき", func(t *testing.T) {
+				t.Run("プレイヤーAはカードパックXを所有していない状態のままになる", func(t *testing.T) {
+					pg.Truncate(t)
+					require.Error(t, pg.CreateCardPackPurchase(playerA, cardPackX, postgrestest.TokenOfLength(257)))
 
-			created, err := repo.CreatePurchase(ctx, newCardPackTestPurchase(cardPackTestUser1), "limited_2026_summer", domain.PlatformIOS, tooLongToken, newCardPackPurchaseEvent())
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "insert purchase token")
-			assert.False(t, created)
+					owned, err := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackX)
 
-			var purchases, tokens, ownedPacks int
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.apple_purchase_tokens`).Scan(&tokens))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.player_owned_card_packs`).Scan(&ownedPacks))
-			assert.Equal(t, 0, purchases)
-			assert.Equal(t, 0, tokens)
-			assert.Equal(t, 0, ownedPacks)
-		})
+					require.NoError(t, err)
+					assert.False(t, owned)
+				})
 
-		t.Run("owned_card_packのINSERTがPK違反で失敗するとき、purchaseとtokenがrollbackされる", func(t *testing.T) {
-			sharedPg.Truncate(t)
-			_, err := sharedPg.Pool.Exec(ctx,
-				`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
-				cardPackTestUser1, "limited_2026_summer")
-			require.NoError(t, err)
+				t.Run("イベントは保存されない", func(t *testing.T) {
+					pg.Truncate(t)
+					require.Error(t, pg.CreateCardPackPurchase(playerA, cardPackX, postgrestest.TokenOfLength(257)))
 
-			created, err := repo.CreatePurchase(ctx, newCardPackTestPurchase(cardPackTestUser1), "limited_2026_summer", domain.PlatformIOS, "new-pack-token", newCardPackPurchaseEvent())
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "insert owned card pack")
-			assert.False(t, created)
+					assert.Empty(t, pg.ClaimAll(t))
+				})
+			})
 
-			var purchases, tokens, ownedPacks int
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.one_time_purchases`).Scan(&purchases))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.apple_purchase_tokens`).Scan(&tokens))
-			require.NoError(t, sharedPg.Pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM shop.player_owned_card_packs`).Scan(&ownedPacks))
-			assert.Equal(t, 0, purchases)
-			assert.Equal(t, 0, tokens)
-			assert.Equal(t, 1, ownedPacks, "既存 seed 分のみ、新規 INSERT は反映されない")
+			t.Run("プレイヤーAがカードパックXを所有しているとき、別の購入トークンでカードパックXを購入する", func(t *testing.T) {
+				purchaseOwnedPackAgain := func(t *testing.T) error {
+					pg.Truncate(t)
+					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackX, tokenOne))
+					return pg.CreateCardPackPurchase(playerA, cardPackX, tokenFailed)
+				}
+
+				t.Run("エラーの原因はカードパックの所有の重複になる", func(t *testing.T) {
+					err := purchaseOwnedPackAgain(t)
+
+					postgrestest.RequireDuplicateKeyError(t, err, "player_owned_card_packs_pkey")
+				})
+
+				t.Run("失敗した購入トークンで検索しても、購入は見つからない", func(t *testing.T) {
+					purchaseOwnedPackAgain(t)
+
+					got, err := pg.PurchaseLookupRepository().FindPurchaseByToken(ctx, "ios", tokenFailed)
+
+					assert.NoError(t, err)
+					assert.Nil(t, got)
+				})
+
+				t.Run("カードパックXの所有は1件のままになる", func(t *testing.T) {
+					purchaseOwnedPackAgain(t)
+
+					assert.Equal(t, 1, pg.CountRows(t, "shop.player_owned_card_packs"))
+				})
+
+				t.Run("イベントは1件のままになる", func(t *testing.T) {
+					purchaseOwnedPackAgain(t)
+
+					assert.Len(t, pg.ClaimAll(t), 1)
+				})
+
+				t.Run("続けて、失敗した購入トークンでカードパックYを購入すると、プレイヤーAがカードパックYを所有している状態になる", func(t *testing.T) {
+					require.Error(t, purchaseOwnedPackAgain(t))
+					require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackY, tokenFailed))
+
+					owned, err := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackY)
+
+					require.NoError(t, err)
+					assert.True(t, owned)
+				})
+			})
 		})
 	})
 }
 
-func TestCardPackPurchaseRepository_HasPlayerCardPack(t *testing.T) {
-	repo := postgres.NewCardPackPurchaseRepository(sharedPg.Pool)
+func TestCardPackPurchaseHasPlayerCardPack(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("card_pack所有判定", func(t *testing.T) {
-		const (
-			owningPlayer = "33333333-3333-3333-3333-333333333333"
-			otherPlayer  = "34444444-4444-4444-4444-444444444444"
-			ownedPack    = "limited_2026_summer"
-			otherPack    = "limited_2026_winter"
-		)
+	t.Run("[カードパック購入]カードパックの所有判定", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("プレイヤーAについてカードパックXの所有を判定する", func(t *testing.T) {
+				cases := []struct {
+					name  string
+					prior func(t *testing.T)
+				}{
+					{
+						name:  "誰も何も購入していないとき、所有なしになる",
+						prior: func(t *testing.T) {},
+					},
+					{
+						name: "プレイヤーBだけがカードパックXを購入済みのとき、所有なしになる",
+						prior: func(t *testing.T) {
+							require.NoError(t, pg.CreateCardPackPurchase(playerB, cardPackX, tokenOne))
+						},
+					},
+					{
+						name: "プレイヤーAがカードパックYだけを購入済みのとき、所有なしになる",
+						prior: func(t *testing.T) {
+							require.NoError(t, pg.CreateCardPackPurchase(playerA, cardPackY, tokenOne))
+						},
+					},
+				}
+				for _, tc := range cases {
+					t.Run(tc.name, func(t *testing.T) {
+						pg.Truncate(t)
+						tc.prior(t)
 
-		tests := []struct {
-			name        string
-			seed        func(t *testing.T)
-			playerID    string
-			cardPackID  string
-			wantIsOwned bool
-		}{
-			{
-				name: "所有プレイヤー・所有packのとき、所有ありになる",
-				seed: func(t *testing.T) {
-					_, err := sharedPg.Pool.Exec(ctx,
-						`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
-						owningPlayer, ownedPack)
-					require.NoError(t, err)
-				},
-				playerID:    owningPlayer,
-				cardPackID:  ownedPack,
-				wantIsOwned: true,
-			},
-			{
-				name:        "所有行が無いとき、所有なしになる",
-				seed:        func(t *testing.T) {},
-				playerID:    owningPlayer,
-				cardPackID:  ownedPack,
-				wantIsOwned: false,
-			},
-			{
-				name: "別プレイヤーの所有行しか無いとき、所有なしになる",
-				seed: func(t *testing.T) {
-					_, err := sharedPg.Pool.Exec(ctx,
-						`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
-						otherPlayer, ownedPack)
-					require.NoError(t, err)
-				},
-				playerID:    owningPlayer,
-				cardPackID:  ownedPack,
-				wantIsOwned: false,
-			},
-			{
-				name: "別packの所有行しか無いとき、所有なしになる",
-				seed: func(t *testing.T) {
-					_, err := sharedPg.Pool.Exec(ctx,
-						`INSERT INTO shop.player_owned_card_packs (player_id, card_pack_id) VALUES ($1, $2)`,
-						owningPlayer, otherPack)
-					require.NoError(t, err)
-				},
-				playerID:    owningPlayer,
-				cardPackID:  ownedPack,
-				wantIsOwned: false,
-			},
-		}
+						owned, err := pg.CardPackPurchaseRepository().HasPlayerCardPack(ctx, playerA, cardPackX)
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				sharedPg.Truncate(t)
-				tt.seed(t)
-
-				got, err := repo.HasPlayerCardPack(ctx, tt.playerID, tt.cardPackID)
-				require.NoError(t, err)
-				assert.Equal(t, tt.wantIsOwned, got)
+						require.NoError(t, err)
+						assert.False(t, owned)
+					})
+				}
 			})
-		}
+		})
 	})
 }

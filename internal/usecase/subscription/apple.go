@@ -31,28 +31,33 @@ type appleNotification struct {
 	NotificationType string `json:"notificationType"`
 	Subtype          string `json:"subtype"`
 	Data             struct {
+		BundleID              string `json:"bundleId"`
 		SignedTransactionInfo string `json:"signedTransactionInfo"`
 	} `json:"data"`
 }
 
 type appleNotificationTxn struct {
 	OriginalTransactionID string `json:"originalTransactionId"`
-	ExpiresDate           int64  `json:"expiresDate"`
+	ExpiresDate           *int64 `json:"expiresDate"`
 }
 
 // AppleNotifier は Apple App Store Server Notifications V2 の webhook を処理する。
 type AppleNotifier struct {
 	subscriptionRepo port.SubscriptionRepo
 	jwsVerifier      port.AppleJWSVerifier
+	bundleID         string
 }
 
+// NewAppleNotifier は bundleID と一致する通知だけを処理する AppleNotifier を構築する。
 func NewAppleNotifier(
 	subscriptionRepo port.SubscriptionRepo,
 	jwsVerifier port.AppleJWSVerifier,
+	bundleID string,
 ) *AppleNotifier {
 	return &AppleNotifier{
 		subscriptionRepo: subscriptionRepo,
 		jwsVerifier:      jwsVerifier,
+		bundleID:         bundleID,
 	}
 }
 
@@ -61,6 +66,9 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 	notif, err := decodeAppleJWS[appleNotification](n.jwsVerifier, signedPayload)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrDecodeNotification, err)
+	}
+	if notif.Data.BundleID != n.bundleID {
+		return fmt.Errorf("%w: bundle id %q does not match", ErrDecodeNotification, notif.Data.BundleID)
 	}
 
 	txnInfo, err := decodeAppleJWS[appleNotificationTxn](n.jwsVerifier, notif.Data.SignedTransactionInfo)
@@ -78,24 +86,24 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 
 	switch notif.NotificationType {
 	case appleNotificationDIDRenew:
-		expiresAt := time.UnixMilli(txnInfo.ExpiresDate)
+		if txnInfo.ExpiresDate == nil || *txnInfo.ExpiresDate == 0 {
+			return fmt.Errorf("%w: expiresDate is missing", ErrDecodeTransactionInfo)
+		}
+		expiresAt := time.UnixMilli(*txnInfo.ExpiresDate)
 		subscription.CurrentPeriodEnd = expiresAt
 		subscription.Status = domain.SubscriptionStatusActive
-		subscription.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, true, &expiresAt); err != nil {
 			return err
 		}
 
 	case appleNotificationExpired, appleNotificationGracePeriodExpired:
 		subscription.Status = domain.SubscriptionStatusExpired
-		subscription.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
 
 	case appleNotificationRevoke:
 		subscription.Status = domain.SubscriptionStatusRevoked
-		subscription.UpdatedAt = time.Now()
 		if err := writeWithEvent(ctx, n.subscriptionRepo, subscription, false, nil); err != nil {
 			return err
 		}
@@ -103,7 +111,6 @@ func (n *AppleNotifier) HandleNotification(ctx context.Context, signedPayload st
 	case appleNotificationDIDChangeRenewStatus:
 		if notif.Subtype == appleSubtypeAutoRenewDisabled {
 			subscription.Status = domain.SubscriptionStatusCancelled
-			subscription.UpdatedAt = time.Now()
 			// プレミアムは current_period_end まで有効 — premium-updated イベントは発行しない
 			if err := writeNoEvent(ctx, n.subscriptionRepo, subscription); err != nil {
 				return err

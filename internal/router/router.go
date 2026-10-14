@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -12,7 +13,12 @@ import (
 )
 
 // New は shop の HTTP ルーターを構築する。appleWebhookHandler / googleWebhookHandler が nil なら該当 webhook ルートを登録しない。
-func New(shopHandler *rest.ShopHandler, appleWebhookHandler *rest.AppleWebhookHandler, googleWebhookHandler *rest.GoogleWebhookHandler, authVerifier internalauth.Verifier, pushValidator PubSubPushTokenValidator, pushServiceAccountEmail, pushAudience string) *gin.Engine {
+// googleWebhookHandler があり pushValidator が nil のときはエラーを返す。
+func New(shopHandler *rest.ShopHandler, appleWebhookHandler *rest.AppleWebhookHandler, googleWebhookHandler *rest.GoogleWebhookHandler, authVerifier internalauth.Verifier, pushValidator PubSubPushTokenValidator, pushServiceAccountEmail, pushAudience string) (*gin.Engine, error) {
+	if googleWebhookHandler != nil && pushValidator == nil {
+		return nil, errors.New("router: pushValidator is required when googleWebhookHandler is set")
+	}
+
 	r := gin.New()
 	r.Use(newRequestLogger(), gin.Recovery())
 
@@ -37,7 +43,7 @@ func New(shopHandler *rest.ShopHandler, appleWebhookHandler *rest.AppleWebhookHa
 	if googleWebhookHandler != nil {
 		r.POST("/webhook/google", verifyPubSubPush(pushValidator, pushServiceAccountEmail, pushAudience), googleWebhookHandler.Handle)
 	}
-	return r
+	return r, nil
 }
 
 // newRequestLogger はステータスコードに応じてログレベルを切り替える HTTP リクエストロガー。

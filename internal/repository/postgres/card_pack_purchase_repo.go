@@ -21,19 +21,19 @@ func NewCardPackPurchaseRepository(pool *pgxpool.Pool) *CardPackPurchaseReposito
 	return &CardPackPurchaseRepository{pool: pool}
 }
 
-func (r *CardPackPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, cardPackID, platform, purchaseToken string, eventOnCreate port.OutboxEvent) (created bool, err error) {
+func (r *CardPackPurchaseRepository) CreatePurchase(ctx context.Context, purchase *domain.OneTimePurchase, cardPackID, platform, purchaseToken string, eventOnCreate port.OutboxEvent) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("begin tx: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	created, err = insertOneTimePurchaseAndToken(ctx, tx, purchase, platform, purchaseToken)
+	isInserted, err := insertOneTimePurchaseAndToken(ctx, tx, purchase, platform, purchaseToken)
 	if err != nil {
-		return false, err
+		return err
 	}
-	if !created {
-		return false, nil
+	if !isInserted {
+		return nil
 	}
 
 	if _, err := tx.Exec(ctx,
@@ -41,17 +41,17 @@ func (r *CardPackPurchaseRepository) CreatePurchase(ctx context.Context, purchas
 		 VALUES ($1, $2)`,
 		purchase.PlayerID, cardPackID,
 	); err != nil {
-		return false, fmt.Errorf("insert owned card pack: %w", err)
+		return fmt.Errorf("insert owned card pack: %w", err)
 	}
 
 	if err := writeOutboxEvent(ctx, tx, eventOnCreate); err != nil {
-		return false, err
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit tx: %w", err)
+		return fmt.Errorf("commit tx: %w", err)
 	}
-	return true, nil
+	return nil
 }
 
 func (r *CardPackPurchaseRepository) HasPlayerCardPack(ctx context.Context, playerID, cardPackID string) (bool, error) {

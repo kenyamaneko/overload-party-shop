@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
@@ -23,7 +22,6 @@ import (
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/worker"
 	"github.com/kenyamaneko/overload-party-shop/internal/port"
-	shopfirestore "github.com/kenyamaneko/overload-party-shop/internal/repository/firestore"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/router"
 	"github.com/kenyamaneko/overload-party-shop/internal/usecase/outbox"
@@ -108,15 +106,6 @@ func run() error {
 	}
 	defer closeDatabasePool()
 	defer pool.Close()
-
-	fsClient, err := firestore.NewClient(ctx, cfg.GoogleCloudProject)
-	if err != nil {
-		return fmt.Errorf("firestore new client: %w", err)
-	}
-	defer func() { _ = fsClient.Close() }()
-	// game_config は現在 shop の runtime パスから参照していない。
-	// クライアント到達性は起動時に検証するため、repo を生成だけしておく。
-	_ = shopfirestore.NewGameConfigRepository(fsClient)
 
 	pub, err := shoppubsub.New(ctx, cfg.GoogleCloudProject, cfg.CardPackPurchasedTopic, cfg.FactionAcquiredTopic, cfg.PremiumUpdatedTopic)
 	if err != nil {
@@ -208,7 +197,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifi
 	// nil のままなら router.New が webhook ルートを登録しないため、stub モードで未認証の webhook 入口ができない
 	if cfg.IAPVerifier == config.IAPVerifierStore {
 		appleWebhookHandler = rest.NewAppleWebhookHandler(
-			subscription.NewAppleNotifier(subscriptionRepo, verifierSet.appleJWS),
+			subscription.NewAppleNotifier(subscriptionRepo, verifierSet.appleJWS, cfg.AppleBundleID),
 		)
 		googleWebhookHandler = rest.NewGoogleWebhookHandler(
 			subscription.NewGoogleNotifier(subscriptionRepo, verifierSet.googleSub),
@@ -225,7 +214,7 @@ func buildHTTPHandler(cfg *config.Config, pool *pgxpool.Pool, verifierSet verifi
 	return router.New(
 		shopHandler, appleWebhookHandler, googleWebhookHandler, authVerifier,
 		pushValidator, cfg.PubSubPushServiceAccountEmail, cfg.PubSubPushAudience,
-	), nil
+	)
 }
 
 // buildOutboxTicker は outbox 消費フローの relay と worker ticker を組み立てる。
