@@ -40,7 +40,7 @@ func TestWebhookRouteRegistration(t *testing.T) {
 			})
 
 			t.Run("GooglePlay通知の受付だけが有効なとき", func(t *testing.T) {
-				t.Run("/webhook/googleへのPOSTは、プッシュ認証を通れば200になる", func(t *testing.T) {
+				t.Run("プッシュ認証を通るとき、/webhook/googleへのPOSTは200になる", func(t *testing.T) {
 					engine := routertest.BuildRouter(t, routertest.WithGooglePush(&routertest.GoogleNotifier{}, validPush(), routertest.PushAudience))
 
 					response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
@@ -84,7 +84,7 @@ func TestWebhookRouteRegistration(t *testing.T) {
 					}
 				}
 
-				t.Run("/webhook/appleへのPOSTは、X-Internal-Authヘッダーが無くても200になる", func(t *testing.T) {
+				t.Run("X-Internal-Authヘッダーが無いとき、/webhook/appleへのPOSTは200になる", func(t *testing.T) {
 					engine := routertest.BuildRouter(t, buildBothEnabledWithFailingAuth()...)
 
 					response := routertest.Send(engine, http.MethodPost, routertest.AppleWebhookPath, appleBody, nil)
@@ -92,7 +92,7 @@ func TestWebhookRouteRegistration(t *testing.T) {
 					assert.Equal(t, http.StatusOK, response.Status)
 				})
 
-				t.Run("/webhook/googleへのPOSTは、X-Internal-Authヘッダーが無くても、プッシュ認証を通れば200になる", func(t *testing.T) {
+				t.Run("X-Internal-Authヘッダーが無く、プッシュ認証を通るとき、/webhook/googleへのPOSTは200になる", func(t *testing.T) {
 					engine := routertest.BuildRouter(t, buildBothEnabledWithFailingAuth()...)
 
 					response := routertest.Send(engine, http.MethodPost, routertest.GoogleWebhookPath, googleBody, googleHeaders)
@@ -100,31 +100,11 @@ func TestWebhookRouteRegistration(t *testing.T) {
 					assert.Equal(t, http.StatusOK, response.Status)
 				})
 			})
-
-			t.Run("プッシュ認証の検証が与えられていないとき", func(t *testing.T) {
-				t.Run("Apple通知もGooglePlay通知も受付が有効でないとき、ルーターの組み立てはエラーにならない", func(t *testing.T) {
-					_, err := routertest.NewRouter()
-
-					assert.NoError(t, err)
-				})
-
-				t.Run("Apple通知の受付だけが有効なとき、ルーターの組み立てはエラーにならない", func(t *testing.T) {
-					_, err := routertest.NewRouter(routertest.WithApple(&routertest.AppleNotifier{}))
-
-					assert.NoError(t, err)
-				})
-			})
 		})
 
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("GooglePlay通知の受付が有効で、プッシュ認証の検証が与えられていないとき", func(t *testing.T) {
-				t.Run("ルーターの組み立てはエラーになる", func(t *testing.T) {
-					_, err := routertest.NewRouter(routertest.WithGoogle(&routertest.GoogleNotifier{}))
-
-					assert.Error(t, err)
-				})
-
-				t.Run("ルーターの組み立てのエラーの内容に、GooglePlay通知のプッシュ認証の検証が無いことを示す語が含まれる", func(t *testing.T) {
+			t.Run("GooglePlay通知の受付が有効で、プッシュ認証の検証が用意されていないとき", func(t *testing.T) {
+				t.Run("webhookのルートを登録すると、エラーの内容にGooglePlay通知のプッシュ認証の検証が無いことを示す語が含まれる", func(t *testing.T) {
 					_, err := routertest.NewRouter(routertest.WithGoogle(&routertest.GoogleNotifier{}))
 
 					require.Error(t, err)

@@ -12,6 +12,8 @@ import (
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 
 	"github.com/kenyamaneko/overload-party-shop/internal/handler/rest"
+	"github.com/kenyamaneko/overload-party-shop/internal/port"
+	"github.com/kenyamaneko/overload-party-shop/internal/port/porttest"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres"
 	"github.com/kenyamaneko/overload-party-shop/internal/repository/postgres/postgrestest"
 	"github.com/kenyamaneko/overload-party-shop/internal/router"
@@ -136,21 +138,24 @@ type Env struct {
 	AppleReceipt  *ReceiptVerifier
 	GoogleReceipt *ReceiptVerifier
 	AppleJWS      *AppleJWSVerifier
-	GoogleExpiry  *GoogleExpiryFetcher
+	GoogleSub     *porttest.MockGoogleSubVerifier
 	Push          *PushValidator
 	pg            *postgrestest.Postgres
 }
 
 // BuildEnv は pg の全テーブルを空にして、pg に接続するルーターの一式を組み立てる。内部認証はトークンの値をそのままプレイヤー ID とする。
+// GooglePlay が返す購読情報は、サブスクリプション商品 TST-PRODUCT-SUB-1 の、購読の状態 ACTIVE・有効期限 FarFutureExpiry で始める。
 func BuildEnv(t *testing.T, pg *postgrestest.Postgres) *Env {
 	t.Helper()
 	pg.Truncate(t)
+	googleSub := porttest.NewMockGoogleSubVerifier()
+	googleSub.Return(port.GoogleSubscriptionStateActive, subscriptionProductID, FarFutureExpiry)
 	env := &Env{
 		Auth:          NewEchoAuthVerifier(),
 		AppleReceipt:  NewReceiptVerifier(),
 		GoogleReceipt: NewReceiptVerifier(),
 		AppleJWS:      NewAppleJWSVerifier(),
-		GoogleExpiry:  NewGoogleExpiryFetcher(FarFutureExpiry),
+		GoogleSub:     googleSub,
 		Push:          NewPushValidator(PushServiceAccountEmail, nil),
 		pg:            pg,
 	}
@@ -191,7 +196,7 @@ func (e *Env) usePool(t *testing.T, pool *pgxpool.Pool) {
 		e.GoogleReceipt.Port(),
 	)
 	appleNotifier := subscription.NewAppleNotifier(subscriptionRepo, e.AppleJWS.Port(), BundleID)
-	googleNotifier := subscription.NewGoogleNotifier(subscriptionRepo, e.GoogleExpiry)
+	googleNotifier := subscription.NewGoogleNotifier(subscriptionRepo, e.GoogleSub)
 	engine, err := router.New(
 		rest.NewShopHandler(service),
 		rest.NewAppleWebhookHandler(appleNotifier),

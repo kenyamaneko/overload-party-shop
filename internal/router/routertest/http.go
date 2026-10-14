@@ -66,6 +66,25 @@ func (r Response) Product(t *testing.T, productID string) apishop.ProductRespons
 	return apishop.ProductResponse{}
 }
 
+// ProductFields は商品一覧の応答本文から商品 ID が productID の商品の項目を、項目名ごとの JSON のまま返す。
+func (r Response) ProductFields(t *testing.T, productID string) map[string]json.RawMessage {
+	t.Helper()
+	require.Equal(t, http.StatusOK, r.Status, "応答本文: %s", r.Body)
+	var decoded struct {
+		Products []map[string]json.RawMessage `json:"products"`
+	}
+	require.NoError(t, json.Unmarshal(r.Body, &decoded), "応答本文: %s", r.Body)
+	for _, product := range decoded.Products {
+		var id string
+		require.NoError(t, json.Unmarshal(product["product_id"], &id), "応答本文: %s", r.Body)
+		if id == productID {
+			return product
+		}
+	}
+	require.FailNow(t, "商品一覧に商品がない", "商品ID: %s 応答本文: %s", productID, r.Body)
+	return nil
+}
+
 // PurchaseBody は商品の購入の応答本文を返す。
 func (r Response) PurchaseBody(t *testing.T) apishop.PurchaseResponse {
 	t.Helper()

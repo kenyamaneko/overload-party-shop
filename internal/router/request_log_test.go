@@ -96,41 +96,34 @@ func TestRequestLog(t *testing.T) {
 
 		t.Run("異常系", func(t *testing.T) {
 			t.Run("失敗するリクエストのログのレベル", func(t *testing.T) {
-				tests := []struct {
-					name        string
-					method      string
-					path        string
-					body        []byte
-					notifierErr error
-					wantStatus  int
-					wantLevel   slog.Level
-				}{
-					{name: "不正な本文のApple通知をPOSTすると、ログのレベルはWarnになる", method: http.MethodPost, path: routertest.AppleWebhookPath, body: []byte("not-json"), wantStatus: http.StatusBadRequest, wantLevel: slog.LevelWarn},
-					{name: "X-Internal-Authヘッダーが無い商品一覧をGETすると、ログのレベルはWarnになる", method: http.MethodGet, path: routertest.ProductsPath, wantStatus: http.StatusUnauthorized, wantLevel: slog.LevelWarn},
-					{name: "未登録のパスをGETすると、ログのレベルはWarnになる", method: http.MethodGet, path: "/TST-UNREGISTERED-PATH", wantStatus: http.StatusNotFound, wantLevel: slog.LevelWarn},
-					{
-						name:        "通知処理が一時的な失敗を返すApple通知をPOSTすると、ログのレベルはErrorになる",
-						method:      http.MethodPost,
-						path:        routertest.AppleWebhookPath,
-						body:        appleBody,
-						notifierErr: errors.New("TST-TEMPORARY-FAILURE"),
-						wantStatus:  http.StatusInternalServerError,
-						wantLevel:   slog.LevelError,
-					},
-				}
-				for _, tt := range tests {
-					t.Run(tt.name, func(t *testing.T) {
-						logs := logtest.Capture(t)
-						engine := routertest.BuildRouter(t, routertest.WithApple(&routertest.AppleNotifier{Err: tt.notifierErr}))
+				assertRequestLogLevel := func(t *testing.T, method, path string, body []byte, notifierErr error, wantStatus int, wantLevel slog.Level) {
+					t.Helper()
+					logs := logtest.Capture(t)
+					engine := routertest.BuildRouter(t, routertest.WithApple(&routertest.AppleNotifier{Err: notifierErr}))
 
-						response := routertest.Send(engine, tt.method, tt.path, tt.body, nil)
+					response := routertest.Send(engine, method, path, body, nil)
 
-						require.Equal(t, tt.wantStatus, response.Status)
-						records := selectRequestLogs(logs)
-						require.Len(t, records, 1)
-						assert.Equal(t, tt.wantLevel, records[0].Level)
-					})
+					require.Equal(t, wantStatus, response.Status)
+					records := selectRequestLogs(logs)
+					require.Len(t, records, 1)
+					assert.Equal(t, wantLevel, records[0].Level)
 				}
+
+				t.Run("不正な本文のApple通知をPOSTすると、ログのレベルはWarnになる", func(t *testing.T) {
+					assertRequestLogLevel(t, http.MethodPost, routertest.AppleWebhookPath, []byte("not-json"), nil, http.StatusBadRequest, slog.LevelWarn)
+				})
+
+				t.Run("X-Internal-Authヘッダーが無い商品一覧をGETすると、ログのレベルはWarnになる", func(t *testing.T) {
+					assertRequestLogLevel(t, http.MethodGet, routertest.ProductsPath, nil, nil, http.StatusUnauthorized, slog.LevelWarn)
+				})
+
+				t.Run("未登録のパスをGETすると、ログのレベルはWarnになる", func(t *testing.T) {
+					assertRequestLogLevel(t, http.MethodGet, "/TST-UNREGISTERED-PATH", nil, nil, http.StatusNotFound, slog.LevelWarn)
+				})
+
+				t.Run("再送すれば結果が変わりうる失敗になるApple通知をPOSTすると、ログのレベルはErrorになる", func(t *testing.T) {
+					assertRequestLogLevel(t, http.MethodPost, routertest.AppleWebhookPath, appleBody, errors.New("TST-TEMPORARY-FAILURE"), http.StatusInternalServerError, slog.LevelError)
+				})
 			})
 
 			t.Run("リクエストの処理が途中で異常終了したとき", func(t *testing.T) {

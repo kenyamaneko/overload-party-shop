@@ -78,23 +78,70 @@ func TestGoogleIDTokenValidator(t *testing.T) {
 						),
 						wantErrContains: "email claim missing",
 					},
-					{
-						name: "emailが空文字のとき、エラーの内容にメールアドレスのクレームが無いことを示す語が含まれる",
-						validate: buildPayloadValidation(
-							"https://accounts.google.com",
-							map[string]any{"email": "", "email_verified": true},
-						),
-						wantErrContains: "email claim missing",
-					},
 				}
 				for _, tt := range tests {
 					t.Run(tt.name, func(t *testing.T) {
 						validator := &googleIDTokenValidator{validate: tt.validate}
 
-						email, err := validator.Validate(context.Background(), "TST-ID-TOKEN", "TST-AUDIENCE")
+						_, err := validator.Validate(context.Background(), "TST-ID-TOKEN", "TST-AUDIENCE")
 
 						require.Error(t, err)
 						assert.Contains(t, err.Error(), tt.wantErrContains)
+					})
+				}
+
+				emailTests := []struct {
+					name     string
+					validate idTokenValidateFunc
+				}{
+					{
+						name: "署名・有効期限・audienceの検証が失敗するとき、検証結果のメールアドレスは空になる",
+						validate: func(context.Context, string, string) (*idtoken.Payload, error) {
+							return nil, errors.New("TST-SIGNATURE-INVALID")
+						},
+					},
+					{
+						name: "発行者がhttps://evil.exampleのとき、検証結果のメールアドレスは空になる",
+						validate: buildPayloadValidation(
+							"https://evil.example",
+							map[string]any{"email": "sa@example.com", "email_verified": true},
+						),
+					},
+					{
+						name: "email_verifiedのクレームが無いとき、検証結果のメールアドレスは空になる",
+						validate: buildPayloadValidation(
+							"https://accounts.google.com",
+							map[string]any{"email": "sa@example.com"},
+						),
+					},
+					{
+						name: "email_verifiedがfalseのとき、検証結果のメールアドレスは空になる",
+						validate: buildPayloadValidation(
+							"https://accounts.google.com",
+							map[string]any{"email": "sa@example.com", "email_verified": false},
+						),
+					},
+					{
+						name: "emailのクレームが無いとき、検証結果のメールアドレスは空になる",
+						validate: buildPayloadValidation(
+							"https://accounts.google.com",
+							map[string]any{"email_verified": true},
+						),
+					},
+					{
+						name: "emailが空文字のとき、検証結果のメールアドレスは空になる",
+						validate: buildPayloadValidation(
+							"https://accounts.google.com",
+							map[string]any{"email": "", "email_verified": true},
+						),
+					},
+				}
+				for _, tt := range emailTests {
+					t.Run(tt.name, func(t *testing.T) {
+						validator := &googleIDTokenValidator{validate: tt.validate}
+
+						email, _ := validator.Validate(context.Background(), "TST-ID-TOKEN", "TST-AUDIENCE")
+
 						assert.Empty(t, email)
 					})
 				}

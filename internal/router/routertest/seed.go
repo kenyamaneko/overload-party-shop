@@ -11,18 +11,30 @@ import (
 )
 
 const (
-	appleTransactionID  = "TST-APPLE-TXN-1"
-	googlePurchaseToken = "TST-GOOGLE-TOKEN-1"
+	appleTransactionID    = "TST-APPLE-TXN-1"
+	googlePurchaseToken   = "TST-GOOGLE-TOKEN-1"
+	subscriptionProductID = "TST-PRODUCT-SUB-1"
 )
 
 func buildProductSeed(productID string, isActive bool) postgrestest.ProductSeed {
 	return postgrestest.ProductSeed{ProductID: productID, Name: "TST-NAME-" + productID, Price: 100, IsActive: isActive}
 }
 
+// BuildItemProductSeed は販売中のコスメティック商品 TST-PRODUCT-ITEM-1 の登録内容を返す。
+func BuildItemProductSeed() postgrestest.ProductSeed {
+	return buildProductSeed("TST-PRODUCT-ITEM-1", true)
+}
+
+// SeedItemProductFrom は seed の内容でコスメティック商品を、item_type stamp、item_no 1 で登録する。
+func (e *Env) SeedItemProductFrom(t *testing.T, seed postgrestest.ProductSeed) {
+	t.Helper()
+	e.pg.InsertCosmeticProduct(t, seed, "stamp", 1)
+}
+
 // SeedItemProduct は販売中のコスメティック商品 TST-PRODUCT-ITEM-1 を登録する。
 func (e *Env) SeedItemProduct(t *testing.T) {
 	t.Helper()
-	e.pg.InsertCosmeticProduct(t, buildProductSeed("TST-PRODUCT-ITEM-1", true), "stamp", 1)
+	e.SeedItemProductFrom(t, BuildItemProductSeed())
 }
 
 // SeedInactiveProduct は販売停止中のコスメティック商品 TST-PRODUCT-INACTIVE を登録する。
@@ -34,7 +46,7 @@ func (e *Env) SeedInactiveProduct(t *testing.T) {
 // SeedSubscriptionProduct は販売中のサブスクリプション商品 TST-PRODUCT-SUB-1 を登録する。
 func (e *Env) SeedSubscriptionProduct(t *testing.T) {
 	t.Helper()
-	e.pg.InsertSubscriptionProduct(t, buildProductSeed("TST-PRODUCT-SUB-1", true), 1)
+	e.pg.InsertSubscriptionProduct(t, buildProductSeed(subscriptionProductID, true), 1)
 }
 
 // SeedCardPackProduct はカードパック TST-CARD-PACK-1 を配る販売中の商品 TST-PRODUCT-CARD-PACK-1 を登録する。
@@ -54,7 +66,7 @@ func (e *Env) CreateExpiredAppleSubscription(t *testing.T) {
 	t.Helper()
 	e.SeedSubscriptionProduct(t)
 	e.AppleReceipt.AcceptSubscription(ExpiredAt)
-	response := e.Subscribe(t, PlayerOne, "TST-PRODUCT-SUB-1", "ios", appleTransactionID)
+	response := e.Subscribe(t, PlayerOne, subscriptionProductID, "ios", appleTransactionID)
 	require.Equal(t, http.StatusOK, response.Status, "応答本文: %s", response.Body)
 }
 
@@ -70,6 +82,6 @@ func (e *Env) CreateExpiredGoogleSubscription(t *testing.T) {
 	t.Helper()
 	e.SeedSubscriptionProduct(t)
 	e.GoogleReceipt.AcceptSubscription(ExpiredAt)
-	response := e.Subscribe(t, PlayerOne, "TST-PRODUCT-SUB-1", "android", googlePurchaseToken)
+	response := e.Subscribe(t, PlayerOne, subscriptionProductID, "android", googlePurchaseToken)
 	require.Equal(t, http.StatusOK, response.Status, "応答本文: %s", response.Body)
 }

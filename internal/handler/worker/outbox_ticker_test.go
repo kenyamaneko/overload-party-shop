@@ -130,7 +130,7 @@ func TestOutboxTickerPeriodicRun(t *testing.T) {
 					assert.NoError(t, err)
 				})
 
-				t.Run("停止時に、停止を示すInfoレベルのログが出る", func(t *testing.T) {
+				t.Run("停止を示すInfoレベルのログが出る", func(t *testing.T) {
 					logs := logtest.Capture(t)
 					runner := newSucceedingRunner()
 					running := startTicker(t, runner)
@@ -144,7 +144,7 @@ func TestOutboxTickerPeriodicRun(t *testing.T) {
 		})
 
 		t.Run("異常系", func(t *testing.T) {
-			t.Run("実行対象の処理が1回目の呼び出しでエラーを返すとき", func(t *testing.T) {
+			t.Run("outboxの送信が1回目の実行でエラーになるとき", func(t *testing.T) {
 				t.Run("実行の失敗を示すErrorレベルのログが出る", func(t *testing.T) {
 					logs := logtest.Capture(t)
 					runner := newFirstCallFailingRunner()
@@ -154,7 +154,7 @@ func TestOutboxTickerPeriodicRun(t *testing.T) {
 					assert.Len(t, logs.SelectByMessageAndLevel("outbox tick failed", slog.LevelError), 1)
 				})
 
-				t.Run("実行の失敗を示すログのerrorに、実行対象の処理が返したエラーの内容が含まれる", func(t *testing.T) {
+				t.Run("実行の失敗を示すログのerrorに、1回目の実行で起きたエラーの内容が含まれる", func(t *testing.T) {
 					logs := logtest.Capture(t)
 					runner := newFirstCallFailingRunner()
 					startTicker(t, runner)

@@ -168,22 +168,24 @@ func TestShopAPIErrorResponse(t *testing.T) {
 					assert.False(t, response.Product(t, "TST-PRODUCT-ITEM-1").IsOwned)
 				})
 
-				t.Run("有効なレシートで同じ購入をもう一度送ると、200になる", func(t *testing.T) {
-					env := buildEnvAfterRejectedPurchase(t)
-					env.AppleReceipt.AcceptPurchase()
+				t.Run("有効なレシートで同じ購入をもう一度送ると", func(t *testing.T) {
+					t.Run("200になる", func(t *testing.T) {
+						env := buildEnvAfterRejectedPurchase(t)
+						env.AppleReceipt.AcceptPurchase()
 
-					response := env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "ios", "TST-PURCHASE-TOKEN-1")
+						response := env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "ios", "TST-PURCHASE-TOKEN-1")
 
-					assert.Equal(t, http.StatusOK, response.Status)
-				})
+						assert.Equal(t, http.StatusOK, response.Status)
+					})
 
-				t.Run("有効なレシートで同じ購入をもう一度送ると、messageが購入の受付を示す値になる", func(t *testing.T) {
-					env := buildEnvAfterRejectedPurchase(t)
-					env.AppleReceipt.AcceptPurchase()
+					t.Run("messageが購入の受付を示す値になる", func(t *testing.T) {
+						env := buildEnvAfterRejectedPurchase(t)
+						env.AppleReceipt.AcceptPurchase()
 
-					response := env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "ios", "TST-PURCHASE-TOKEN-1")
+						response := env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "ios", "TST-PURCHASE-TOKEN-1")
 
-					assert.Equal(t, "purchase accepted", response.PurchaseBody(t).Message)
+						assert.Equal(t, "purchase accepted", response.PurchaseBody(t).Message)
+					})
 				})
 			})
 
@@ -196,22 +198,24 @@ func TestShopAPIErrorResponse(t *testing.T) {
 					return env
 				}
 
-				t.Run("Appleとの通信が回復してから同じ購入をもう一度送ると、200になる", func(t *testing.T) {
-					env := buildEnvAfterAppleCommunicationFailure(t)
-					env.AppleReceipt.AcceptPurchase()
+				t.Run("Appleとの通信が回復してから同じ購入をもう一度送ると", func(t *testing.T) {
+					t.Run("200になる", func(t *testing.T) {
+						env := buildEnvAfterAppleCommunicationFailure(t)
+						env.AppleReceipt.AcceptPurchase()
 
-					response := env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "ios", "TST-PURCHASE-TOKEN-1")
+						response := env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "ios", "TST-PURCHASE-TOKEN-1")
 
-					assert.Equal(t, http.StatusOK, response.Status)
-				})
+						assert.Equal(t, http.StatusOK, response.Status)
+					})
 
-				t.Run("Appleとの通信が回復してから同じ購入をもう一度送ると、messageが購入の受付を示す値になる", func(t *testing.T) {
-					env := buildEnvAfterAppleCommunicationFailure(t)
-					env.AppleReceipt.AcceptPurchase()
+					t.Run("messageが購入の受付を示す値になる", func(t *testing.T) {
+						env := buildEnvAfterAppleCommunicationFailure(t)
+						env.AppleReceipt.AcceptPurchase()
 
-					response := env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "ios", "TST-PURCHASE-TOKEN-1")
+						response := env.Purchase(t, routertest.PlayerOne, "TST-PRODUCT-ITEM-1", "ios", "TST-PURCHASE-TOKEN-1")
 
-					assert.Equal(t, "purchase accepted", response.PurchaseBody(t).Message)
+						assert.Equal(t, "purchase accepted", response.PurchaseBody(t).Message)
+					})
 				})
 			})
 
@@ -224,22 +228,24 @@ func TestShopAPIErrorResponse(t *testing.T) {
 					return env
 				}
 
-				t.Run("データベースを使えるようになってから同じ取得をもう一度送ると、200になる", func(t *testing.T) {
-					env := buildEnvAfterUnavailableListing(t)
-					env.UseOpenPool(t)
+				t.Run("データベースを使えるようになってから同じ取得をもう一度送ると", func(t *testing.T) {
+					t.Run("200になる", func(t *testing.T) {
+						env := buildEnvAfterUnavailableListing(t)
+						env.UseOpenPool(t)
 
-					response := env.ListProducts(routertest.PlayerOne)
+						response := env.ListProducts(routertest.PlayerOne)
 
-					assert.Equal(t, http.StatusOK, response.Status)
-				})
+						assert.Equal(t, http.StatusOK, response.Status)
+					})
 
-				t.Run("データベースを使えるようになってから同じ取得をもう一度送ると、productsに販売中の商品が入る", func(t *testing.T) {
-					env := buildEnvAfterUnavailableListing(t)
-					env.UseOpenPool(t)
+					t.Run("productsに販売中の商品が入る", func(t *testing.T) {
+						env := buildEnvAfterUnavailableListing(t)
+						env.UseOpenPool(t)
 
-					response := env.ListProducts(routertest.PlayerOne)
+						response := env.ListProducts(routertest.PlayerOne)
 
-					assert.Equal(t, []string{"TST-PRODUCT-ITEM-1"}, routertest.ExtractProductIDs(response.Products(t)))
+						assert.Equal(t, []string{"TST-PRODUCT-ITEM-1"}, routertest.ExtractProductIDs(response.Products(t)))
+					})
 				})
 			})
 		})

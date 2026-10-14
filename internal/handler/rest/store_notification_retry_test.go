@@ -40,7 +40,7 @@ var (
 		},
 	}
 	appleSubscriptionMissing = undeliverableNotification{
-		given: "Apple通知に対応するサブスクリプションが無く200にしたとき", causeLabel: "サブスクリプションが無いことを示す語",
+		given: "Apple通知に対応する契約が無く200にしたとき", causeLabel: "契約が無いことを示す語",
 		wantSource: "apple", wantMessage: "subscription not found",
 		send: func(t *testing.T, env *routertest.Env) routertest.Response {
 			env.RegisterAppleRenewal(t, routertest.FarFutureExpiry)
@@ -62,7 +62,7 @@ var (
 		},
 	}
 	googleSubscriptionMissing = undeliverableNotification{
-		given: "GooglePlay通知に対応するサブスクリプションが無く200にしたとき", causeLabel: "サブスクリプションが無いことを示す語",
+		given: "GooglePlay通知に対応する契約が無く200にしたとき", causeLabel: "契約が無いことを示す語",
 		wantSource: "google", wantMessage: "subscription not found",
 		send: func(t *testing.T, env *routertest.Env) routertest.Response {
 			return env.PostGoogleWebhook(t, routertest.BuildGoogleRenewalData(t, "TST-GOOGLE-TOKEN-1"))
@@ -87,7 +87,7 @@ func TestStoreNotificationRetryDecision(t *testing.T) {
 					tests := []deterministicFailure{
 						{name: "通知本文の署名を検証できないとき、200になる", notification: appleSignatureUnverifiable},
 						{name: "通知本文の署名は検証できるが、通知内の取引情報を検証できないとき、200になる", notification: appleTransactionUnverifiable},
-						{name: "通知に対応するサブスクリプションが無いとき、200になる", notification: appleSubscriptionMissing},
+						{name: "通知に対応する契約が無いとき、200になる", notification: appleSubscriptionMissing},
 					}
 					for _, tt := range tests {
 						t.Run(tt.name, func(t *testing.T) {
@@ -104,7 +104,7 @@ func TestStoreNotificationRetryDecision(t *testing.T) {
 					tests := []deterministicFailure{
 						{name: "message.dataがbase64として読めないとき、200になる", notification: googleDataNotBase64},
 						{name: "message.dataのbase64を戻した内容がJSONとして読めないとき、200になる", notification: googleDataNotJSON},
-						{name: "通知に対応するサブスクリプションが無いとき、200になる", notification: googleSubscriptionMissing},
+						{name: "通知に対応する契約が無いとき、200になる", notification: googleSubscriptionMissing},
 					}
 					for _, tt := range tests {
 						t.Run(tt.name, func(t *testing.T) {
@@ -117,40 +117,48 @@ func TestStoreNotificationRetryDecision(t *testing.T) {
 					}
 				})
 
-				t.Run("200にするときのログのレベルと通知元", func(t *testing.T) {
-					notifications := []undeliverableNotification{appleSignatureUnverifiable, googleDataNotBase64}
+				t.Run("200にするときのログ", func(t *testing.T) {
+					fullyDescribed := []undeliverableNotification{appleSignatureUnverifiable, googleDataNotBase64}
+					for _, tt := range fullyDescribed {
+						t.Run(tt.given, func(t *testing.T) {
+							t.Run("ログのレベルがWarnのログが1件出る", func(t *testing.T) {
+								logs := logtest.Capture(t)
+								env := routertest.BuildEnv(t, pg)
 
-					for _, tt := range notifications {
-						t.Run(tt.given+"、ログのレベルがWarnのログが1件出る", func(t *testing.T) {
-							logs := logtest.Capture(t)
-							env := routertest.BuildEnv(t, pg)
+								tt.send(t, env)
 
-							tt.send(t, env)
+								assert.Len(t, selectWarnLogs(logs), 1)
+							})
 
-							assert.Len(t, selectWarnLogs(logs), 1)
+							t.Run("ログの通知元が"+tt.wantSource+"になる", func(t *testing.T) {
+								logs := logtest.Capture(t)
+								env := routertest.BuildEnv(t, pg)
+
+								tt.send(t, env)
+
+								records := selectWarnLogs(logs)
+								require.Len(t, records, 1)
+								assert.Equal(t, tt.wantSource, records[0].String("source"))
+							})
+
+							t.Run("ログのerrorに"+tt.causeLabel+"が含まれる", func(t *testing.T) {
+								logs := logtest.Capture(t)
+								env := routertest.BuildEnv(t, pg)
+
+								tt.send(t, env)
+
+								records := selectWarnLogs(logs)
+								require.Len(t, records, 1)
+								assert.Contains(t, records[0].String("error"), tt.wantMessage)
+							})
 						})
 					}
 
-					for _, tt := range notifications {
-						t.Run(tt.given+"、ログの通知元が"+tt.wantSource+"になる", func(t *testing.T) {
-							logs := logtest.Capture(t)
-							env := routertest.BuildEnv(t, pg)
-
-							tt.send(t, env)
-
-							records := selectWarnLogs(logs)
-							require.Len(t, records, 1)
-							assert.Equal(t, tt.wantSource, records[0].String("source"))
-						})
+					causeOnly := []undeliverableNotification{
+						appleTransactionUnverifiable, appleSubscriptionMissing,
+						googleDataNotJSON, googleSubscriptionMissing,
 					}
-				})
-
-				t.Run("200にするときのログに含まれる原因", func(t *testing.T) {
-					causes := []undeliverableNotification{
-						appleSignatureUnverifiable, appleTransactionUnverifiable, appleSubscriptionMissing,
-						googleDataNotBase64, googleDataNotJSON, googleSubscriptionMissing,
-					}
-					for _, tt := range causes {
+					for _, tt := range causeOnly {
 						t.Run(tt.given+"、ログのerrorに"+tt.causeLabel+"が含まれる", func(t *testing.T) {
 							logs := logtest.Capture(t)
 							env := routertest.BuildEnv(t, pg)
@@ -177,77 +185,140 @@ func TestStoreNotificationRetryDecision(t *testing.T) {
 					env.UseClosedPool(t)
 					return env.PostGoogleWebhook(t, routertest.BuildGoogleRenewalData(t, "TST-GOOGLE-TOKEN-1"))
 				}
-				sendGoogleWhileExpiryUnavailable := func(t *testing.T) routertest.Response {
+				sendGoogleWhileSubscriptionUnavailable := func(t *testing.T) routertest.Response {
 					env := routertest.BuildEnv(t, pg)
 					env.CreateExpiredGoogleSubscription(t)
-					env.GoogleExpiry.FailWith(errors.New("TST-PLAY-FAILURE"))
+					env.GoogleSub.FailWith(errors.New("TST-PLAY-FAILURE"))
 					return env.PostGoogleWebhook(t, routertest.BuildGoogleRenewalData(t, "TST-GOOGLE-TOKEN-1"))
 				}
 
-				t.Run("Apple通知の受信中にデータベースを使えないとき、500になる", func(t *testing.T) {
-					response := sendAppleWhileDatabaseUnavailable(t)
+				type retriableFailure struct {
+					name string
+					send func(t *testing.T) routertest.Response
+				}
 
-					assert.Equal(t, http.StatusInternalServerError, response.Status)
-				})
+				statusTests := []retriableFailure{
+					{name: "Apple通知の受信中にデータベースを使えないとき、500になる", send: sendAppleWhileDatabaseUnavailable},
+					{name: "GooglePlay通知の受信中にデータベースを使えないとき、500になる", send: sendGoogleWhileDatabaseUnavailable},
+					{name: "GooglePlay通知の更新通知で、GooglePlayから購読情報を取得できないとき、500になる", send: sendGoogleWhileSubscriptionUnavailable},
+				}
+				for _, tt := range statusTests {
+					t.Run(tt.name, func(t *testing.T) {
+						response := tt.send(t)
 
-				t.Run("GooglePlay通知の受信中にデータベースを使えないとき、500になる", func(t *testing.T) {
-					response := sendGoogleWhileDatabaseUnavailable(t)
+						assert.Equal(t, http.StatusInternalServerError, response.Status)
+					})
+				}
 
-					assert.Equal(t, http.StatusInternalServerError, response.Status)
-				})
+				searchFailureTests := []retriableFailure{
+					{name: "Apple通知の受信中にデータベースを使えないとき、errorに契約の検索に失敗したことを示す語が含まれる", send: sendAppleWhileDatabaseUnavailable},
+					{name: "GooglePlay通知の受信中にデータベースを使えないとき、errorに契約の検索に失敗したことを示す語が含まれる", send: sendGoogleWhileDatabaseUnavailable},
+				}
+				for _, tt := range searchFailureTests {
+					t.Run(tt.name, func(t *testing.T) {
+						response := tt.send(t)
 
-				t.Run("GooglePlay通知の更新通知で、GooglePlayから有効期限を取得できないとき、500になる", func(t *testing.T) {
-					response := sendGoogleWhileExpiryUnavailable(t)
+						assert.Contains(t, response.ErrorMessage(t), "find subscription")
+					})
+				}
 
-					assert.Equal(t, http.StatusInternalServerError, response.Status)
-				})
-
-				t.Run("Apple通知の受信中にデータベースを使えないとき、errorにサブスクリプションの検索に失敗したことを示す語が含まれる", func(t *testing.T) {
-					response := sendAppleWhileDatabaseUnavailable(t)
-
-					assert.Contains(t, response.ErrorMessage(t), "find subscription")
-				})
-
-				t.Run("GooglePlay通知の受信中にデータベースを使えないとき、errorにサブスクリプションの検索に失敗したことを示す語が含まれる", func(t *testing.T) {
-					response := sendGoogleWhileDatabaseUnavailable(t)
-
-					assert.Contains(t, response.ErrorMessage(t), "find subscription")
-				})
-
-				t.Run("GooglePlay通知の更新通知で、GooglePlayから有効期限を取得できないとき、errorに有効期限の取得に失敗したことを示す語が含まれる", func(t *testing.T) {
-					response := sendGoogleWhileExpiryUnavailable(t)
+				t.Run("GooglePlay通知の更新通知で、GooglePlayから購読情報を取得できないとき、errorに購読情報の取得に失敗したことを示す語が含まれる", func(t *testing.T) {
+					response := sendGoogleWhileSubscriptionUnavailable(t)
 
 					assert.Contains(t, response.ErrorMessage(t), "get subscription expiry from Google")
 				})
 			})
 
-			t.Run("データベースを使えず500になった後", func(t *testing.T) {
-				buildEnvAfterAppleDatabaseFailure := func(t *testing.T) *routertest.Env {
-					env := routertest.BuildEnv(t, pg)
-					env.CreateExpiredAppleSubscription(t)
-					env.RegisterAppleRenewal(t, routertest.FarFutureExpiry)
-					env.UseClosedPool(t)
-					env.PostAppleWebhook(t, "TST-SIGNED-PAYLOAD")
-					return env
-				}
+			t.Run("再送しても結果が変わらない失敗で200になった後", func(t *testing.T) {
+				t.Run("有効期限が過去の契約に、Apple通知の本文の署名を検証できず200になった後", func(t *testing.T) {
+					buildEnvAfterAppleSignatureFailure := func(t *testing.T) *routertest.Env {
+						env := routertest.BuildEnv(t, pg)
+						env.CreateExpiredAppleSubscription(t)
+						env.RegisterAppleRenewal(t, routertest.FarFutureExpiry)
+						env.PostAppleWebhook(t, "TST-UNVERIFIABLE-PAYLOAD")
+						return env
+					}
 
-				t.Run("データベースを使えるようになってから同じApple通知をもう一度送ると、200になる", func(t *testing.T) {
-					env := buildEnvAfterAppleDatabaseFailure(t)
-					env.UseOpenPool(t)
+					t.Run("通知種別がDID_RENEWで有効期限が2999-12-31T00:00:00ZのApple通知を送ると", func(t *testing.T) {
+						t.Run("200になる", func(t *testing.T) {
+							env := buildEnvAfterAppleSignatureFailure(t)
 
-					response := env.PostAppleWebhook(t, "TST-SIGNED-PAYLOAD")
+							response := env.PostAppleWebhook(t, "TST-SIGNED-PAYLOAD")
 
-					assert.Equal(t, http.StatusOK, response.Status)
+							assert.Equal(t, http.StatusOK, response.Status)
+						})
+
+						t.Run("商品一覧でサブスクリプション商品のis_ownedがtrueになる", func(t *testing.T) {
+							env := buildEnvAfterAppleSignatureFailure(t)
+							env.PostAppleWebhook(t, "TST-SIGNED-PAYLOAD")
+
+							response := env.ListProducts(routertest.PlayerOne)
+
+							assert.True(t, response.Product(t, "TST-PRODUCT-SUB-1").IsOwned)
+						})
+					})
 				})
 
-				t.Run("データベースを使えるようになってから同じApple通知をもう一度送ると、商品一覧でサブスクリプション商品のis_ownedがtrueになる", func(t *testing.T) {
-					env := buildEnvAfterAppleDatabaseFailure(t)
-					env.UseOpenPool(t)
-					env.PostAppleWebhook(t, "TST-SIGNED-PAYLOAD")
+				t.Run("有効期限が過去の契約に、GooglePlay通知のmessage.dataがbase64として読めず200になった後", func(t *testing.T) {
+					buildEnvAfterGoogleDataFailure := func(t *testing.T) *routertest.Env {
+						env := routertest.BuildEnv(t, pg)
+						env.CreateExpiredGoogleSubscription(t)
+						env.PostGoogleWebhook(t, "!!!TST-NOT-BASE64!!!")
+						return env
+					}
 
-					response := env.ListProducts(routertest.PlayerOne)
+					t.Run("GooglePlayが返す購読の状態がACTIVEで有効期限が2999-12-31T00:00:00Zの更新通知を送ると", func(t *testing.T) {
+						t.Run("200になる", func(t *testing.T) {
+							env := buildEnvAfterGoogleDataFailure(t)
 
-					assert.True(t, response.Product(t, "TST-PRODUCT-SUB-1").IsOwned)
+							response := env.PostGoogleWebhook(t, routertest.BuildGoogleRenewalData(t, "TST-GOOGLE-TOKEN-1"))
+
+							assert.Equal(t, http.StatusOK, response.Status)
+						})
+
+						t.Run("商品一覧でサブスクリプション商品のis_ownedがtrueになる", func(t *testing.T) {
+							env := buildEnvAfterGoogleDataFailure(t)
+							env.PostGoogleWebhook(t, routertest.BuildGoogleRenewalData(t, "TST-GOOGLE-TOKEN-1"))
+
+							response := env.ListProducts(routertest.PlayerOne)
+
+							assert.True(t, response.Product(t, "TST-PRODUCT-SUB-1").IsOwned)
+						})
+					})
+				})
+			})
+
+			t.Run("データベースを使えず500になった後", func(t *testing.T) {
+				t.Run("有効期限が過去の契約に、通知種別がDID_RENEWで有効期限が2999-12-31T00:00:00ZのApple通知が、データベースを使えず500になった後", func(t *testing.T) {
+					buildEnvAfterAppleDatabaseFailure := func(t *testing.T) *routertest.Env {
+						env := routertest.BuildEnv(t, pg)
+						env.CreateExpiredAppleSubscription(t)
+						env.RegisterAppleRenewal(t, routertest.FarFutureExpiry)
+						env.UseClosedPool(t)
+						env.PostAppleWebhook(t, "TST-SIGNED-PAYLOAD")
+						return env
+					}
+
+					t.Run("データベースを使えるようになってから、通知種別がDID_RENEWで有効期限が2999-12-31T00:00:00ZのApple通知をもう一度送ると", func(t *testing.T) {
+						t.Run("200になる", func(t *testing.T) {
+							env := buildEnvAfterAppleDatabaseFailure(t)
+							env.UseOpenPool(t)
+
+							response := env.PostAppleWebhook(t, "TST-SIGNED-PAYLOAD")
+
+							assert.Equal(t, http.StatusOK, response.Status)
+						})
+
+						t.Run("商品一覧でサブスクリプション商品のis_ownedがtrueになる", func(t *testing.T) {
+							env := buildEnvAfterAppleDatabaseFailure(t)
+							env.UseOpenPool(t)
+							env.PostAppleWebhook(t, "TST-SIGNED-PAYLOAD")
+
+							response := env.ListProducts(routertest.PlayerOne)
+
+							assert.True(t, response.Product(t, "TST-PRODUCT-SUB-1").IsOwned)
+						})
+					})
 				})
 			})
 		})

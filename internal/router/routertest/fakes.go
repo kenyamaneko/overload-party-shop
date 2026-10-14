@@ -138,7 +138,7 @@ func NewReceiptVerifier() *ReceiptVerifier {
 		subscriptionValid:  true,
 		subscriptionExpiry: FarFutureExpiry,
 	}
-	v.mock.VerifyPurchaseFn = func(context.Context, string) (*port.VerifyResult, error) {
+	v.mock.VerifyPurchaseFn = func(context.Context, string, string) (*port.VerifyResult, error) {
 		v.mu.Lock()
 		defer v.mu.Unlock()
 		return &port.VerifyResult{IsValid: v.purchaseValid, ProductID: verifiedProductID}, v.purchaseErr
@@ -230,30 +230,4 @@ func (v *AppleJWSVerifier) verify(signed string) ([]byte, error) {
 		return nil, errUnregisteredSignature
 	}
 	return payload, nil
-}
-
-// GoogleExpiryFetcher は決まった有効期限を返す GooglePlay の有効期限取得の偽物。
-type GoogleExpiryFetcher struct {
-	mu     sync.Mutex
-	expiry time.Time
-	err    error
-}
-
-// NewGoogleExpiryFetcher は有効期限 expiry を返す偽物を返す。
-func NewGoogleExpiryFetcher(expiry time.Time) *GoogleExpiryFetcher {
-	return &GoogleExpiryFetcher{expiry: expiry}
-}
-
-// FailWith は以降の有効期限の取得を err で失敗させる。
-func (f *GoogleExpiryFetcher) FailWith(err error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.err = err
-}
-
-// GetSubscriptionExpiry は設定された結果を返す。
-func (f *GoogleExpiryFetcher) GetSubscriptionExpiry(context.Context, string) (time.Time, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.expiry, f.err
 }
