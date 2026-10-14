@@ -181,23 +181,23 @@ func TestFromEnvStoreSecrets(t *testing.T) {
 						missing string
 					}{
 						{
-							name:    "秘密情報shop-apple-key-idが登録されていないとき、shop-apple-key-idを含むエラーになる",
+							name:    "秘密情報shop-apple-key-idのとき、shop-apple-key-idを含むエラーになる",
 							missing: "shop-apple-key-id",
 						},
 						{
-							name:    "秘密情報shop-apple-issuer-idが登録されていないとき、shop-apple-issuer-idを含むエラーになる",
+							name:    "秘密情報shop-apple-issuer-idのとき、shop-apple-issuer-idを含むエラーになる",
 							missing: "shop-apple-issuer-id",
 						},
 						{
-							name:    "秘密情報shop-apple-bundle-idが登録されていないとき、shop-apple-bundle-idを含むエラーになる",
+							name:    "秘密情報shop-apple-bundle-idのとき、shop-apple-bundle-idを含むエラーになる",
 							missing: "shop-apple-bundle-id",
 						},
 						{
-							name:    "秘密情報shop-google-package-nameが登録されていないとき、shop-google-package-nameを含むエラーになる",
+							name:    "秘密情報shop-google-package-nameのとき、shop-google-package-nameを含むエラーになる",
 							missing: "shop-google-package-name",
 						},
 						{
-							name:    "秘密情報shop-apple-private-keyが登録されていないとき、shop-apple-private-keyを含むエラーになる",
+							name:    "秘密情報shop-apple-private-keyのとき、shop-apple-private-keyを含むエラーになる",
 							missing: "shop-apple-private-key",
 						},
 					}
@@ -214,23 +214,23 @@ func TestFromEnvStoreSecrets(t *testing.T) {
 						missing string
 					}{
 						{
-							name:    "秘密情報shop-apple-key-idが登録されていないとき、エラーの原因が未登録になる",
+							name:    "秘密情報shop-apple-key-idのとき、エラーの原因が未登録になる",
 							missing: "shop-apple-key-id",
 						},
 						{
-							name:    "秘密情報shop-apple-issuer-idが登録されていないとき、エラーの原因が未登録になる",
+							name:    "秘密情報shop-apple-issuer-idのとき、エラーの原因が未登録になる",
 							missing: "shop-apple-issuer-id",
 						},
 						{
-							name:    "秘密情報shop-apple-bundle-idが登録されていないとき、エラーの原因が未登録になる",
+							name:    "秘密情報shop-apple-bundle-idのとき、エラーの原因が未登録になる",
 							missing: "shop-apple-bundle-id",
 						},
 						{
-							name:    "秘密情報shop-google-package-nameが登録されていないとき、エラーの原因が未登録になる",
+							name:    "秘密情報shop-google-package-nameのとき、エラーの原因が未登録になる",
 							missing: "shop-google-package-name",
 						},
 						{
-							name:    "秘密情報shop-apple-private-keyが登録されていないとき、エラーの原因が未登録になる",
+							name:    "秘密情報shop-apple-private-keyのとき、エラーの原因が未登録になる",
 							missing: "shop-apple-private-key",
 						},
 					}
@@ -245,7 +245,7 @@ func TestFromEnvStoreSecrets(t *testing.T) {
 					}
 				})
 
-				t.Run("秘密情報が登録されていないために失敗した後、登録されていなかった秘密情報を登録してから再度読み込むと、エラーにならない", func(t *testing.T) {
+				t.Run("秘密情報shop-apple-key-idが登録されていないために読み込みが失敗した後、shop-apple-key-idを登録してから再度読み込むと、AppleのキーIDがTST-KEY-IDになる", func(t *testing.T) {
 					registerSecrets(t, client, project, withoutSecret(secrets, secretAppleKeyID))
 					configtest.SetEnv(t, buildEnv(nil))
 					_, err := config.FromEnv()

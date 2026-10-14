@@ -35,7 +35,7 @@ func loadSchemaEnumValues(t *testing.T, schemaName string) []string {
 }
 
 func TestAPIContractEnumValues(t *testing.T) {
-	t.Run("[API契約]商品種別とクライアント実行環境の値の整合", func(t *testing.T) {
+	t.Run("[API契約]商品種別とプラットフォームの値の整合", func(t *testing.T) {
 		t.Run("正常系", func(t *testing.T) {
 			cases := []struct {
 				name       string
@@ -43,7 +43,7 @@ func TestAPIContractEnumValues(t *testing.T) {
 				handled    []string
 			}{
 				{
-					name:       "アプリが扱う商品種別の値の集合は、openapi.yamlのProductTypeの列挙値の集合と過不足なく一致する",
+					name:       "shopが扱う商品種別の値の集合(faction_set・card_pack・cosmetic・subscription)は、API契約が定める商品種別の値の集合と過不足なく一致する",
 					schemaName: "ProductType",
 					handled: []string{
 						domain.ProductTypeFactionSet,
@@ -53,7 +53,7 @@ func TestAPIContractEnumValues(t *testing.T) {
 					},
 				},
 				{
-					name:       "アプリが扱うクライアント実行環境の値の集合は、openapi.yamlのPlatformの列挙値の集合と過不足なく一致する",
+					name:       "shopが扱うプラットフォームの値の集合(ios・android)は、API契約が定めるプラットフォームの値の集合と過不足なく一致する",
 					schemaName: "Platform",
 					handled: []string{
 						domain.PlatformIOS,
